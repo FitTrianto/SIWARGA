@@ -1,0 +1,1184 @@
+// =============================================================================
+// SIWARGA — Skema Database (Prisma)
+// Acuan: `01. Planning/SIWARGA-Desain-DB-API-v1.md` §3.1–§3.8, PRD v2.4
+// Prinsip: skema mengikuti PRD — BUKAN mengikuti mock `apps/web/src/lib/shared.ts`
+//
+// Konvensi (§1.1 dokumen desain):
+//   • Tabel & kolom snake_case di DB  → model PascalCase / field camelCase + @map
+//   • Primary key UUID v4 di SEMUA entitas
+//   • Setiap entitas operasional punya `rt_id` ATAU `rw_id` (scope) — tidak ada
+//     baris tanpa scope. Kolom polimorfik (scope_id, actor_id, created_by,
+//     disetujui_oleh) sengaja TIDAK dibuat relasi Prisma karena targetnya >1
+//     model; integritasnya dijaga oleh cek scope eksplisit aplikasi + RLS.
+//   • NIK TIDAK PERNAH plaintext: `nik_encrypted` (AES-256-GCM, §14/B17) +
+//     `nik_masked` untuk tampilan.
+//   • Buku kas & audit_log APPEND-ONLY (trigger di migration SQL).
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7: URL koneksi & perintah migrasi didefinisikan di `prisma.config.ts`,
+// bukan lagi di sini (lihat prisma.config.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// §3.1 Wilayah & Tenant
+// =============================================================================
+
+enum RtStatus {
+  aktif
+  uji_coba
+  nonaktif
+  menunggu_pembayaran
+}
+
+enum JabatanPengurus {
+  ketua
+  sekretaris
+  bendahara
+  pengurus
+}
+
+enum StatusPengurus {
+  active
+  revoked
+}
+
+enum ModeAlokasi {
+  gabungan
+  terpisah
+}
+
+model Kecamatan {
+  id     String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Permendagri 137/2017 — 10 digit
+  kode   String  @db.VarChar(10)
+  nama   String  @db.VarChar(120)
+
+  kelurahan Kelurahan[]
+
+  // kode Permendagri unik — dipakai sebagai kunci upsert data wilayah
+  @@unique([kode])
+  @@map("kecamatan")
+}
+
+model Kelurahan {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kecamatanId    String  @map("kecamatan_id") @db.Uuid
+  kodeKemendagri String  @map("kode_kemendagri") @db.VarChar(10)
+  nama           String  @db.VarChar(120)
+
+  kecamatan Kecamatan @relation(fields: [kecamatanId], references: [id])
+  rws       Rw[]
+  rts       Rt[]
+
+  @@unique([kecamatanId, kodeKemendagri])
+  @@map("kelurahan")
+}
+
+model Rw {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kelurahanId String   @map("kelurahan_id") @db.Uuid
+  kodeRw      String   @map("kode_rw") @db.VarChar(3)
+  namaKetua   String?  @map("nama_ketua") @db.VarChar(120)
+  noHpKetua   String?  @map("no_hp_ketua") @db.VarChar(20)
+  alamat      String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  kelurahan    Kelurahan       @relation(fields: [kelurahanId], references: [id])
+  rts          Rt[]
+  pengurusList PengurusRw[]
+  pengaturan   PengaturanRw?
+  akunPengurus PenggunaPengurus[]
+  permintaanAksesList PermintaanAksesDetail[]
+
+  @@unique([kelurahanId, kodeRw])
+  @@map("rw")
+}
+
+model Rt {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rwId         String    @map("rw_id") @db.Uuid
+  kodeRt       String    @map("kode_rt") @db.VarChar(3)
+  // 10 digit Kemendagri
+  kodeWilayah  String    @map("kode_wilayah") @db.VarChar(10)
+  perumahan    String?   @map("perumahan") @db.VarChar(120)
+  alamat       String?
+  kelurahanId  String    @map("kelurahan_id") @db.Uuid
+  // FK ke pengurus_rt — sirkular (pengurus_rt.rt_id), dideklarasikan dua arah.
+  // @unique: satu pengurus menjabat ketua paling banyak satu RT (syarat 1:1 Prisma).
+  ketuaRtId    String?   @unique @map("ketua_rt_id") @db.Uuid
+  status       RtStatus  @default(menunggu_pembayaran)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rw        Rw         @relation(fields: [rwId], references: [id])
+  kelurahan Kelurahan  @relation(fields: [kelurahanId], references: [id])
+  ketuaRt   PengurusRt? @relation("RtKetua", fields: [ketuaRtId], references: [id])
+
+  pengurusList     PengurusRt[]
+  pengaturan       PengaturanRt?
+  rumahList        Rumah[]
+  kartuKeluargaList KartuKeluarga[]
+  wargaList        Warga[]
+  kategoriIuran    KategoriIuran[]
+  tagihanList      Tagihan[]
+  pembayaranList   Pembayaran[]
+  alokasiList      AlokasiPembayaran[]
+  mutasiList       MutasiSaldoWarga[]
+  keringananList   Keringanan[]
+  jenisSuratList   JenisSurat[]
+  suratList        Surat[]
+  permintaanAkses  PermintaanAksesDetail[]
+  langganan        Langganan?
+  imporList        ImporData[]
+  perubahanList    PerubahanDataWarga[]
+  tokenUndanganList TokenUndangan[]
+  akunPengurus     PenggunaPengurus[]
+
+  @@unique([rwId, kodeRt])
+  @@index([kodeWilayah])
+  @@map("rt")
+}
+
+model PengurusRt {
+  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId         String          @map("rt_id") @db.Uuid
+  nama         String          @db.VarChar(120)
+  jabatan      JabatanPengurus @default(pengurus)
+  email        String          @db.VarChar(160)
+  noHp         String?         @map("no_hp") @db.VarChar(20)
+  avatarUrl    String?         @map("avatar_url") @db.VarChar(512)
+  ttdDigitalUrl String?        @map("ttd_digital_url") @db.VarChar(512)
+  // §6.9 B27 — surat tanda tangan pengurus
+  skPengurusUrl String?        @map("sk_pengurus_url") @db.VarChar(512)
+  status       StatusPengurus  @default(active)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rt         Rt  @relation(fields: [rtId], references: [id])
+  rtKetuaDari Rt? @relation("RtKetua")
+
+  @@unique([rtId, email])
+  @@map("pengurus_rt")
+}
+
+model PengurusRw {
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rwId      String          @map("rw_id") @db.Uuid
+  nama      String          @db.VarChar(120)
+  jabatan   JabatanPengurus @default(pengurus)
+  email     String          @db.VarChar(160)
+  noHp      String?         @map("no_hp") @db.VarChar(20)
+  status    StatusPengurus  @default(active)
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rw Rw @relation(fields: [rwId], references: [id])
+
+  @@unique([rwId, email])
+  @@map("pengurus_rw")
+}
+
+model PengaturanRt {
+  rtId                String      @id @map("rt_id") @db.Uuid
+  bannerUrl           String?     @map("banner_url") @db.VarChar(512)
+  stempelUrl          String?     @map("stempel_url") @db.VarChar(512)
+  kopSuratUrl         String?     @map("kop_surat_url") @db.VarChar(512)
+  // §6.4.5 — gabungan (default) | terpisah
+  modeAlokasi         ModeAlokasi @default(gabungan) @map("mode_alokasi")
+  // §6.4.3 — tenggat iuran per bulan
+  tenggatHari         Int         @default(10) @map("tenggat_hari")
+  dendaAktif          Boolean     @default(false) @map("denda_aktif")
+  notifikasiWaEnabled Boolean     @default(true) @map("notifikasi_wa_enabled")
+  modePemeliharaan    Boolean     @default(false) @map("mode_pemeliharaan")
+  // §6.5 — ambang approval pengeluaran kas
+  ambangApprovalKas   Decimal     @default(500000) @db.Decimal(14, 2) @map("ambang_approval_kas")
+  // field dinamis per jenis surat
+  templateSurat       Json?       @map("template_surat")
+
+  rt Rt @relation(fields: [rtId], references: [id], onDelete: Cascade)
+
+  @@map("pengaturan_rt")
+}
+
+model PengaturanRw {
+  rwId                String  @id @map("rw_id") @db.Uuid
+  notifikasiWaEnabled Boolean @default(true) @map("notifikasi_wa_enabled")
+  pengaturanLain      Json?   @map("pengaturan_lain")
+
+  rw Rw @relation(fields: [rwId], references: [id], onDelete: Cascade)
+
+  @@map("pengaturan_rw")
+}
+
+// =============================================================================
+// §3.2 Hunian, KK & Warga
+// =============================================================================
+
+enum StatusHuni {
+  milik
+  sewa
+  kontrak
+  kos
+}
+
+enum HubunganKk {
+  kepala
+  istri
+  anak
+  lainnya
+}
+
+enum JenisKelamin {
+  laki_laki
+  perempuan
+}
+
+enum StatusDemografis {
+  aktif
+  pindah
+  meninggal
+  nonaktif
+}
+
+// §6.3 (B4) — TERPISAH dari status demografis
+enum StatusAkses {
+  belum_diundang
+  menunggu_aktivasi
+  kedaluwarsa
+  aktif
+  dinonaktifkan
+}
+
+enum JenisPerubahan {
+  perubahan_kk
+  tambah_anggota
+  kontak
+  sensitif
+}
+
+enum StatusVerifikasi {
+  menunggu
+  disetujui
+  ditolak
+}
+
+model Rumah {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId          String     @map("rt_id") @db.Uuid
+  kodeRumah     String     @map("kode_rumah") @db.VarChar(20)
+  alamat        String     @db.VarChar(160)
+  alamatPendek  String     @map("alamat_pendek") @db.VarChar(40)
+  // FK ke kartu_keluarga (KK pemilik/tertaftar di rumah ini)
+  kkId          String?    @map("kk_id") @db.Uuid
+  // §6.4.1 — dasar tagihan per-unit
+  unitKendaraanR4 Int      @default(1) @map("unit_kendaraan_r4")
+  statusHuni    StatusHuni @default(milik) @map("status_huni")
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rt        Rt           @relation(fields: [rtId], references: [id])
+  // arah 1: rumah.kk_id → kartu_keluarga (banyak rumah boleh menunjuk 1 KK)
+  kk        KartuKeluarga? @relation("RumahKeKk", fields: [kkId], references: [id])
+  // arah 2: sisi balik dari kartu_keluarga.rumah_id
+  kkAsal    KartuKeluarga[] @relation("KkKeRumah")
+
+  wargaList Warga[]
+
+  @@unique([rtId, kodeRumah])
+  @@unique([rtId, alamatPendek])
+  @@map("rumah")
+}
+
+model KartuKeluarga {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId           String   @map("rt_id") @db.Uuid
+  noKk           String   @map("no_kk") @db.VarChar(20)
+  kepalaKeluarga String   @map("kepala_keluarga") @db.VarChar(120)
+  alamat         String   @db.VarChar(160)
+  jumlahAnggota  Int      @default(0) @map("jumlah_anggota")
+  rumahId        String?  @map("rumah_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rt   Rt    @relation(fields: [rtId], references: [id])
+  // arah 2: kartu_keluarga.rumah_id → rumah
+  rumah Rumah? @relation("KkKeRumah", fields: [rumahId], references: [id])
+  // arah 1: sisi balik dari rumah.kk_id
+  rumahPemilik Rumah[] @relation("RumahKeKk")
+
+  anggotaList Warga[]
+
+  // 1 alamat boleh > 1 KK (keputusan desain: NIK unik, No.KK tidak)
+  @@unique([rtId, noKk])
+  @@map("kartu_keluarga")
+}
+
+model Warga {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId         String            @map("rt_id") @db.Uuid
+  kkId         String            @map("kk_id") @db.Uuid
+  rumahId      String?           @map("rumah_id") @db.Uuid
+  nama         String            @db.VarChar(120)
+  hubungan     HubunganKk        @default(lainnya)
+  // §14 / B17 — NIK TIDAK PERNAH plaintext
+  nikEncrypted Bytes?            @map("nik_encrypted")
+  nikMasked    String?           @map("nik_masked") @db.VarChar(20)
+  // basis undangan & login warga
+  noHp         String?           @map("no_hp") @db.VarChar(20)
+  email        String?           @db.VarChar(160)
+  tanggalLahir DateTime?         @map("tanggal_lahir") @db.Date
+  jenisKelamin JenisKelamin?
+  pekerjaan    String?           @db.VarChar(80)
+  fotoUrl      String?           @map("foto_url") @db.VarChar(512)
+  agama        String?           @db.VarChar(40)
+  // ---------------------------------------------------------------------------
+  // Detail KK sesuai form "Edit Data Warga" di Portal RT (§3.2 diperluas).
+  // Enam kolom ini wajib ada agar isian pengurus RT benar-benar tersimpan —
+  // tanpanya edit form hanya berhenti di state in-memory frontend.
+  // Nilai dikendalikan oleh opsi di FE, divalidasi lewat CHECK di migrasi.
+  // ---------------------------------------------------------------------------
+  tempatLahir       String?   @map("tempat_lahir") @db.VarChar(80)
+  pendidikan        String?   @db.VarChar(60)
+  golDarah          String?   @map("gol_darah") @db.VarChar(5)
+  statusKawin       String?   @map("status_kawin") @db.VarChar(40)
+  tanggalPerkawinan DateTime? @map("tanggal_perkawinan") @db.Date
+  wargaNegara       String?   @map("warga_negara") @db.VarChar(20)
+  // TERPISAH dari status_akses
+  statusDemografis StatusDemografis @default(aktif) @map("status_demografis")
+  // §6.3 (B4) — keputusan akses ada di sini, bukan di status_demografis
+  statusAkses  StatusAkses       @default(belum_diundang) @map("status_akses")
+  // flag teknis; keputusan akses = status_akses
+  isActive     Boolean           @default(true) @map("is_active")
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rt         Rt           @relation(fields: [rtId], references: [id])
+  kk         KartuKeluarga @relation(fields: [kkId], references: [id])
+  rumah      Rumah?        @relation(fields: [rumahId], references: [id])
+
+  kredensial      KredensialWarga?
+  tokenUndangan   TokenUndangan[]
+  sesiOtp         PercobaanOtp[]
+  tagihanList     Tagihan[]
+  pembayaranList  Pembayaran[]
+  mutasiList      MutasiSaldoWarga[]
+  profilIuranList ProfilIuranWarga[]
+  keringananList  Keringanan[]
+  suratList       Surat[]
+  perubahanList   PerubahanDataWarga[]
+
+  @@unique([rtId, noHp])
+  @@index([rtId, nama])
+  @@index([rtId, statusAkses])
+  @@map("warga")
+}
+
+model PerubahanDataWarga {
+  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId         String          @map("rt_id") @db.Uuid
+  wargaId      String          @map("warga_id") @db.Uuid
+  pengaju      String          @db.VarChar(8) // 'warga' | 'rt'
+  jenis        JenisPerubahan
+  payloadSebelum Json?         @map("payload_sebelum")
+  payloadSesudah  Json?         @map("payload_sesudah")
+  status       StatusVerifikasi @default(menunggu)
+  // polimorfik: pengurus_rt ATAU pengurus_rw
+  verifierId   String?         @map("verifier_pengurus_rt_id") @db.Uuid
+  catatanVerifikasi String?    @map("catatan_verifikasi")
+  diajukanPada DateTime        @default(now()) @map("diajukan_pada") @db.Timestamptz(3)
+  diprosesPada DateTime?       @map("diproses_pada") @db.Timestamptz(3)
+
+  rt    Rt    @relation(fields: [rtId], references: [id])
+  warga Warga @relation(fields: [wargaId], references: [id])
+
+  @@index([rtId, status])
+  @@map("perubahan_data_warga")
+}
+
+// =============================================================================
+// §3.3 Autentikasi Warga (B1–B6, B15, B17)
+// =============================================================================
+
+enum StatusUndangan {
+  menunggu
+  aktif_dipakai
+  kedaluwarsa
+  dicabut
+}
+
+enum PeranSesi {
+  warga
+  rt_admin
+  rw_admin
+  super_admin
+}
+
+enum StatusOtp {
+  menunggu
+  terpakai
+  gagal
+  diblokir
+}
+
+enum ChannelOtp {
+  whatsapp
+  paid_gateway
+}
+
+enum PeranPengguna {
+  rt_admin
+  rw_admin
+  super_admin
+}
+
+enum StatusAkunPengguna {
+  active
+  disabled
+}
+
+model TokenUndangan {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId      String         @map("rt_id") @db.Uuid
+  wargaId   String         @map("warga_id") @db.Uuid
+  // argon2id dari kode asli — kode TIDAK PERNAH disimpan
+  kodeHash  String         @map("kode_hash") @db.VarChar(255)
+  status    StatusUndangan @default(menunggu)
+  // polimorfik: pengurus_rt
+  dibuatOleh String         @map("dibuat_oleh") @db.Uuid
+  dibuatPada DateTime       @default(now()) @map("dibuat_pada") @db.Timestamptz(3)
+  // §14.1 — +24 jam
+  kedaluwarsaPada DateTime  @map("kedaluwarsa_pada") @db.Timestamptz(3)
+  dipakaiPada     DateTime? @map("dipakai_pada") @db.Timestamptz(3)
+  dicabutOleh     String?   @map("dicabut_oleh") @db.Uuid
+  dicabutPada     DateTime? @map("dicabut_pada") @db.Timestamptz(3)
+  // [{waktu,device_hash,ip}] → deteksi multi-perangkat (B6)
+  percobaanAktivasi Json    @default("[]") @map("percobaan_aktivasi")
+  kirimKeNomor      String? @map("kirim_ke_nomor") @db.VarChar(20)
+
+  rt    Rt    @relation(fields: [rtId], references: [id])
+  warga Warga @relation(fields: [wargaId], references: [id])
+
+  @@index([rtId, status, kedaluwarsaPada])
+  @@index([wargaId, status])
+  @@map("token_undangan")
+}
+
+model KredensialWarga {
+  wargaId          String    @id @map("warga_id") @db.Uuid
+  // §14 — argon2id HASH, bukan enkripsi; tak bisa "dilihat kembali" siapa pun.
+  // (dahulu `pin_hash` — login warga kini memakai kata sandi, keputusan Fase 3)
+  passwordHash     String    @map("password_hash") @db.VarChar(255)
+  dibuatPada       DateTime  @default(now()) @map("dibuat_pada") @db.Timestamptz(3)
+  terakhirDiubahPada DateTime @default(now()) @map("terakhir_diubah_pada") @db.Timestamptz(3)
+  gagalBerturut    Int       @default(0) @map("gagal_berturut")
+  // §5.6/§14.1 — max 3 percobaan
+  dikunciSampai    DateTime? @map("dikunci_sampai") @db.Timestamptz(3)
+
+  warga Warga @relation(fields: [wargaId], references: [id], onDelete: Cascade)
+
+  @@map("kredensial_warga")
+}
+
+model SesiLogin {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Polimorfik: warga_id ATAU pengurus_{rt,rw}_id ATAU admin_id — sisi "atau"
+  // diwakili `subjek_id` + `peran`, kecocokan target divalidasi di aplikasi.
+  subjekId  String     @map("subjek_id") @db.Uuid
+  peran     PeranSesi
+  tokenHash String     @map("token_hash") @db.VarChar(255)
+  refreshHash String    @map("refresh_hash") @db.VarChar(255)
+  dibuatPada      DateTime @default(now()) @map("dibuat_pada") @db.Timestamptz(3)
+  kedaluwarsaPada DateTime @map("kedaluwarsa_pada") @db.Timestamptz(3)
+  terakhirAktif   DateTime @default(now()) @map("terakhir_aktif") @db.Timestamptz(3)
+  infoPerangkat   String?  @map("info_perangkat") @db.VarChar(255)
+  ip              String?  @db.Inet
+  kota            String?  @db.VarChar(80)
+  // logout / auto-logout (B3)
+  dicabutPada     DateTime? @map("dicabut_pada") @db.Timestamptz(3)
+
+  @@unique([tokenHash])
+  @@index([subjekId, peran, dicabutPada])
+  @@index([kedaluwarsaPada])
+  @@map("sesi_login")
+}
+
+model PercobaanOtp {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wargaId    String     @map("warga_id") @db.Uuid
+  tujuan     String     @map("tujuan") @db.VarChar(20)
+  // disimpan TER-HASH (§5.6)
+  kodeHash   String     @map("kode_hash") @db.VarChar(255)
+  dikirimPada DateTime  @default(now()) @map("dikirim_pada") @db.Timestamptz(3)
+  // +5 menit (§5.5)
+  kedaluwarsaPada DateTime @map("kedaluwarsa_pada") @db.Timestamptz(3)
+  jumlahPercobaan Int    @default(0) @map("jumlah_percobaan")
+  max        Int        @default(3)
+  status     StatusOtp  @default(menunggu)
+  channel    ChannelOtp @default(whatsapp)
+
+  warga Warga @relation(fields: [wargaId], references: [id], onDelete: Cascade)
+
+  @@index([wargaId, status])
+  @@map("percobaan_otp")
+}
+
+model PenggunaPengurus {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  peran       PeranPengguna
+  rtId        String?          @map("rt_id") @db.Uuid
+  rwId        String?          @map("rw_id") @db.Uuid
+  email       String           @db.VarChar(160)
+  noHp        String?          @map("no_hp") @db.VarChar(20)
+  passwordHash String          @map("password_hash") @db.VarChar(255)
+  status      StatusAkunPengguna @default(active)
+  lastLoginAt DateTime?        @map("last_login_at") @db.Timestamptz(3)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rt Rt? @relation(fields: [rtId], references: [id])
+  rw Rw? @relation(fields: [rwId], references: [id])
+
+  @@unique([email])
+  @@index([peran, status])
+  @@map("pengguna_pengurus")
+}
+
+// =============================================================================
+// §3.4 Modul Iuran (B7–B10, B21–B22, B25)
+// =============================================================================
+
+enum TipeTarif {
+  flat
+  per_unit
+  insidental
+}
+
+enum SifatIuran {
+  wajib
+  opsional
+}
+
+// §6.4.7 (B10) — status turunan tersimpan eksplisit agar FE tidak menghitung ulang
+enum StatusTagihan {
+  belum_bayar
+  sebagian
+  lunas
+}
+
+enum SumberPembayaran {
+  bendahara
+  upload_warga
+}
+
+enum StatusPembayaran {
+  menunggu_verifikasi
+  lunas
+  ditolak
+}
+
+enum MetodePembayaran {
+  tunai
+  transfer
+  qris
+  lainnya
+}
+
+enum DiajukanOleh {
+  warga
+  bendahara
+}
+
+enum TipeMutasi {
+  masuk
+  pakai
+}
+
+enum RefMutasi {
+  pembayaran
+  tagihan
+}
+
+enum StatusApproval {
+  menunggu
+  disetujui
+  ditolak
+}
+
+enum StatusKeringanan {
+  aktif
+  selesai
+  dicabut
+}
+
+model KategoriIuran {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId          String      @map("rt_id") @db.Uuid
+  nama          String      @db.VarChar(80)
+  // §6.4.1
+  tipeTarif     TipeTarif   @default(flat) @map("tipe_tarif")
+  nominalDefault Decimal    @default(0) @map("nominal_default") @db.Decimal(14, 2)
+  sifat         SifatIuran  @default(wajib) @map("wajib_opsional")
+  statusAktif   Boolean     @default(true) @map("status_aktif")
+  urutan        Int         @default(0)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  dinonaktifkanPada DateTime? @map("dinonaktifkan_pada") @db.Timestamptz(3)
+
+  rt            Rt               @relation(fields: [rtId], references: [id])
+  tagihanList   Tagihan[]
+  profilList    ProfilIuranWarga[]
+  keringananList Keringanan[]
+
+  @@unique([rtId, nama])
+  @@map("kategori_iuran")
+}
+
+model ProfilIuranWarga {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wargaId         String   @map("warga_id") @db.Uuid
+  kategoriId      String   @map("kategori_id") @db.Uuid
+  rtId            String   @map("rt_id") @db.Uuid
+  // null = ikut nominal_default
+  nominalBerlaku  Decimal? @map("nominal_berlaku") @db.Decimal(14, 2)
+  jumlahUnit      Int      @default(1) @map("jumlah_unit")
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  warga    Warga         @relation(fields: [wargaId], references: [id], onDelete: Cascade)
+  kategori KategoriIuran @relation(fields: [kategoriId], references: [id], onDelete: Cascade)
+
+  @@unique([wargaId, kategoriId])
+  @@map("profil_iuran_warga")
+}
+
+model Tagihan {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId        String        @map("rt_id") @db.Uuid
+  wargaId     String        @map("warga_id") @db.Uuid
+  kategoriId  String        @map("kategori_id") @db.Uuid
+  // 'YYYY-MM' — satu-satunya format periode
+  periode     String        @db.VarChar(7)
+  // nominal wajib tagihan setelah keringanan
+  nominal     Decimal       @db.Decimal(14, 2)
+  // nominal sebelum keringanan (audit)
+  nominalAwal Decimal       @map("nominal_awal") @db.Decimal(14, 2)
+  // nominal_awal - teralokasi
+  sisa        Decimal       @default(0) @db.Decimal(14, 2)
+  tenggat     DateTime?     @db.Date
+  status      StatusTagihan @default(belum_bayar)
+  dibuatPada  DateTime      @default(now()) @map("dibuat_pada") @db.Timestamptz(3)
+  sumber      String        @default("bulk") @db.VarChar(16) // bulk | insidental
+
+  rt       Rt          @relation(fields: [rtId], references: [id])
+  warga    Warga       @relation(fields: [wargaId], references: [id], onDelete: Cascade)
+  kategori KategoriIuran @relation(fields: [kategoriId], references: [id])
+  alokasiList AlokasiPembayaran[]
+
+  // guard idempotensi generate bulanan (B9)
+  @@unique([wargaId, kategoriId, periode])
+  @@index([rtId, periode, status])
+  @@map("tagihan")
+}
+
+model Pembayaran {
+  id        String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId      String            @map("rt_id") @db.Uuid
+  wargaId   String            @map("warga_id") @db.Uuid
+  tanggal   DateTime          @db.Date
+  nominal   Decimal           @db.Decimal(14, 2)
+  metode    MetodePembayaran
+  catatan   String?
+  sumber    SumberPembayaran  @default(bendahara)
+  status    StatusPembayaran  @default(menunggu_verifikasi)
+  buktiUrl  String?           @map("bukti_url") @db.VarChar(512)
+  // polimorfik pengurus_rt
+  verifiedBy String?          @map("verified_by") @db.Uuid
+  verifiedAt DateTime?        @map("verified_at") @db.Timestamptz(3)
+  diajukanOleh DiajukanOleh   @default(bendahara) @map("diajukan_oleh")
+  // header Idempotency-Key (§5.0)
+  idempotencyKey String?      @map("idempotency_key") @db.VarChar(120)
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rt    Rt    @relation(fields: [rtId], references: [id])
+  warga Warga @relation(fields: [wargaId], references: [id])
+  alokasiList AlokasiPembayaran[]
+
+  @@index([rtId, tanggal, status])
+  @@index([wargaId, tanggal])
+  @@map("pembayaran")
+}
+
+model AlokasiPembayaran {
+  id                   String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pembayaranId         String       @map("pembayaran_id") @db.Uuid
+  tagihanId            String       @map("tagihan_id") @db.Uuid
+  rtId                 String       @map("rt_id") @db.Uuid
+  nominalDialokasikan  Decimal      @map("nominal_dialokasikan") @db.Decimal(14, 2)
+  urutan               Int
+  mode                 ModeAlokasi
+  // sha256(pembayaran_id|tagihan_id|periode) — unique index mencegah
+  // duplikat saat proses ulang (§15 Keandalan Data)
+  hashIdempotensi      String       @unique @map("hash_idempotensi") @db.VarChar(64)
+  dibuatPada           DateTime     @default(now()) @map("dibuat_pada") @db.Timestamptz(3)
+
+  pembayaran Pembayaran @relation(fields: [pembayaranId], references: [id], onDelete: Cascade)
+  tagihan    Tagihan    @relation(fields: [tagihanId], references: [id], onDelete: Cascade)
+  rt         Rt         @relation(fields: [rtId], references: [id])
+
+  @@index([pembayaranId, urutan])
+  @@map("alokasi_pembayaran")
+}
+
+model MutasiSaldoWarga {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wargaId      String    @map("warga_id") @db.Uuid
+  rtId         String    @map("rt_id") @db.Uuid
+  tipe         TipeMutasi
+  nominal      Decimal   @db.Decimal(14, 2)
+  refType      RefMutasi @map("ref_type")
+  refId        String    @map("ref_id") @db.Uuid
+  saldoSesudah Decimal   @map("saldo_sesudah") @db.Decimal(14, 2)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  warga Warga @relation(fields: [wargaId], references: [id])
+  rt    Rt    @relation(fields: [rtId], references: [id])
+
+  @@index([wargaId, createdAt])
+  @@map("mutasi_saldo_warga")
+}
+
+model Keringanan {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId              String          @map("rt_id") @db.Uuid
+  wargaId           String          @map("warga_id") @db.Uuid
+  kategoriId        String          @map("kategori_id") @db.Uuid
+  // nominal resmi setelah diturunkan
+  nominalKeringanan Decimal          @map("nominal_keringanan") @db.Decimal(14, 2)
+  alasan            String?
+  periodeMulai      String          @map("periode_mulai") @db.VarChar(7)
+  periodeSampai     String?         @map("periode_sampai") @db.VarChar(7)
+  // tanggal tinjau ulang wajib
+  tanggalTinjau     DateTime?       @map("tanggal_tinjau") @db.Date
+  statusApproval    StatusApproval  @default(menunggu) @map("status_approval")
+  // 1 level: Ketua RT saja (§6.4.10)
+  approvedBy        String?         @map("approved_by") @db.Uuid
+  approvedAt        DateTime?       @map("approved_at") @db.Timestamptz(3)
+  status            StatusKeringanan @default(aktif)
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rt       Rt           @relation(fields: [rtId], references: [id])
+  warga    Warga        @relation(fields: [wargaId], references: [id], onDelete: Cascade)
+  kategori KategoriIuran @relation(fields: [kategoriId], references: [id])
+
+  @@index([rtId, wargaId, status])
+  @@map("keringanan")
+}
+
+// =============================================================================
+// §3.5 Kas — buku besar APPEND-ONLY (B8, B23, B24)
+// =============================================================================
+
+enum ScopeLevel {
+  rt
+  rw
+  platform
+}
+
+enum TipeKas {
+  masuk
+  keluar
+  pembalik
+}
+
+enum KategoriTransaksi {
+  iuran
+  pemasukan_lain
+  operasional
+  kegiatan
+  dana_sosial
+  lainnya
+}
+
+enum ArahKas {
+  positif
+  negatif
+}
+
+enum SumberKas {
+  manual
+  iuran_alokasi
+  pembalik
+}
+
+model KasEntry {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // scope polimorfik (rt ATAU rw) — divalidasi aplikasi + RLS
+  scopeLevel  ScopeLevel        @map("scope_level")
+  scopeId     String            @map("scope_id") @db.Uuid
+  tanggal     DateTime          @db.Date
+  tipe        TipeKas           @default(masuk)
+  kategori    KategoriTransaksi
+  keterangan  String            @db.VarChar(200)
+  nominal     Decimal           @db.Decimal(14, 2)
+  // pembalik memakai arah berlawanan
+  arah        ArahKas           @default(positif)
+  // rantai saldo (dicek saat rekonsiliasi)
+  saldoSesudah Decimal          @map("saldo_sesudah") @db.Decimal(14, 2)
+  sumber      SumberKas         @default(manual)
+  // polimorfik: pembayaran ATAU kas_entry
+  refType     String?           @map("ref_type") @db.VarChar(24)
+  refId       String?           @map("ref_id") @db.Uuid
+  // koreksi = entri pembalik (§6.5)
+  reversalOfId String?          @map("reversal_of_id") @db.Uuid
+  buktiUrl    String?           @map("bukti_url") @db.VarChar(512)
+  // polimorfik: pengurus_rt ATAU pengurus_rw
+  createdBy   String            @map("created_by") @db.Uuid
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  reversalOf  KasEntry?  @relation("KasReversal", fields: [reversalOfId], references: [id])
+  reversalDari KasEntry[] @relation("KasReversal")
+  approvalList ApprovalKas[]
+
+  @@index([scopeLevel, scopeId, tanggal])
+  @@map("kas_entry")
+}
+
+model ApprovalKas {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scopeLevel         ScopeLevel    @map("scope_level")
+  scopeId            String        @map("scope_id") @db.Uuid
+  kasEntryId         String?       @map("kas_entry_id") @db.Uuid
+  // polimorfik pengaju (pengurus_rt/rw)
+  pengajuId          String        @map("pengaju") @db.Uuid
+  nominalPengajuan   Decimal       @map("nominal_pengajuan") @db.Decimal(14, 2)
+  keterangan         String?
+  // threshold dari pengaturan_rt/rw saat diajukan
+  ambangPersetujuan  Decimal       @map("ambang_persetujuan") @db.Decimal(14, 2)
+  status             StatusApproval @default(menunggu)
+  // polimorfik approver
+  approverId         String?       @map("approver") @db.Uuid
+  disetujuiPada      DateTime?     @map("disetujui_pada") @db.Timestamptz(3)
+  catatanKeputusan   String?       @map("catatan_keputusan")
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  kasEntry KasEntry? @relation(fields: [kasEntryId], references: [id])
+
+  @@index([scopeLevel, scopeId, status])
+  @@map("approval_kas")
+}
+
+model TutupBukuKas {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scopeLevel ScopeLevel @map("scope_level")
+  scopeId    String     @map("scope_id") @db.Uuid
+  periode    String     @db.VarChar(7)
+  saldoAwal  Decimal    @map("saldo_awal") @db.Decimal(14, 2)
+  totalMasuk Decimal    @map("total_masuk") @db.Decimal(14, 2)
+  totalKeluar Decimal   @map("total_keluar") @db.Decimal(14, 2)
+  saldoAkhir Decimal    @map("saldo_akhir") @db.Decimal(14, 2)
+  jumlahEntri Int       @map("jumlah_entri")
+  // polimorfik penutup
+  ditutupOleh String    @map("ditutup_oleh") @db.Uuid
+  ditutupPada DateTime  @default(now()) @map("ditutup_pada") @db.Timestamptz(3)
+
+  @@unique([scopeLevel, scopeId, periode])
+  @@map("tutup_buku_kas")
+}
+
+// =============================================================================
+// §3.6 Surat (B12)
+// =============================================================================
+
+enum StatusSurat {
+  draft
+  menunggu_rt
+  menunggu_rw
+  disetujui
+  ditolak
+  perlu_perbaikan
+}
+
+model JenisSurat {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId        String   @map("rt_id") @db.Uuid
+  nama        String   @db.VarChar(80)
+  kode        String   @db.VarChar(8) // LAP | SKP | SKD | DST
+  templateHtml String? @map("template_html")
+  perluRw     Boolean  @default(false) @map("perlu_rw")
+  // definisi form dinamis
+  fieldWajib  Json     @default("[]") @map("field_wajib")
+  aktif       Boolean  @default(true)
+
+  rt     Rt     @relation(fields: [rtId], references: [id])
+  suratList Surat[]
+
+  @@unique([rtId, nama])
+  @@map("jenis_surat")
+}
+
+model Surat {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId          String      @map("rt_id") @db.Uuid
+  jenisSuratId  String      @map("jenis_surat_id") @db.Uuid
+  wargaId       String      @map("warga_id") @db.Uuid
+  noKk          String      @map("no_kk") @db.VarChar(20)
+  // generateNoSurat() → LAP/SKP/04-012/...
+  noSurat       String      @map("no_surat") @db.VarChar(40)
+  keperluan     String      @db.VarChar(200)
+  dataPengajuan Json        @map("data_pengajuan")
+  status        StatusSurat @default(draft)
+  perluRw       Boolean     @default(false) @map("perlu_rw")
+  catatanVerifikasi String? @map("catatan_verifikasi")
+  // verifikasi publik /q/:token (B12, P0)
+  qrToken       String      @unique @map("qr_token") @db.VarChar(64)
+  diajukanPada  DateTime?   @map("diajukan_pada") @db.Timestamptz(3)
+  verifikasiRtPada DateTime? @map("verifikasi_rt_pada") @db.Timestamptz(3)
+  verifikasiRwPada DateTime? @map("verifikasi_rw_pada") @db.Timestamptz(3)
+  terbitPada    DateTime?   @map("terbit_pada") @db.Timestamptz(3)
+  // polimorfik: pengurus_rt ATAU pengurus_rw
+  disetujuiOleh String?     @map("disetujui_oleh") @db.Uuid
+  filePdfUrl    String?     @map("file_pdf_url") @db.VarChar(512)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rt         Rt         @relation(fields: [rtId], references: [id])
+  jenisSurat JenisSurat @relation(fields: [jenisSuratId], references: [id])
+  warga      Warga      @relation(fields: [wargaId], references: [id])
+
+  @@unique([rtId, noSurat])
+  @@index([rtId, status])
+  @@map("surat")
+}
+
+// =============================================================================
+// §3.7 Portal RW (A22)
+// =============================================================================
+
+enum ModeAksesRw {
+  approval
+  direct
+}
+
+enum StatusAksesRw {
+  menunggu
+  disetujui
+  ditolak
+  diakses_direct
+}
+
+model PermintaanAksesDetail {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rwId       String         @map("rw_id") @db.Uuid
+  rtId       String         @map("rt_id") @db.Uuid
+  // polimorfik pengurus_rw
+  pengajuId  String         @map("pengaju") @db.Uuid
+  lingkup    String         @db.VarChar(120)
+  alasan     String?
+  mode       ModeAksesRw    @default(approval)
+  // CHECK: mode='direct' ⇒ length(justifikasi) >= 20 (MIN_JUSTIFIKASI)
+  justifikasi String?
+  status     StatusAksesRw  @default(menunggu)
+  // polimorfik pengurus_rt
+  disetujuiOleh String?     @map("disetujui_oleh") @db.Uuid
+  masaBerlaku DateTime?     @map("masa_berlaku") @db.Date
+  diajukanPada DateTime    @default(now()) @map("diajukan_pada") @db.Timestamptz(3)
+  diprosesPada DateTime?    @map("diproses_pada") @db.Timestamptz(3)
+
+  rw Rw @relation(fields: [rwId], references: [id])
+  rt Rt @relation(fields: [rtId], references: [id])
+
+  @@index([rwId, status])
+  @@map("permintaan_akses_detail")
+}
+
+// =============================================================================
+// §3.8 Platform / System Admin (§8, §9, §11) + audit + job queue
+// =============================================================================
+
+enum PaketLangganan {
+  free
+  pro
+  max
+}
+
+enum StatusLangganan {
+  uji_coba
+  aktif
+  grace_period
+  nonaktif
+}
+
+enum MetodeLangganan {
+  belum
+  tunai
+  transfer
+  qris
+}
+
+enum StatusTransaksiLangganan {
+  menunggu
+  lunas
+  gagal
+}
+
+enum ActorRole {
+  warga
+  rt_admin
+  rw_admin
+  super_admin
+  sistem
+}
+
+enum PortalAkun {
+  warga
+  rt
+  rw
+  admin
+  publik
+}
+
+enum TipeNotifikasi {
+  undangan
+  aktivasi
+  otp
+  jatuh_tempo
+  surat
+  langganan
+  reminder
+}
+
+enum ChannelNotifikasi {
+  whatsapp
+  push
+  email
+  log
+}
+
+enum StatusNotifikasi {
+  queued
+  sending
+  sent
+  failed
+  dead
+}
+
+enum StatusImpor {
+  proses
+  selesai
+  gagal
+}
+
+model Langganan {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId        String          @unique @map("rt_id") @db.Uuid
+  paket       PaketLangganan  @default(free)
+  mulai       DateTime        @db.Date
+  aktifSampai DateTime?       @map("aktif_sampai") @db.Date
+  status      StatusLangganan @default(uji_coba)
+  // §9.1(4): sinkron ke status aktivasi fitur
+  metodeBayar MetodeLangganan @default(belum) @map("metode_bayar")
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rt         Rt                  @relation(fields: [rtId], references: [id])
+  transaksi  TransaksiLangganan[]
+
+  @@index([paket, status])
+  @@map("langganan")
+}
+
+model TransaksiLangganan {
+  id          String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  langgananId String                    @map("langganan_id") @db.Uuid
+  jumlah      Decimal                   @db.Decimal(14, 2)
+  metode      MetodeLangganan
+  status      StatusTransaksiLangganan  @default(menunggu)
+  refExternal String?                   @map("ref_external") @db.VarChar(120)
+  paidAt      DateTime?                 @map("paid_at") @db.Timestamptz(3)
+  createdAt   DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  langganan Langganan @relation(fields: [langgananId], references: [id], onDelete: Cascade)
+
+  @@map("transaksi_langganan")
+}
+
+model KontenLanding {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versi     Int
+  hero      Json
+  fitur     Json
+  harga     Json
+  persona   Json
+  // polimorfik editor platform admin
+  diubahOleh String  @map("diubah_oleh") @db.Uuid
+  diubahPada DateTime @default(now()) @map("diubah_pada") @db.Timestamptz(3)
+
+  @@unique([versi])
+  @@map("konten_landing")
+}
+
+// §14, §6.8 (B15) — APPEND-ONLY, seluruh portal
+model AuditLog {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scopeLevel ScopeLevel @map("scope_level")
+  // null untuk scope platform
+  scopeId    String?    @map("scope_id") @db.Uuid
+  actorId    String     @map("actor_id") @db.Uuid
+  actorRole  ActorRole  @map("actor_role")
+  portal     PortalAkun
+  modul      String     @db.VarChar(40)
+  aksi       String     @db.VarChar(60)
+  aksiBadge  String?    @map("aksi_badge") @db.VarChar(40)
+  entitas    String?    @db.VarChar(60)
+  entitasId  String?    @map("entitas_id") @db.Uuid
+  sebelum    Json?
+  sesudah    Json?
+  ringkasan  String?
+  ip         String?    @db.Inet
+  userAgent  String?    @map("user_agent") @db.VarChar(255)
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([scopeLevel, scopeId, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@map("audit_log")
+}
+
+// §12.2 job queue asinkron (B26)
+model NotifikasiJob {
+  id        String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipe      TipeNotifikasi
+  channel   ChannelNotifikasi  @default(whatsapp)
+  tujuan    String             @db.VarChar(20)
+  payload   Json
+  status    StatusNotifikasi   @default(queued)
+  percobaan Int                @default(0)
+  jadwalPada DateTime          @default(now()) @map("jadwal_pada") @db.Timestamptz(3)
+  dikirimPada DateTime?        @map("dikirim_pada") @db.Timestamptz(3)
+  galat     String?
+
+  @@index([status, jadwalPada])
+  @@map("notifikasi_job")
+}
+
+// §9.1(6) migrasi Excel/CSV (A10)
+model ImporData {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId         String      @map("rt_id") @db.Uuid
+  fileUrl      String      @map("file_url") @db.VarChar(512)
+  namaFile     String      @map("nama_file") @db.VarChar(255)
+  jumlahBaris  Int         @default(0) @map("jumlah_baris")
+  berhasil     Int         @default(0)
+  gagal        Int         @default(0)
+  laporan      Json?
+  status       StatusImpor @default(proses)
+  // polimorfik pengurus_rt
+  diunggahOleh String      @map("diunggah_oleh") @db.Uuid
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rt Rt @relation(fields: [rtId], references: [id])
+
+  @@map("impor_data")
+}

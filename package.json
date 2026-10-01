@@ -1,0 +1,19 @@
+{
+  "name": "siwarga-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SIWARGA monorepo — frontend (Portal Warga/RT/RW/Admin) + backend Fastify (packages/server)",
+  "scripts": {
+    "dev": "pnpm --filter @siwarga/web dev",
+    "dev:server": "pnpm --filter @siwarga/server dev",
+    "dev:stack": "node packages/server/scripts/dev-stack.mjs",
+    "build": "pnpm -r build",
+    "preview": "pnpm --filter @siwarga/web preview",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "packageManager": "pnpm@9.12.0"
+}

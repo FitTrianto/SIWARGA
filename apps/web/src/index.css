@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  }
+  body {
+    overscroll-behavior: none;
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c0c9bb;
+  border-radius: 9999px;
+}
+
+.hero-glow-1 {
+  position: absolute;
+  width: 480px;
+  height: 480px;
+  background: radial-gradient(
+    circle,
+    rgba(16, 185, 129, 0.18) 0%,
+    rgba(5, 150, 105, 0.05) 50%,
+    transparent 70%
+  );
+  filter: blur(50px);
+  pointer-events: none;
+}
+
+.hero-glow-2 {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(
+    circle,
+    rgba(56, 189, 248, 0.14) 0%,
+    rgba(16, 185, 129, 0.04) 50%,
+    transparent 75%
+  );
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+.mesh-gradient {
+  background: radial-gradient(
+      at 0% 0%,
+      rgba(220, 252, 231, 0.6) 0px,
+      transparent 50%
+    ),
+    radial-gradient(
+      at 100% 100%,
+      rgba(224, 242, 254, 0.5) 0px,
+      transparent 50%
+    );
+}
+
+/* =========================================================================
+   Animasi halaman Undangan Portal Warga (link/QR invitation).
+   ========================================================================= */
+@keyframes undangan-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.anim-undangan-in {
+  animation: undangan-fade-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes undangan-shake {
+  10%,
+  90% {
+    transform: translateX(-2px);
+  }
+  20%,
+  80% {
+    transform: translateX(4px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-7px);
+  }
+  40%,
+  60% {
+    transform: translateX(7px);
+  }
+}
+
+.anim-undangan-shake {
+  animation: undangan-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes undangan-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+  70% {
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.anim-undangan-pop {
+  animation: undangan-pop 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes undangan-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.anim-undangan-float {
+  animation: undangan-float 4s ease-in-out infinite;
+}
+
+/* Hormati preferensi pengurangan gerak (aksesibilitas §13.6). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

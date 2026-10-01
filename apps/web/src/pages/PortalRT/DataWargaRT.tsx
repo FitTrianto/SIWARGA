@@ -1,0 +1,2493 @@
+import { useEffect, useState } from "react";
+import { tenant } from "../../lib/tenant";
+import {
+  KkData,
+  WargaRt,
+  DetailKk,
+  digitsOnly,
+  noKkNorm,
+  initialsOf,
+  fmtWa,
+  memberWaValue,
+  maskedNik,
+  fmtNoKk,
+  maskedNoKk,
+  badgePortal,
+  linkFor,
+  buildMember,
+  gabungDaftarWarga,
+  shortAlamat,
+  downloadText,
+  detailKosong,
+  detailDariMember,
+  detailDariRow,
+  detailKeRow,
+  terapkanDetailKeMember,
+  tglKeIso,
+  isoKeTgl,
+  AnggotaBaru,
+  anggotaKosong,
+  anggotaTerisi,
+  buildMemberBaru,
+  LABEL_JENIS_AJUAN,
+  LABEL_STATUS_AJUAN,
+  KIRI_AJUAN,
+  type AjuanPerubahanRt,
+} from "../../lib/shared";
+import { Undangan } from "../../lib/undangan";
+import {
+  GalatApi,
+  barisServerKeWargaRt,
+  enumAman,
+  golDarahKeServer,
+  hubunganKeServer,
+  jenisKelaminKeServer,
+  keluargaKeKkData,
+  portalKeStatusAkses,
+  statusAksesKePortal,
+  statusKawinKeServer,
+  wargaNegaraKeServer,
+  type BarisWargaRtServer,
+  type KeluargaRingkasServer,
+  type PatchWargaRt,
+  type StatusAksesServer,
+  type TambahWargaRtPayload,
+  type TemuanInspeksiUndangan,
+} from "../../lib/api";
+import { KartuUndangan } from "../Undangan/KartuUndangan";
+import { EmptyState } from "../../components/EmptyState";
+import { KonfirmasiDialog } from "../../components/KonfirmasiDialog";
+import { useFlash } from "../../lib/useFlash";
+
+interface DataWargaRTProps {
+  onNavigate?: (page: string) => void;
+  kkList: KkData[];
+  wargaRt: WargaRt[];
+  onWargaRtChange: (next: WargaRt[]) => void;
+  onKkUpdated: (kkId: string, patch: Partial<KkData>) => void;
+  /** Tambah 1 KK baru (berisi beberapa NIK) dari form Tambah Data KK. */
+  onKkAdded: (kk: KkData) => void;
+  // --- B13 · CRUD Data Warga ke API (§5.4) — API-first ------------------------
+  // Handler tipis dari App.tsx: sukses → objek respons server; OFFLINE → `null`
+  // (halaman lanjut jalur demo lokal); galat non-OFFLINE DILEMPAR agar pesan
+  // server tampil — tidak pernah "berhasil" untuk kegagalan. Penerapan state
+  // (baris + KK dari respons) dilakukan halaman ini sendiri.
+  /** PATCH /rt/warga/:id — `{ warga, keluarga }` terbaru dari server. */
+  onSimpanWarga?: (
+    id: string,
+    patch: PatchWargaRt,
+  ) => Promise<{ warga: BarisWargaRtServer; keluarga: KeluargaRingkasServer } | null>;
+  /** POST /rt/warga — KK baru (N anggota) dalam satu transaksi server. */
+  onTambahWarga?: (
+    payload: TambahWargaRtPayload,
+  ) => Promise<{ warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer } | null>;
+  /** DELETE /rt/warga/:id — `keluarga` = KK sisa (tetap ada walau kosong). */
+  onHapusWarga?: (
+    id: string,
+  ) => Promise<{ id: string; keluarga: KeluargaRingkasServer | null } | null>;
+  /** Daftar undangan aktif (sumber kebenaran bersama di App.tsx). */
+  undangan: Undangan[];
+  /**
+   * Terbitkan undangan untuk warga terdaftar ini — API-first (Fase 3):
+   * backend menyala → token asli dari server; backend mati → daftar lokal
+   * (mode demo). Galat API NON-OFFLINE dilempar sebagai `GalatApi` agar
+   * pemanggil menampilkannya lewat `flash` — jangan ditelan diam-diam.
+   */
+  onUndanganWarga: (data: {
+    nama: string;
+    alamat: string;
+    noWa: string;
+  }) => Promise<Undangan>;
+  /**
+   * F-5 · B11: antrean ajuan perubahan data warga (dari App lewat
+   * `GET /rt/ajuan-perubahan`). Kosong = belum ada pengajuan.
+   */
+  ajuan?: AjuanPerubahanRt[];
+  /**
+   * F-5 · B20: setujui/tolak 1 ajuan — API-first; OFFLINE → baris lokal.
+   * Galat lain (409 sudah diproses, sesi habis) DITERUSKAN agar halaman
+   * menampilkan gagal — tidak pernah "berhasil" untuk kegagalan.
+   */
+  onVerifikasiAjuan?: (id: string, aksi: "setujui" | "tolak", catatan?: string) => Promise<void>;
+  // --- B5 · manajemen undangan & akses portal (§5.4) -------------------------
+  // Semua API-first: sukses → hasil server; OFFLINE → `null` (mode demo, halaman
+  // lanjut jalur lokal); galat non-OFFLINE DILEMPAR agar pesan server tampil.
+  /**
+   * POST `/rt/undangan/:id/kirim-ulang` — token lama dicabut, token baru terbit.
+   * `tokenId` wajib berupa UUID token server (entri daftar demo tidak dipanggil).
+   */
+  onKirimUlangUndangan?: (tokenId: string, noHpBaru?: string) => Promise<Undangan | null>;
+  /** DELETE `/rt/undangan/:id` — cabut undangan (idempoten di server). */
+  onCabutUndangan?: (tokenId: string) => Promise<boolean | null>;
+  /** PATCH `/rt/warga/:id/akses` — nonaktifkan/aktifkan kembali; sesi warga ikut dicabut. */
+  onUbahAksesWarga?: (
+    idWarga: string,
+    tujuan: "dinonaktifkan" | "aktif",
+  ) => Promise<StatusAksesServer | null>;
+  // --- B6 · kotak masuk keamanan --------------------------------------------
+  /** GET `/rt/undangan/inspeksi` — token yang disentuh >1 perangkat; OFFLINE → `null` (chip disembunyikan). */
+  onInspeksiUndangan?: () => Promise<TemuanInspeksiUndangan[] | null>;
+}
+
+/** Aksi B5 yang butuh konfirmasi (kirim ulang / cabut / nonaktifkan / aktifkan). */
+type AksiAkses = "kirim-ulang" | "cabut" | "nonaktifkan" | "aktifkan";
+
+/** Semua label Status Portal (kamus `statusAksesKePortal`, §6.3) — B4: 5 opsi penuh. */
+const STATUS_PORTAL_OPSI = ["Aktif", "Belum Aktif", "Undangan Dikirim", "Kedaluwarsa", "Dinonaktifkan"];
+
+type PortalStatus = "all" | "aktif" | "belum-aktif" | "undangan" | "kedaluwarsa" | "dinonaktifkan";
+
+/** ID token server selalu UUID — entri demo (`un1`, …) tidak pernah dikirim ke API. */
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Gaya tombol aksi B5 — aksi merusak (cabut/nonaktifkan) memakai aksen error. */
+const AKSES_KELAS: Record<AksiAkses, string> = {
+  "kirim-ulang": "bg-tertiary-container/40 text-on-tertiary-container hover:bg-tertiary-container",
+  cabut: "bg-error-container/30 text-error hover:bg-error-container hover:text-on-error-container",
+  nonaktifkan: "bg-error-container/30 text-error hover:bg-error-container hover:text-on-error-container",
+  aktifkan: "bg-secondary-container/50 text-on-secondary-container hover:bg-secondary-container",
+};
+
+// Opsi form Edit Data Warga (14 kolom data KK) — daftarnya sama dengan yang
+// dipakai Data Keluarga di Portal Warga supaya nilainya selalu cocok.
+const agamaOpsi = ["Islam", "Kristen Protestan", "Kristen Katolik", "Hindu", "Buddha", "Konghucu", "Lainnya"];
+const statusKawinOpsi = ["Belum Menikah", "Menikah", "Cerai Hidup", "Cerai Mati"];
+const jenisKelaminOpsi = ["Laki-laki", "Perempuan"];
+const goldarahOpsi = ["A", "B", "AB", "O"];
+const pendidikanOpsi = ["Tidak Sekolah", "TK", "SD", "SMP", "SMA / SMK", "Diploma", "S1", "S2", "S3", "Lainnya"];
+const hubunganOpsi = ["Kepala Keluarga", "Istri", "Anak", "Ayah / Ibu", "Mertua", "Lainnya"];
+const pekerjaanOpsi = [
+  "Pegawai Negeri", "TNI / Polri", "Pegawai Swasta", "Wiraswasta", "Petani",
+  "Nelayan", "Buruh", "Guru / Dosen", "Kesehatan", "Pelajar", "Mahasiswa", "Ibu Rumah Tangga", "Belum Bekerja", "Lainnya",
+];
+const wargaNegaraOpsi = ["WNI", "WNA"];
+
+/** Nilai di luar daftar opsi tetap ditampilkan agar pilihan lama tidak hilang. */
+function denganNilai(opsi: string[], nilai: string): string[] {
+  const v = nilai.trim();
+  return v && !opsi.includes(v) ? [v, ...opsi] : opsi;
+}
+
+export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onHapusWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
+  const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState<PortalStatus>("all");
+  const [showInputModal, setShowInputModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [editing, setEditing] = useState<WargaRt | null>(null);
+  const [detailWarga, setDetailWarga] = useState<WargaRt | null>(null);
+  const [kartuUndangan, setKartuUndangan] = useState<Undangan | null>(null);
+  const [selectedWarga, setSelectedWarga] = useState<string[]>([]);
+  /** Menceklik dua kali saat penerbitan undangan masih berjalan (menunggu API). */
+  const [kirimSedang, setKirimSedang] = useState(false);
+  /** Kunci tombol simpan/hapus selama panggilan API CRUD (B13) sedang berjalan. */
+  const [simpanSedang, setSimpanSedang] = useState(false);
+  // F-5 · B11/B20: antrean ajuan perubahan data + modal alasan penolakan
+  // (alasan wajib ≥ 3 karakter — kontrak server `POST .../tolak`).
+  const [ajuanDitolak, setAjuanDitolak] = useState<AjuanPerubahanRt | null>(null);
+  const [alasanTolak, setAlasanTolak] = useState("");
+  const [prosesAjuan, setProsesAjuan] = useState(false);
+  const { flash, toast } = useFlash();
+  const [uploadFileName, setUploadFileName] = useState("");
+
+  // ---- Form "Tambah Data KK": 1 KK berisi beberapa NIK (kepala, istri, anak) ----
+  const [formKk, setFormKk] = useState({ noKk: "", alamat: "" });
+  const [anggotaBaru, setAnggotaBaru] = useState<AnggotaBaru[]>([
+    { ...anggotaKosong(), hubungan: "Kepala Keluarga" },
+  ]);
+
+  const [formEdit, setFormEdit] = useState({
+    nama: "",
+    nik: "",
+    noKk: "",
+    alamat: "",
+    noWa: "",
+    statusPortal: "Aktif",
+    // 14 kolom data KK lengkap (lihat lib/shared.ts → DetailKk).
+    ...detailKosong,
+  });
+
+  // Toggle mata: NIK & No. KK tampil ter-mask secara bawaan.
+  const [lihatNik, setLihatNik] = useState(false);
+  const [lihatNoKk, setLihatNoKk] = useState(false);
+
+  // Konfirmasi hapus data warga yang sudah tidak dipakai.
+  const [hapusTarget, setHapusTarget] = useState<WargaRt | null>(null);
+
+  // B5 · konfirmasi aksi undangan/akses yang menunggu jawaban pengguna, dan
+  // kunci anti klik-ganda selama panggilan API-nya berjalan.
+  const [konfirmasiAksi, setKonfirmasiAksi] = useState<{ jenis: AksiAkses; warga: WargaRt } | null>(null);
+  const [aksiSedang, setAksiSedang] = useState(false);
+
+  // B6 · kotak masuk keamanan: `null` = belum dimuat / OFFLINE (chip disembunyikan).
+  const [temuan, setTemuan] = useState<TemuanInspeksiUndangan[] | null>(null);
+  const [lihatTemuan, setLihatTemuan] = useState(false);
+  const [inspeksiSedang, setInspeksiSedang] = useState(false);
+
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
+
+  // B6 · muat kotak masuk keamanan sekali saat halaman dibuka. OFFLINE → `null`
+  // (chip "Perlu Perhatian" tak pernah muncul di mode demo); galat lain sudah
+  // ditangani App (`tanganiSesiHabis`) dan di sini cukup senyap — halaman lain
+  // tetap utuh. Handler App tidak dimemoisasi → daftar dependensi `[]` + eslint-disable.
+  useEffect(() => {
+    if (!onInspeksiUndangan) return;
+    let batal = false;
+    setInspeksiSedang(true);
+    onInspeksiUndangan()
+      .then((d) => {
+        if (!batal) setTemuan(d);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!batal) setInspeksiSedang(false);
+      });
+    return () => {
+      batal = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Muat ulang temuan keamanan (dipakai tombol refresh di modal inspeksi). */
+  async function segarkanInspeksi() {
+    if (!onInspeksiUndangan || inspeksiSedang) return;
+    setInspeksiSedang(true);
+    try {
+      setTemuan(await onInspeksiUndangan());
+    } catch {
+      // galat sudah ditangani App (sesi habis → halaman masuk)
+    } finally {
+      setInspeksiSedang(false);
+    }
+  }
+
+
+  /* ---------- Baris tampilan: gabungan data RT + data KK dari Portal Warga ---------- */
+  // Urutan selalu berdasarkan Alamat lalu No. KK (sesuai permintaan Pengurus RT).
+  const pengurutDataWarga = (a: WargaRt, b: WargaRt): number => {
+    const opt = { numeric: true, sensitivity: "base" } as const;
+    const alamat = shortAlamat(a.alamat).localeCompare(shortAlamat(b.alamat), "id", opt);
+    if (alamat !== 0) return alamat;
+    // No. KK disimpan dalam dua gaya ("3171050101050002" vs "3171-0512-1290-0077").
+    // Tanpa dinormalkan, tanda hubung ('-') selalu dianggap lebih kecil dari angka
+    // sehingga KK ber-format meleset ke atas. Samakan dulu nilainya.
+    return noKkNorm(a.noKk).localeCompare(noKkNorm(b.noKk), "id", opt);
+  };
+  const rows: WargaRt[] = gabungDaftarWarga(kkList, wargaRt).sort(pengurutDataWarga);
+
+  const alamatOptions = Array.from(
+    new Set([...rows.map((r) => r.alamat.trim()).filter(Boolean), ...kkList.map((k) => shortAlamat(k.alamat))])
+  ).sort();
+
+  /** Validasi form Tambah Data KK (No. KK + alamat + daftar anggota). */
+  function validateTambahKk(): boolean {
+    const errors: Record<string, string> = {};
+    if (digitsOnly(formKk.noKk).length !== 16) errors.noKk = "No. KK harus 16 digit angka";
+    if (!formKk.alamat.trim()) errors.alamat = "Alamat wajib diisi";
+
+    // NIK tidak boleh ganda di seluruh sistem. No. KK & alamat BOLEH sama:
+    // 1 KK memuat banyak NIK, dan 1 alamat boleh dipakai lebih dari 1 KK.
+    const terpakai = new Set<string>();
+    kkList.forEach((k) => k.anggota.forEach((m) => terpakai.add(digitsOnly(m.nikFull ?? m.nik))));
+    wargaRt.forEach((w) => {
+      const n = digitsOnly(w.nik);
+      if (n) terpakai.add(n);
+    });
+
+    const dalamForm = new Set<string>();
+    let adaKepala = false;
+
+    anggotaBaru.forEach((a, i) => {
+      if (!anggotaTerisi(a)) return; // baris kosong diabaikan
+
+      if (!/^\d{16}$/.test(a.nik)) errors[`nik-${i}`] = "NIK harus 16 digit angka";
+      else if (terpakai.has(a.nik)) errors[`nik-${i}`] = "NIK ini sudah terdaftar di sistem";
+      else if (dalamForm.has(a.nik)) errors[`nik-${i}`] = "NIK sama dipakai lebih dari satu anggota";
+      else dalamForm.add(a.nik);
+
+      if (!a.nama.trim()) errors[`nama-${i}`] = "Nama lengkap wajib diisi";
+      if (!a.hubungan) errors[`hubungan-${i}`] = "Hubungan wajib dipilih";
+      if (a.hubungan === "Kepala Keluarga") adaKepala = true;
+
+      const wa = digitsOnly(a.waDigits);
+      if (a.waDigits && (wa.length < 10 || wa.length > 13)) errors[`noWa-${i}`] = "No. WA harus 10-13 digit";
+    });
+
+    if (!anggotaBaru.some(anggotaTerisi)) errors.anggota = "Isi minimal satu anggota keluarga";
+    else if (!adaKepala) errors.anggota = "Pilih minimal satu anggota berstatus Kepala Keluarga";
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  async function handleSubmitKk(e: React.FormEvent) {
+    e.preventDefault();
+    if (simpanSedang) return;
+    if (!validateTambahKk()) return;
+
+    setSimpanSedang(true);
+    try {
+      // B13 · API-first: server membuat KK + seluruh N anggota dalam SATU
+      // transaksi (KK kosong/parsial tidak mungkin tersisa, §5.4). OFFLINE →
+      // `null` → jalur demo lokal di bawah; galat lain → flash + batal.
+      if (onTambahWarga) {
+        const payload: TambahWargaRtPayload = {
+          noKk: digitsOnly(formKk.noKk),
+          alamat: formKk.alamat.trim(),
+          anggota: anggotaBaru.filter(anggotaTerisi).map((a) => ({
+            nama: a.nama.trim(),
+            nik: a.nik,
+            hubungan: hubunganKeServer(a.hubungan),
+            jenisKelamin: jenisKelaminKeServer(a.jenisKelamin),
+            agama: a.agama.trim() || null,
+            tanggalLahir: a.tglLahir || null,
+            pekerjaan: a.pekerjaan.trim() || null,
+            noHp: digitsOnly(a.waDigits) || null,
+          })),
+        };
+        const hasil = await onTambahWarga(payload);
+        if (hasil) {
+          const baris = hasil.warga.map(barisServerKeWargaRt);
+          onWargaRtChange([...wargaRt, ...baris]);
+          onKkAdded(keluargaKeKkData(hasil.keluarga));
+          flash(
+            `Data KK "${hasil.keluarga.kk.alamat}" — ${hasil.warga.length} anggota (Kepala: ${hasil.keluarga.kk.kepala}) berhasil ditambahkan.`,
+          );
+          tutupInput();
+          return;
+        }
+      }
+
+      // Jalur lokal (mode demo / OFFLINE) — perilaku lama tanpa perubahan.
+      const anggota = anggotaBaru.filter(anggotaTerisi).map((a) => buildMemberBaru(a));
+      const kepala = anggota.find((m) => m.filter === "kepala")?.name ?? anggota[0].name;
+      const kk: KkData = {
+        id: `kk-${Date.now()}`,
+        noKk: fmtNoKk(formKk.noKk),
+        kepala,
+        alamat: formKk.alamat.trim(),
+        anggota,
+      };
+      onKkAdded(kk);
+      flash(`Data KK "${kk.alamat}" — ${anggota.length} anggota (Kepala: ${kepala}) berhasil ditambahkan.`);
+      tutupInput();
+    } catch (err) {
+      flash(err instanceof GalatApi ? err.message : "Gagal menyimpan Data KK.");
+    } finally {
+      setSimpanSedang(false);
+    }
+  }
+
+  /* ---------- Aksi form Tambah Data KK ---------- */
+  /** Hilangkan 1 pesan error begitu pengguna mengubah isinya. */
+  function hapusError(kunci: string) {
+    setFormErrors((prev) => {
+      if (!(kunci in prev)) return prev;
+      const next = { ...prev };
+      delete next[kunci];
+      return next;
+    });
+  }
+
+  function ubahFormKk(field: "noKk" | "alamat", value: string) {
+    hapusError(field);
+    setFormKk((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function bukaInput() {
+    setFormKk({ noKk: "", alamat: "" });
+    setAnggotaBaru([{ ...anggotaKosong(), hubungan: "Kepala Keluarga" }]);
+    setFormErrors({});
+    setShowInputModal(true);
+  }
+
+  function tutupInput() {
+    setShowInputModal(false);
+    setFormErrors({});
+  }
+
+  /** Hapus error per-anggota saja (error No. KK/Alamat tetap disimpan). */
+  function bersihkanErrorAnggota() {
+    setFormErrors((prev) => {
+      const next: Record<string, string> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        if (k !== "anggota" && !/^(nik|nama|hubungan|noWa)-\d+$/.test(k)) next[k] = v;
+      }
+      return next;
+    });
+  }
+
+  /** Peta field anggota → kunci pesan error yang melekat padanya. */
+  const errorAnggota: Record<string, string> = { nik: "nik", nama: "nama", hubungan: "hubungan", waDigits: "noWa" };
+
+  function ubahAnggota(i: number, field: keyof AnggotaBaru, value: string) {
+    const kunci = errorAnggota[field];
+    if (kunci) hapusError(`${kunci}-${i}`);
+    setAnggotaBaru((prev) => prev.map((a, idx) => (idx === i ? { ...a, [field]: value } : a)));
+  }
+
+  function tambahAnggota() {
+    bersihkanErrorAnggota();
+    setAnggotaBaru((prev) => [...prev, anggotaKosong()]);
+  }
+
+  function hapusAnggotaBaris(i: number) {
+    bersihkanErrorAnggota();
+    setAnggotaBaru((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  /* ---------- Edit data warga (sinkron 2 arah bila terpasang dengan kkList) ---------- */
+  function openEdit(w: WargaRt) {
+    const link = linkFor(w, kkList);
+    const kk = link ? kkList.find((k) => k.id === link.kkId) : undefined;
+    const member = link && link.idx >= 0 && kk ? kk.anggota[link.idx] : undefined;
+    const detail = member ? detailDariMember(member) : detailDariRow(w);
+    setEditing(w);
+    setFormEdit({
+      nama: w.nama,
+      // NIK ter-mask (data API) TIDAK dipaksa jadi 16 digit — nilai asli
+      // dipertahankan; validasi Edit hanya menuntut 16 digit bila diganti.
+      nik: digitsOnly(w.nik).length === 16 ? digitsOnly(w.nik) : w.nik,
+      noKk: w.noKk,
+      alamat: kk ? kk.alamat : w.alamat,
+      noWa: digitsOnly(w.noWa),
+      statusPortal: w.statusPortal,
+      // Isi 14 kolom data KK: berasal dari anggota keluarga bila ada,
+      // kalau tidak ada dari salinan lokal baris. Tanggal dikonversi ke ISO
+      // agar cocok untuk <input type="date">.
+      ...detail,
+      tglLahir: tglKeIso(detail.tglLahir),
+      tglKawin: tglKeIso(detail.tglKawin),
+    });
+    setEditErrors({});
+    setLihatNik(false);
+    setLihatNoKk(false);
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editing || simpanSedang) return;
+    const errors: Record<string, string> = {};
+    if (!formEdit.nama.trim()) errors.nama = "Nama lengkap wajib diisi";
+    // Relaxed: NIK ter-mask yang TIDAK berubah lolos validasi (data API tidak
+    // pernah mengirim NIK plaintext §14); hanya penggantian wajib 16 digit penuh.
+    if (formEdit.nik !== editing.nik && !/^\d{16}$/.test(formEdit.nik))
+      errors.nik = "NIK harus 16 digit angka";
+    if (noKkNorm(formEdit.noKk).length !== 16) errors.noKk = "No. KK harus 16 digit (angka)";
+    if (!formEdit.alamat.trim()) errors.alamat = "Alamat wajib diisi";
+    const waDigits = digitsOnly(formEdit.noWa);
+    // WA opsional (kontrak PATCH §5.4: `noHp` opsional) — kosong diperbolehkan
+    // sehingga warga tanpa HP tetap bisa diedit; bila diisi wajib 10–13 digit.
+    if (waDigits && (waDigits.length < 10 || waDigits.length > 13))
+      errors.noWa = "No. WA harus 10-13 digit";
+    setEditErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    const detail: DetailKk = {
+      tempatLahir: formEdit.tempatLahir.trim(),
+      tglLahir: isoKeTgl(formEdit.tglLahir),
+      jenisKelamin: formEdit.jenisKelamin.trim(),
+      agama: formEdit.agama.trim(),
+      pendidikan: formEdit.pendidikan.trim(),
+      pekerjaan: formEdit.pekerjaan.trim(),
+      goldarah: formEdit.goldarah.trim(),
+      statusKawin: formEdit.statusKawin.trim(),
+      tglKawin: isoKeTgl(formEdit.tglKawin),
+      hubungan: formEdit.hubungan.trim(),
+      wargaNegara: formEdit.wargaNegara.trim(),
+    };
+
+    // Payload PATCH /rt/warga/:id (mode patch — hanya field yang dikirim;
+    // `null` = bersihkan, tidak dikirim = tidak diubah, §5.4).
+    const patch: PatchWargaRt = {
+      nama: formEdit.nama.trim(),
+      // `noHp` PATCH opsional & tidak menerima null (kontrak BE): WA kosong →
+      // TIDAK dikirim (nilai lama, termasuk null, tetap apa adanya).
+      ...(waDigits ? { noHp: waDigits } : {}),
+      hubungan: hubunganKeServer(formEdit.hubungan),
+      // Kolom detail: "" → null (bersihkan); nilai di luar kamus enum TIDAK
+      // dikirim (`enumAman`) — mencegah mengosongkan data lama yang tak terwakili.
+      tempatLahir: formEdit.tempatLahir.trim() || null,
+      tanggalLahir: formEdit.tglLahir || null,
+      jenisKelamin: enumAman(formEdit.jenisKelamin, jenisKelaminKeServer(formEdit.jenisKelamin)),
+      agama: formEdit.agama.trim() || null,
+      pendidikan: formEdit.pendidikan.trim() || null,
+      pekerjaan: formEdit.pekerjaan.trim() || null,
+      golDarah: enumAman(formEdit.goldarah, golDarahKeServer(formEdit.goldarah)),
+      statusKawin: enumAman(formEdit.statusKawin, statusKawinKeServer(formEdit.statusKawin)),
+      tanggalPerkawinan: formEdit.tglKawin || null,
+      wargaNegara: enumAman(formEdit.wargaNegara, wargaNegaraKeServer(formEdit.wargaNegara)),
+    };
+    // NIK/No. KK: hanya nilai 16-digit MENTAH yang berbeda dari nilai lama —
+    // nilai ter-mask tidak pernah ikut ke server (server tak menerimanya).
+    if (/^\d{16}$/.test(formEdit.nik) && formEdit.nik !== editing.nik) patch.nikBaru = formEdit.nik;
+    const noKkBaru = digitsOnly(formEdit.noKk);
+    if (noKkBaru.length === 16 && noKkBaru !== digitsOnly(editing.noKk)) patch.noKk = noKkBaru;
+    // Alamat hanya bila beda dari KK sumbernya; status portal hanya bila berubah
+    // (nilai tak dikenal → `belum_diundang` oleh `portalKeStatusAkses`).
+    const linkAwal = linkFor(editing, kkList);
+    const kkAwal = linkAwal ? kkList.find((k) => k.id === linkAwal.kkId) : undefined;
+    if (formEdit.alamat.trim() !== (kkAwal ? kkAwal.alamat : editing.alamat))
+      patch.alamat = formEdit.alamat.trim();
+    if (formEdit.statusPortal !== editing.statusPortal)
+      patch.statusAkses = portalKeStatusAkses(formEdit.statusPortal);
+
+    // B13 · API-first: baris ber-ID server → respons server jadi rujukan
+    // (baris + KK). OFFLINE (`null`) → lanjut jalur lokal mode demo di bawah;
+    // galat server (validasi/bentrok/404) → tampilkan pesan & BATAL — jangan
+    // menyamar sebagai sukses.
+    if (editing.idWarga && onSimpanWarga) {
+      setSimpanSedang(true);
+      try {
+        const hasil = await onSimpanWarga(editing.idWarga, patch);
+        if (hasil) {
+          const baris = barisServerKeWargaRt(hasil.warga);
+          onWargaRtChange(
+            wargaRt.some((x) => x.idWarga === baris.idWarga)
+              ? wargaRt.map((x) => (x.idWarga === baris.idWarga ? baris : x))
+              : [...wargaRt, baris],
+          );
+          // KK (alamat/kepala/anggota) ikut diperbarui dari respons server.
+          onKkUpdated(hasil.keluarga.kk.id, keluargaKeKkData(hasil.keluarga));
+          setEditing(null);
+          flash("Data warga diperbarui — tersinkron di kedua portal.");
+          return;
+        }
+      } catch (err) {
+        flash(err instanceof GalatApi ? err.message : "Gagal menyimpan data warga.");
+        return;
+      } finally {
+        setSimpanSedang(false);
+      }
+    }
+
+    const updatedRow: WargaRt = detailKeRow(
+      {
+        ...editing,
+        nama: formEdit.nama.trim(),
+        nik: formEdit.nik,
+        noKk: fmtNoKk(formEdit.noKk),
+        alamat: formEdit.alamat.trim(),
+        noWa: fmtWa(waDigits),
+        statusPortal: formEdit.statusPortal,
+        statusBadge: badgePortal(formEdit.statusPortal),
+      },
+      detail
+    );
+
+    // Selalu perbarui baris lokal (status portal & baris non-kkList tinggal di sini).
+    onWargaRtChange(
+      wargaRt.some((x) => x.id === editing.id)
+        ? wargaRt.map((x) => (x.id === editing.id ? updatedRow : x))
+        : [...wargaRt, updatedRow]
+    );
+
+    // Bila warga berasal dari kkList → simpan perubahan ke Data Keluarga (Portal Warga).
+    const link = linkFor(editing, kkList);
+    const kk = link ? kkList.find((k) => k.id === link.kkId) : undefined;
+    if (link && kk) {
+      const patchKk: Partial<KkData> = {
+        alamat: formEdit.alamat.trim(),
+        noKk: fmtNoKk(formEdit.noKk),
+      };
+      if (link.idx >= 0) {
+        const mBaru = terapkanDetailKeMember(
+          {
+            ...kk.anggota[link.idx],
+            name: updatedRow.nama,
+            initials: initialsOf(updatedRow.nama),
+            nik: maskedNik(updatedRow.nik),
+            nikFull: updatedRow.nik,
+            wa: memberWaValue(waDigits),
+          },
+          detail
+        );
+        patchKk.anggota = kk.anggota.map((m, i) => (i === link.idx ? mBaru : m));
+        if (mBaru.filter === "kepala") patchKk.kepala = mBaru.name;
+      } else {
+        const mBaru = terapkanDetailKeMember(buildMember(updatedRow.nama, updatedRow.nik, waDigits), detail);
+        patchKk.anggota = [...kk.anggota, mBaru];
+        if (mBaru.filter === "kepala") patchKk.kepala = mBaru.name;
+      }
+      onKkUpdated(kk.id, patchKk);
+    }
+
+    setEditing(null);
+    flash("Data warga diperbarui — tersinkron di kedua portal.");
+  }
+
+  /* ---------- Hapus data warga yang sudah tidak dipakai ---------- */
+  async function handleHapus() {
+    const w = hapusTarget;
+    if (!w || simpanSedang) return;
+
+    // Baris: dedup by `id`/`idWarga` — cabang NIK hanya untuk baris TANPA
+    // `idWarga` (NIK ter-mask 8 digit bisa tabrak antar baris API → salah hapus).
+    const barisSisa = wargaRt.filter((x) => {
+      if (w.idWarga || x.idWarga) return x.id !== w.id && x.idWarga !== w.idWarga;
+      const nik = digitsOnly(w.nik);
+      return x.id !== w.id && !(nik && digitsOnly(x.nik) === nik);
+    });
+
+    // B13 · API-first: baris ber-ID server → server menghapus & `keluarga` dari
+    // respons (kepala/jumlah diperbaiki server-side) menjadi rujukan KK.
+    // OFFLINE (`null`) → lanjut jalur lokal mode demo; galat lain → flash + batal.
+    if (w.idWarga && onHapusWarga) {
+      setSimpanSedang(true);
+      try {
+        const hasil = await onHapusWarga(w.idWarga);
+        if (hasil) {
+          onWargaRtChange(barisSisa);
+          if (hasil.keluarga) onKkUpdated(hasil.keluarga.kk.id, keluargaKeKkData(hasil.keluarga));
+          setSelectedWarga((prev) => prev.filter((id) => id !== w.id));
+          setHapusTarget(null);
+          flash(`Data ${w.nama} (${w.alamat}) berhasil dihapus dari Data Warga.`);
+          return;
+        }
+      } catch (err) {
+        flash(err instanceof GalatApi ? err.message : "Gagal menghapus data warga.");
+        return;
+      } finally {
+        setSimpanSedang(false);
+      }
+    }
+
+    // 1) Baris Data Warga (baris murni kkList tidak ada di sini — dihapus di langkah 2).
+    onWargaRtChange(barisSisa);
+
+    // 2) Bila terpasang di kkList → hapus juga dari anggota keluarga (Portal Warga),
+    //    supaya barisnya tidak muncul lagi saat daftar warga digabung.
+    const link = linkFor(w, kkList);
+    const kk = link ? kkList.find((k) => k.id === link.kkId) : undefined;
+    if (link && kk && link.idx >= 0) {
+      const sisa = kk.anggota.filter((_, i) => i !== link.idx);
+      const patch: Partial<KkData> = { anggota: sisa };
+      if (kk.anggota[link.idx].filter === "kepala") patch.kepala = sisa[0]?.name ?? "";
+      onKkUpdated(kk.id, patch);
+    }
+
+    setSelectedWarga((prev) => prev.filter((id) => id !== w.id));
+    setHapusTarget(null);
+    flash(`Data ${w.nama} (${w.alamat}) berhasil dihapus dari Data Warga.`);
+  }
+
+  /* ---------- Undangan ---------- */
+  function markUndangan(ids: string[]) {
+    const next = [...wargaRt];
+    for (const id of ids) {
+      const row = rows.find((r) => r.id === id);
+      if (!row) continue;
+      const i = next.findIndex(
+        (x) =>
+          x.id === row.id ||
+          (digitsOnly(row.nik).length > 0 && digitsOnly(x.nik) === digitsOnly(row.nik))
+      );
+      if (i >= 0) {
+        next[i] = { ...next[i], statusPortal: "Undangan Dikirim", statusBadge: badgePortal("Undangan Dikirim") };
+      } else {
+        next.push({ ...row, statusPortal: "Undangan Dikirim", statusBadge: badgePortal("Undangan Dikirim") });
+      }
+    }
+    onWargaRtChange(next);
+  }
+
+  /** Galat API → pesan yang layak ditampilkan. OFFLINE tidak pernah sampai sini
+   *  (di-tangani fallback demo di App.tsx). */
+  function pesanGalatUndangan(err: unknown): string {
+    if (err instanceof GalatApi) return err.message;
+    return "Terjadi kesalahan tak terduga saat menerbitkan undangan.";
+  }
+
+  async function handleKirimUndangan(w: WargaRt) {
+    if (kirimSedang) return;
+    setKirimSedang(true);
+    try {
+      // API-first: server menerbitkan token `<id>.<kode>` (mencabut token lama);
+      // offline → daftar lokal mode demo. Galat API non-OFFLINE ditampilkan via flash.
+      const u = await onUndanganWarga({ nama: w.nama, alamat: w.alamat, noWa: w.noWa });
+      markUndangan([w.id]);
+      setKartuUndangan(u);
+      flash(`Kartu undangan ${w.nama} siap — bagikan link atau QR-nya.`);
+    } catch (err) {
+      flash(pesanGalatUndangan(err));
+    } finally {
+      setKirimSedang(false);
+    }
+  }
+
+  /* ---------- B5 · aksi undangan & akses portal (konfirmasi + anti klik-ganda) ---------- */
+
+  /** Token undangan tercatat untuk baris ini — dipasangkan lewat no. HP (satu token aktif per warga). */
+  const tokenUntuk = (w: WargaRt): Undangan | undefined =>
+    undangan.find((u) => digitsOnly(u.noWa) === digitsOnly(w.noWa) && u.status !== "Dipakai");
+
+  /** Aksi B5 yang sah untuk Status Portal baris ini (B4: kelima label). */
+  function aksiAkses(w: WargaRt): Array<{ jenis: AksiAkses; label: string; ikon: string }> {
+    switch (w.statusPortal) {
+      case "Undangan Dikirim":
+      case "Kedaluwarsa":
+        return [
+          { jenis: "kirim-ulang", label: "Kirim Ulang", ikon: "forward_to_inbox" },
+          { jenis: "cabut", label: "Cabut", ikon: "block" },
+        ];
+      case "Aktif":
+        return [{ jenis: "nonaktifkan", label: "Nonaktifkan", ikon: "person_off" }];
+      case "Dinonaktifkan":
+        return [{ jenis: "aktifkan", label: "Aktifkan", ikon: "person_check" }];
+      default:
+        return []; // "Belum Aktif" → tombol Undangan (penerbitan baru, tanpa konfirmasi)
+    }
+  }
+
+  /** Teks konfirmasi per aksi — selalu menyebutkan sasaran & akibatnya. */
+  function infoAksiAkses(jenis: AksiAkses, w: WargaRt) {
+    switch (jenis) {
+      case "kirim-ulang":
+        return {
+          judul: "Kirim Ulang Undangan?",
+          pesan: `Token lama ${w.nama} akan dicabut dan tautan baru dikirim ke ${fmtWa(w.noWa)}.`,
+          ikon: "forward_to_inbox",
+          aksen: "primary" as const,
+          labelYa: "Kirim Ulang",
+        };
+      case "cabut":
+        return {
+          judul: "Cabut Undangan?",
+          pesan: `Tautan aktivasi ${w.nama} tidak lagi berlaku — warga memerlukan undangan baru untuk masuk portal.`,
+          ikon: "block",
+          aksen: "error" as const,
+          labelYa: "Ya, Cabut",
+        };
+      case "nonaktifkan":
+        return {
+          judul: "Nonaktifkan Akses Portal?",
+          pesan: `${w.nama} tidak dapat masuk Portal Warga sampai akses diaktifkan kembali; sesi login yang sedang berjalan ikut dicabut. Data warga TIDAK dihapus.`,
+          ikon: "person_off",
+          aksen: "error" as const,
+          labelYa: "Nonaktifkan",
+        };
+      default:
+        return {
+          judul: "Aktifkan Kembali Akses?",
+          pesan: `Akses portal ${w.nama} dibuka kembali — kredensial login yang sudah ada tetap dipakai.`,
+          ikon: "person_check",
+          aksen: "primary" as const,
+          labelYa: "Aktifkan",
+        };
+    }
+  }
+
+  /** Perbarui label Status Portal satu baris (baris murni KK disalin dulu ke daftar RT). */
+  function tandaiStatusPortal(w: WargaRt, label: string) {
+    const badge = badgePortal(label);
+    const i = wargaRt.findIndex(
+      (x) =>
+        x.id === w.id ||
+        (!!w.idWarga && x.idWarga === w.idWarga) ||
+        (digitsOnly(w.nik).length > 0 && digitsOnly(x.nik) === digitsOnly(w.nik)),
+    );
+    if (i >= 0) {
+      const next = [...wargaRt];
+      next[i] = { ...next[i], statusPortal: label, statusBadge: badge };
+      onWargaRtChange(next);
+    } else {
+      onWargaRtChange([...wargaRt, { ...w, statusPortal: label, statusBadge: badge }]);
+    }
+  }
+
+  /**
+   * Jalankan aksi B5 yang sudah dikonfirmasi. `aksiSedang` menahan klik ganda
+   * selama API berjalan; galat server MEMBIARKAN dialog terbuka (pengguna bisa
+   * membatalkan) dan ditampilkan lewat `flash` — tidak pernah menyamar sukses.
+   */
+  async function jalankanAksi() {
+    const target = konfirmasiAksi;
+    if (!target || aksiSedang) return;
+    const { jenis, warga: w } = target;
+    setAksiSedang(true);
+    try {
+      if (jenis === "kirim-ulang") {
+        const token = tokenUntuk(w);
+        const hasil =
+          token && RE_UUID.test(token.id) && onKirimUlangUndangan
+            ? await onKirimUlangUndangan(token.id)
+            : null;
+        if (!hasil) {
+          // Token tak tercatat / OFFLINE → rute penerbitan biasa; server melakukan
+          // hal yang sama (cabut token 'menunggu' + terbitkan tautan segar).
+          setKonfirmasiAksi(null);
+          await handleKirimUndangan(w);
+          return;
+        }
+        setKonfirmasiAksi(null);
+        tandaiStatusPortal(w, "Undangan Dikirim");
+        setKartuUndangan(hasil);
+        flash(`Undangan ${w.nama} dikirim ulang — tautan lama sudah dicabut.`);
+        return;
+      }
+
+      if (jenis === "cabut") {
+        const token = tokenUntuk(w);
+        setKonfirmasiAksi(null);
+        if (!token) {
+          flash(`Tidak ada undangan aktif untuk ${w.nama}.`);
+          return;
+        }
+        // ID server (UUID) → cabut di server; entri demo → cabut lokal (mode demo).
+        if (RE_UUID.test(token.id) && onCabutUndangan) await onCabutUndangan(token.id);
+        tandaiStatusPortal(w, "Belum Aktif");
+        flash(`Undangan ${w.nama} dicabut — tautan tidak lagi berlaku.`);
+        return;
+      }
+
+      // nonaktifkan / aktifkan — status server jadi rujukan label FE (B4).
+      const tujuan = jenis === "nonaktifkan" ? "dinonaktifkan" : "aktif";
+      const hasil =
+        w.idWarga && onUbahAksesWarga ? await onUbahAksesWarga(w.idWarga, tujuan) : null;
+      setKonfirmasiAksi(null);
+      // `null` (OFFLINE / baris demo) → status diubah lokal seperti mode demo.
+      const label = hasil
+        ? statusAksesKePortal(hasil)
+        : tujuan === "dinonaktifkan"
+          ? "Dinonaktifkan"
+          : "Aktif";
+      tandaiStatusPortal(w, label);
+      flash(
+        tujuan === "dinonaktifkan"
+          ? `Akses portal ${w.nama} dinonaktifkan${hasil ? " — sesi login warga ikut dicabut" : ""}.`
+          : `Akses portal ${w.nama} diaktifkan kembali.`,
+      );
+    } catch (err) {
+      flash(err instanceof GalatApi ? err.message : "Permintaan gagal diproses — coba lagi.");
+    } finally {
+      setAksiSedang(false);
+    }
+  }
+
+  /* ---------- Upload & template ---------- */
+  function handleUnduhTemplate() {
+    const header = "Nama,NIK,No. KK,Alamat,No. WA,Email";
+    const contoh = [
+      "Budi Santoso,3171050101050011,3171050101050010,Blok A1 No. 1,081234567890,budi@email.com",
+      "Siti Aminah,3171050202060022,3171050101050011,Blok B2 No. 14,081398765432,siti@email.com",
+    ].join("\n");
+    downloadText("template-data-warga.csv", `${header}\n${contoh}`);
+    flash("Template CSV data warga berhasil diunduh.");
+  }
+
+  function handleImportFile() {
+    if (!uploadFileName) {
+      flash("Pilih file CSV/XLSX terlebih dahulu.");
+      return;
+    }
+    flash(`File "${uploadFileName}" berhasil diimpor — data warga ditambahkan.`);
+    setUploadFileName("");
+    setShowUploadModal(false);
+  }
+
+  /* ---------- Seleksi & filter ---------- */
+  function toggleSelectWarga(id: string) {
+    setSelectedWarga((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleSelectAll() {
+    if (selectedWarga.length === filtered.length) {
+      setSelectedWarga([]);
+    } else {
+      setSelectedWarga(filtered.map((w) => w.id));
+    }
+  }
+
+  const filtered = rows.filter((w) => {
+    const matchSearch = search === "" || w.nama.toLowerCase().includes(search.toLowerCase()) || w.nik.includes(search) || w.alamat.toLowerCase().includes(search.toLowerCase());
+    const matchFilter =
+      filterType === "all" ||
+      (filterType === "aktif" && w.statusPortal === "Aktif") ||
+      (filterType === "belum-aktif" && w.statusPortal === "Belum Aktif") ||
+      (filterType === "undangan" && w.statusPortal === "Undangan Dikirim") ||
+      (filterType === "kedaluwarsa" && w.statusPortal === "Kedaluwarsa") ||
+      (filterType === "dinonaktifkan" && w.statusPortal === "Dinonaktifkan");
+    return matchSearch && matchFilter;
+  });
+
+  // ---- F-5 · B11/B20: verifikasi ajuan perubahan data warga ----
+  const antreanAjuan = ajuan.filter((a) => a.status === "menunggu");
+
+  /** ISO server → `"12 Sep 2026"`; null/invalid → `"-"`. */
+  function tglPanjang(iso: string | null): string {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? "-"
+      : d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  const setujuiAjuan = async (a: AjuanPerubahanRt) => {
+    if (prosesAjuan) return;
+    setProsesAjuan(true);
+    try {
+      await onVerifikasiAjuan?.(a.id, "setujui");
+      flash(`Pengajuan perubahan data ${a.namaWarga} disetujui — status tersinkron ke portal warga.`);
+    } catch (e) {
+      flash(`Gagal menyetujui pengajuan: ${e instanceof GalatApi ? e.message : "periksa koneksi"}`);
+    } finally {
+      setProsesAjuan(false);
+    }
+  };
+
+  const tolakAjuanTerpilih = async () => {
+    if (!ajuanDitolak || prosesAjuan) return;
+    const alasan = alasanTolak.trim();
+    if (alasan.length < 3) {
+      flash("Alasan penolakan wajib diisi (min. 3 karakter).");
+      return;
+    }
+    const target = ajuanDitolak;
+    setProsesAjuan(true);
+    try {
+      await onVerifikasiAjuan?.(target.id, "tolak", alasan);
+      setAjuanDitolak(null);
+      setAlasanTolak("");
+      flash(`Pengajuan ${target.namaWarga} ditolak — catatan terbaca di portal warga.`);
+    } catch (e) {
+      flash(`Gagal menolak pengajuan: ${e instanceof GalatApi ? e.message : "periksa koneksi"}`);
+    } finally {
+      setProsesAjuan(false);
+    }
+  };
+
+  const kpiData = [
+    { label: "Total Warga", value: String(rows.length), icon: "groups", color: "bg-primary-container text-on-primary-container" },
+    { label: "KK Terdaftar", value: String(new Set(rows.map((r) => noKkNorm(r.noKk))).size), icon: "badge", color: "bg-secondary-container text-on-secondary-container" },
+    { label: "Warga Aktif Portal", value: String(rows.filter((r) => r.statusPortal === "Aktif").length), icon: "smartphone", color: "bg-tertiary-container text-on-tertiary-container" },
+    { label: "Undangan Terkirim", value: String(rows.filter((r) => r.statusPortal === "Undangan Dikirim").length), icon: "mail", color: "bg-error-container/40 text-on-error-container" },
+  ];
+
+  return (
+    <div className="max-w-7xl mx-auto w-full space-y-6">
+      {/* Toast */}
+      {toast}
+
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1.5 text-sm text-on-surface-variant">
+        <button type="button" className="hover:text-primary transition-colors flex items-center gap-1" onClick={() => onNavigate?.("dashboard-rt")}><span className="material-symbols-outlined text-[16px]">home</span>
+          Portal RT
+        </button>
+        <span className="material-symbols-outlined text-[14px]">chevron_right</span>
+        <span className="font-bold text-on-surface">Data Warga</span>
+      </div>
+
+      {/* Header */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+        <div className="max-w-3xl space-y-1.5">
+          <div className="inline-flex items-center gap-1.5 text-primary text-sm font-bold uppercase tracking-wider">
+            <span className="material-symbols-outlined text-[16px]">group</span>
+            Administrasi Kependudukan Warga
+          </div>
+          <h1 className="text-2xl lg:text-[32px] text-on-surface tracking-tight font-extrabold">
+            Data Warga {tenant.label}
+          </h1>
+          <p className="text-sm text-on-surface-variant leading-relaxed">
+            Kelola data seluruh warga {tenant.rtFull} {tenant.rwFull}, termasuk verifikasi identitas, status aktivasi portal, dan pengiriman undangan digital.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          {/* B6 · kotak masuk keamanan — hanya bila server punya temuan (OFFLINE → tak pernah tampil). */}
+          {temuan && temuan.length > 0 && (
+            <button
+              className="h-11 px-4 rounded-xl bg-error-container text-on-error-container text-sm font-bold shadow-sm hover:opacity-90 transition-all flex items-center gap-2"
+              onClick={() => setLihatTemuan(true)}
+            >
+              <span className="material-symbols-outlined text-[20px]">gpp_maybe</span>
+              {temuan.length} Perlu Perhatian
+            </button>
+          )}
+          <button
+            className="h-11 px-5 rounded-xl bg-surface-container-lowest text-on-surface text-sm shadow-sm hover:shadow-md hover:bg-surface-container-low transition-all flex items-center gap-2"
+            onClick={() => setShowUploadModal(true)}
+          >
+            <span className="material-symbols-outlined text-primary text-[20px]">upload_file</span>
+            Upload Bulk
+          </button>
+          <button
+            className="h-11 px-5 rounded-xl bg-surface-container-lowest text-on-surface text-sm shadow-sm hover:shadow-md hover:bg-surface-container-low transition-all flex items-center gap-2"
+            onClick={() => setShowInviteModal(true)}
+          >
+            <span className="material-symbols-outlined text-tertiary text-[20px]">mail</span>
+            Kirim Undangan
+          </button>
+          <button
+            className="h-11 px-5 rounded-xl bg-primary text-on-primary text-sm shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2"
+            onClick={bukaInput}
+          >
+            <span className="material-symbols-outlined text-[20px]">group_add</span>
+            Tambah Data KK
+          </button>
+        </div>
+      </div>
+
+      {/* Keterangan sinkronisasi dua arah */}
+      <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-primary-container/25 border border-primary/15">
+        <span className="material-symbols-outlined text-primary text-[18px] mt-0.5 shrink-0">sync</span>
+        <p className="text-xs text-on-surface-variant leading-relaxed">
+          <strong className="text-on-surface">Data dapat diperbarui oleh pengurus RT maupun warga melalui Portal Warga (Data Keluarga).</strong>{" "}
+          Perubahan pada warga yang terdaftar di Kartu Keluarga akan tersinkron otomatis di kedua portal.
+        </p>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpiData.map((kpi) => (
+          <div key={kpi.label} className="bg-surface-container-lowest rounded-xl p-5 shadow-sm flex flex-col justify-between">
+            <div className="flex items-start justify-between">
+              <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">{kpi.label}</span>
+              <div className={`w-10 h-10 rounded-full ${kpi.color} flex items-center justify-center`}>
+                <span className="material-symbols-outlined text-[22px]">{kpi.icon}</span>
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="text-2xl font-extrabold text-on-surface">{kpi.value}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* F-5 · B11/B20 — Antrean verifikasi ajuan perubahan data warga */}
+      <div className="bg-surface-container-lowest rounded-xl shadow-sm p-5 flex flex-col gap-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-lg bg-primary-container text-on-primary-container flex items-center justify-center">
+              <span className="material-symbols-outlined text-[22px]">rule</span>
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-on-surface">Pengajuan Perubahan Data Warga</h2>
+              <p className="text-xs text-on-surface-variant">Verifikasi ajuan resmi KK dari Portal Warga (B11/B20)</p>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 rounded-full bg-primary-container/60 text-on-primary-container text-[11px] font-bold">
+            {antreanAjuan.length} Menunggu
+          </span>
+        </div>
+        {ajuan.length === 0 && (
+          <p className="text-xs text-on-surface-variant bg-surface-container-low rounded-xl p-4 text-center">
+            Belum ada pengajuan perubahan data dari warga.
+          </p>
+        )}
+        <div className="flex flex-col gap-3">
+          {ajuan.slice(0, 8).map((a) => {
+            const chip = KIRI_AJUAN[a.status];
+            return (
+              <div key={a.id} className="p-4 rounded-xl bg-surface-container-low flex flex-col md:flex-row md:items-start gap-3">
+                <div className="w-9 h-9 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-[18px]">person</span>
+                </div>
+                <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold text-on-surface">
+                        {a.namaWarga} <span className="font-normal text-on-surface-variant">• {a.hubungan}</span>
+                      </span>
+                      <span className="text-[11px] text-on-surface-variant">
+                        {a.alamat}{a.pengajuNama ? ` • diajukan oleh ${a.pengajuNama}` : ""}
+                      </span>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full ${chip.kelas} text-[11px] font-bold shrink-0`}>
+                      <span className="material-symbols-outlined text-[14px]">{chip.icon}</span>
+                      {LABEL_STATUS_AJUAN[a.status]}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface">
+                    <span className="px-2 py-0.5 rounded-md bg-surface-container-highest text-[11px] font-bold">{LABEL_JENIS_AJUAN[a.jenis]}</span>
+                    {a.namaAnggota && <span className="text-on-surface-variant">Untuk: {a.namaAnggota}</span>}
+                    <span className="text-on-surface-variant">Diajukan: {tglPanjang(a.diajukanPada)}</span>
+                  </div>
+                  {a.keterangan && (
+                    <p className="text-xs text-on-surface-variant leading-relaxed">{a.keterangan}</p>
+                  )}
+                  {a.catatanVerifikasi && a.status !== "menunggu" && (
+                    <p className="text-[11px] text-on-surface-variant italic">Catatan: {a.catatanVerifikasi}</p>
+                  )}
+                </div>
+                {a.status === "menunggu" && (
+                  <div className="flex md:flex-col gap-2 shrink-0">
+                    <button
+                      className="h-9 px-4 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container disabled:opacity-60 transition-colors"
+                      disabled={prosesAjuan}
+                      onClick={() => void setujuiAjuan(a)}
+                    >
+                      Setujui
+                    </button>
+                    <button
+                      className="h-9 px-4 rounded-lg bg-error-container/60 text-on-error-container text-xs font-bold hover:bg-error-container disabled:opacity-60 transition-colors"
+                      disabled={prosesAjuan}
+                      onClick={() => {
+                        setAjuanDitolak(a);
+                        setAlasanTolak("");
+                      }}
+                    >
+                      Tolak
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* F-5 · B20 — Modal alasan penolakan (catatan wajib — kontrak server) */}
+      {ajuanDitolak && (
+        <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest shadow-2xl p-6 flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-error-container/40 text-error flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[22px]">cancel</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">Tolak Pengajuan</h3>
+                  <p className="text-xs text-on-surface-variant">{ajuanDitolak.namaWarga} • {LABEL_JENIS_AJUAN[ajuanDitolak.jenis]}</p>
+                </div>
+              </div>
+              <button
+                className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface"
+                onClick={() => setAjuanDitolak(null)}
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+            <textarea
+              className="w-full p-3 rounded-xl bg-surface-container-low text-sm text-on-surface focus:outline-none focus:ring-2 focus:ring-error resize-none"
+              placeholder="Tuliskan alasan penolakan — warga akan melihat catatan ini di panel Status Pengajuan."
+              rows={3}
+              value={alasanTolak}
+              onChange={(e) => setAlasanTolak(e.target.value)}
+            />
+            <div className="flex items-center justify-end gap-3">
+              <button
+                className="h-10 px-4 rounded-xl bg-surface-container-high text-on-surface text-sm hover:bg-surface-container"
+                onClick={() => setAjuanDitolak(null)}
+              >
+                Batal
+              </button>
+              <button
+                className="h-10 px-5 rounded-xl bg-error text-on-error text-sm font-bold hover:opacity-90 disabled:opacity-60 transition-opacity"
+                disabled={prosesAjuan}
+                onClick={() => void tolakAjuanTerpilih()}
+              >
+                {prosesAjuan ? "Memproses…" : "Tolak Pengajuan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Search & Filter Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 p-4 rounded-xl bg-surface-container-lowest shadow-sm">
+        <div className="relative flex-1">
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant text-[20px]">search</span>
+          <input
+            className="w-full h-11 pl-11 pr-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+            placeholder="Cari berdasarkan nama, NIK, atau alamat..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {([
+            { key: "all", label: "Semua" },
+            { key: "aktif", label: "Aktif" },
+            { key: "belum-aktif", label: "Belum Aktif" },
+            { key: "undangan", label: "Undangan Dikirim" },
+            { key: "kedaluwarsa", label: "Kedaluwarsa" },
+            { key: "dinonaktifkan", label: "Dinonaktifkan" },
+          ] as const).map((f) => (
+            <button
+              key={f.key}
+              className={`px-3 py-1.5 rounded-lg text-xs transition-all ${
+                filterType === f.key
+                  ? "bg-primary text-on-primary font-semibold shadow-sm"
+                  : "bg-surface-container-high text-on-surface-variant hover:bg-surface-container"
+              }`}
+              onClick={() => setFilterType(f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-on-surface">
+            <thead className="bg-surface-container-low text-xs text-on-surface-variant uppercase tracking-wider">
+              <tr>
+                <th className="py-3 px-6 w-10">
+                  <input
+                    type="checkbox"
+                    className="rounded border-outline-variant text-primary focus:ring-primary"
+                    checked={filtered.length > 0 && selectedWarga.length === filtered.length}
+                    onChange={toggleSelectAll}
+                  />
+                </th>
+                <th className="py-3 px-4">Nama</th>
+                <th className="py-3 px-4">NIK</th>
+                <th className="py-3 px-4">No. KK</th>
+                <th className="py-3 px-4">Alamat</th>
+                <th className="py-3 px-4">Status Portal</th>
+                <th className="py-3 px-4">No. WA</th>
+                <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-6 text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-surface-container-high">
+              {filtered.map((warga) => (
+                <tr key={warga.id} className="hover:bg-surface-container-low/50 transition-colors">
+                  <td className="py-4 px-6">
+                    <input
+                      type="checkbox"
+                      className="rounded border-outline-variant text-primary focus:ring-primary"
+                      checked={selectedWarga.includes(warga.id)}
+                      onChange={() => toggleSelectWarga(warga.id)}
+                    />
+                  </td>
+                  <td className="py-4 px-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-xs shrink-0">
+                        {initialsOf(warga.nama)}
+                      </div>
+                      <div>
+                        <span className="text-sm font-bold text-on-surface block">{warga.nama}</span>
+                        <span className={`text-[11px] font-semibold ${warga.statusColor}`}>{warga.status}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className="text-xs font-mono text-on-surface">{maskedNik(warga.nik)}</span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className="text-xs font-mono text-on-surface">{maskedNoKk(warga.noKk)}</span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className="text-sm text-on-surface">{warga.alamat}</span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${warga.statusBadge}`}>
+                      <span className="w-2 h-2 rounded-full bg-current opacity-60" />
+                      {warga.statusPortal}
+                    </span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className="text-xs font-mono text-on-surface">{fmtWa(warga.noWa)}</span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className="text-xs text-on-surface-variant">{warga.status}</span>
+                  </td>
+                  <td className="py-4 px-6 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                        onClick={() => openEdit(warga)}
+                      >
+                        <span className="material-symbols-outlined text-[14px]">edit</span>
+                        Edit
+                      </button>
+                      <button
+                        className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                        onClick={() => setDetailWarga(warga)}
+                      >
+                        <span className="material-symbols-outlined text-[14px]">visibility</span>
+                        Detail
+                      </button>
+                      <button
+                        className="h-8 px-3 rounded-lg bg-error-container/30 text-error hover:bg-error-container hover:text-on-error-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                        onClick={() => setHapusTarget(warga)}
+                      >
+                        <span className="material-symbols-outlined text-[14px]">delete</span>
+                        Hapus
+                      </button>
+                      {warga.statusPortal === "Belum Aktif" && (
+                        <button
+                          className="h-8 px-3 rounded-lg bg-tertiary-container/40 text-on-tertiary-container hover:bg-tertiary-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                          onClick={() => handleKirimUndangan(warga)}
+                        >
+                          <span className="material-symbols-outlined text-[14px]">qr_code_2</span>
+                          Undangan
+                        </button>
+                      )}
+                      {/* B5 · aksi undangan/akses sesuai Status Portal (konfirmasi dulu). */}
+                      {aksiAkses(warga).map((a) => (
+                        <button
+                          key={a.jenis}
+                          className={`h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors disabled:opacity-60 ${AKSES_KELAS[a.jenis]}`}
+                          disabled={aksiSedang}
+                          onClick={() => setKonfirmasiAksi({ jenis: a.jenis, warga })}
+                        >
+                          <span className="material-symbols-outlined text-[14px]">{a.ikon}</span>
+                          {a.label}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="py-4">
+                    <EmptyState
+                      icon="person_search"
+                      judul="Data warga tidak ditemukan"
+                      pesan="Ubah kata kunci pencarian untuk melihat data warga lain."
+                    />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-6 py-3 border-t border-surface-container-high flex items-center justify-between text-xs text-on-surface-variant">
+          <span>Menampilkan {filtered.length} dari {rows.length} warga terdaftar</span>
+          <span className="font-semibold">Halaman 1 dari 1</span>
+        </div>
+      </div>
+
+      {/* Modal: Input Manual */}
+      {showInputModal && (
+        <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg mx-4 sm:mx-auto rounded-2xl bg-surface-container-lowest shadow-2xl p-6 flex flex-col gap-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-container flex items-center justify-center text-on-primary-container">
+                  <span className="material-symbols-outlined text-[22px]">group_add</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">Tambah Data KK</h3>
+                  <p className="text-xs text-on-surface-variant">1 Kartu Keluarga — beberapa NIK (Kepala, Istri, Anak, …)</p>
+                </div>
+              </div>
+              <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={tutupInput}>
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitKk} className="flex flex-col gap-5">
+              {/* ===== Data Kartu Keluarga ===== */}
+              <div className="flex flex-col gap-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-primary">Data Kartu Keluarga</p>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-on-surface-variant">credit_card</span>
+                    No. KK (16 Digit)
+                  </label>
+                  <input
+                    className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface font-mono focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.noKk ? "ring-2 ring-error" : ""}`}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={16}
+                    placeholder="317105..."
+                    value={formKk.noKk}
+                    onChange={(e) => ubahFormKk("noKk", e.target.value.replace(/\D/g, "").slice(0, 16))}
+                  />
+                  {formErrors.noKk && <span className="text-xs text-error font-semibold">{formErrors.noKk}</span>}
+                </div>
+              </div>
+
+              {/* Alamat: pilih yang sudah ada (1 alamat > 1 KK) atau alamat baru */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[16px] text-on-surface-variant">home</span>
+                  Alamat
+                </label>
+                <select
+                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) ubahFormKk("alamat", e.target.value);
+                  }}
+                >
+                  <option value="">— Pilih alamat terdaftar (opsional) —</option>
+                  {alamatOptions.map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+                <input
+                  className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.alamat ? "ring-2 ring-error" : ""}`}
+                  type="text"
+                  placeholder="Blok XX No. YY (alamat baru) atau hasil pilihan di atas"
+                  value={formKk.alamat}
+                  onChange={(e) => ubahFormKk("alamat", e.target.value)}
+                />
+                {formErrors.alamat && <span className="text-xs text-error font-semibold">{formErrors.alamat}</span>}
+                <span className="text-[11px] text-on-surface-variant flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[14px] text-tertiary">groups</span>
+                  Satu alamat dapat menampung lebih dari satu KK (Multi-KK).
+                </span>
+              </div>
+
+              {/* ===== Anggota Keluarga (1 KK — beberapa NIK) ===== */}
+              <div className="flex flex-col gap-3 border-t border-surface-container-high pt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                    Anggota Keluarga — {anggotaBaru.length} NIK
+                  </p>
+                  <span className="text-[11px] text-on-surface-variant">Kepala &bull; Istri &bull; Anak &bull; lainnya</span>
+                </div>
+
+                {anggotaBaru.map((a, i) => (
+                  <div key={i} className="rounded-2xl border border-outline-variant/40 bg-surface-container-low/60 p-4 flex flex-col gap-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-6 h-6 shrink-0 rounded-full bg-primary-container text-on-primary text-[11px] font-bold flex items-center justify-center">{i + 1}</span>
+                        <span className="text-xs font-bold text-on-surface">Anggota {i + 1}</span>
+                        {a.hubungan && <span className="text-[11px] text-on-surface-variant truncate">— {a.hubungan}</span>}
+                      </div>
+                      {anggotaBaru.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => hapusAnggotaBaris(i)}
+                          className="h-7 px-2 rounded-lg text-error text-[11px] font-bold flex items-center gap-1 hover:bg-error-container/40 transition-colors shrink-0"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">person_remove</span>
+                          Hapus
+                        </button>
+                      )}
+                    </div>
+
+                    {/* NIK & Nama */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">badge</span>
+                          NIK (16 Digit)
+                        </label>
+                        <input
+                          className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface font-mono focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors[`nik-${i}`] ? "ring-2 ring-error" : ""}`}
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={16}
+                          placeholder="317105..."
+                          value={a.nik}
+                          onChange={(e) => ubahAnggota(i, "nik", e.target.value.replace(/\D/g, "").slice(0, 16))}
+                        />
+                        {formErrors[`nik-${i}`] && <span className="text-xs text-error font-semibold">{formErrors[`nik-${i}`]}</span>}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">person</span>
+                          Nama Lengkap
+                        </label>
+                        <input
+                          className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors[`nama-${i}`] ? "ring-2 ring-error" : ""}`}
+                          type="text"
+                          placeholder="Masukkan nama lengkap"
+                          value={a.nama}
+                          onChange={(e) => ubahAnggota(i, "nama", e.target.value)}
+                        />
+                        {formErrors[`nama-${i}`] && <span className="text-xs text-error font-semibold">{formErrors[`nama-${i}`]}</span>}
+                      </div>
+                    </div>
+
+                    {/* Hubungan & Jenis Kelamin */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">family_restroom</span>
+                          Hubungan
+                        </label>
+                        <select
+                          className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors[`hubungan-${i}`] ? "ring-2 ring-error" : ""}`}
+                          value={a.hubungan}
+                          onChange={(e) => ubahAnggota(i, "hubungan", e.target.value)}
+                        >
+                          <option value="">Pilih hubungan</option>
+                          {hubunganOpsi.map((h) => (
+                            <option key={h} value={h}>{h}</option>
+                          ))}
+                        </select>
+                        {formErrors[`hubungan-${i}`] && <span className="text-xs text-error font-semibold">{formErrors[`hubungan-${i}`]}</span>}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">person</span>
+                          Jenis Kelamin
+                        </label>
+                        <select
+                          className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                          value={a.jenisKelamin}
+                          onChange={(e) => ubahAnggota(i, "jenisKelamin", e.target.value)}
+                        >
+                          <option value="">Pilih jenis kelamin</option>
+                          {jenisKelaminOpsi.map((j) => (
+                            <option key={j} value={j}>{j}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Agama & Tanggal Lahir */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">church</span>
+                          Agama
+                        </label>
+                        <select
+                          className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                          value={a.agama}
+                          onChange={(e) => ubahAnggota(i, "agama", e.target.value)}
+                        >
+                          <option value="">Pilih agama</option>
+                          {agamaOpsi.map((g) => (
+                            <option key={g} value={g}>{g}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">cake</span>
+                          Tanggal Lahir
+                        </label>
+                        <input
+                          className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                          type="date"
+                          value={a.tglLahir}
+                          onChange={(e) => ubahAnggota(i, "tglLahir", e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Pekerjaan & No. WA */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">work</span>
+                          Pekerjaan
+                        </label>
+                        <input
+                          className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                          type="text"
+                          placeholder="Contoh: Karyawan Swasta"
+                          value={a.pekerjaan}
+                          onChange={(e) => ubahAnggota(i, "pekerjaan", e.target.value)}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">chat</span>
+                          No. WA (opsional)
+                        </label>
+                        <input
+                          className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface font-mono focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors[`noWa-${i}`] ? "ring-2 ring-error" : ""}`}
+                          type="tel"
+                          inputMode="numeric"
+                          maxLength={13}
+                          placeholder="08xxxxxxxxxx"
+                          value={a.waDigits}
+                          onChange={(e) => ubahAnggota(i, "waDigits", e.target.value.replace(/\D/g, "").slice(0, 13))}
+                        />
+                        {formErrors[`noWa-${i}`] && <span className="text-xs text-error font-semibold">{formErrors[`noWa-${i}`]}</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={tambahAnggota}
+                  className="h-11 rounded-xl border-2 border-dashed border-primary/40 text-primary text-sm font-bold flex items-center justify-center gap-2 hover:bg-primary-container/30 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[18px]">person_add</span>
+                  Tambah Anggota
+                </button>
+                {formErrors.anggota && <span className="text-xs text-error font-semibold">{formErrors.anggota}</span>}
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-surface-container-high">
+                <button
+                  type="button"
+                  className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors"
+                  onClick={tutupInput}
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={simpanSedang}
+                  className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60"
+                >
+                  <span className="material-symbols-outlined text-[18px]">save</span>
+                  Simpan Data KK
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Edit Data Warga */}
+      {editing && (
+        <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl mx-4 sm:mx-auto rounded-2xl bg-surface-container-lowest shadow-2xl p-6 flex flex-col gap-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-container flex items-center justify-center text-on-primary-container">
+                  <span className="material-symbols-outlined text-[22px]">edit</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">Edit Data Warga</h3>
+                  <p className="text-xs text-on-surface-variant">
+                    {linkFor(editing, kkList)
+                      ? "Tersinkron dengan Data Keluarga (Portal Warga)"
+                      : "Data lokal Portal RT"}
+                  </p>
+                </div>
+              </div>
+              <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={() => setEditing(null)}>
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-on-surface">Nama Lengkap</label>
+                <input
+                  className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${editErrors.nama ? "ring-2 ring-error" : ""}`}
+                  type="text"
+                  value={formEdit.nama}
+                  onChange={(e) => setFormEdit({ ...formEdit, nama: e.target.value })}
+                />
+                {editErrors.nama && <span className="text-xs text-error font-semibold">{editErrors.nama}</span>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">NIK (16 Digit)</label>
+                  <div className="relative">
+                    <input
+                      className={`w-full h-11 pl-4 pr-11 rounded-xl bg-surface-container-low text-sm text-on-surface font-mono focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${editErrors.nik ? "ring-2 ring-error" : ""}`}
+                      type={lihatNik ? "text" : "password"}
+                      inputMode="numeric"
+                      maxLength={16}
+                      autoComplete="off"
+                      value={formEdit.nik}
+                      onChange={(e) => setFormEdit({ ...formEdit, nik: e.target.value.replace(/\D/g, "").slice(0, 16) })}
+                    />
+                    <button
+                      type="button"
+                      aria-label={lihatNik ? "Sembunyikan NIK" : "Tampilkan NIK"}
+                      title={lihatNik ? "Sembunyikan NIK" : "Tampilkan NIK"}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+                      onClick={() => setLihatNik((v) => !v)}
+                    >
+                      <span className="material-symbols-outlined text-[20px]">{lihatNik ? "visibility_off" : "visibility"}</span>
+                    </button>
+                  </div>
+                  {editErrors.nik && <span className="text-xs text-error font-semibold">{editErrors.nik}</span>}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">No. KK (16 Digit)</label>
+                  <div className="relative">
+                    <input
+                      className={`w-full h-11 pl-4 pr-11 rounded-xl bg-surface-container-low text-sm text-on-surface font-mono focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${editErrors.noKk ? "ring-2 ring-error" : ""}`}
+                      type={lihatNoKk ? "text" : "password"}
+                      placeholder="317105... atau 3171-xxxx-xxxx-0988"
+                      autoComplete="off"
+                      value={formEdit.noKk}
+                      onChange={(e) => setFormEdit({ ...formEdit, noKk: e.target.value.replace(/[^0-9x-]/gi, "").slice(0, 19) })}
+                    />
+                    <button
+                      type="button"
+                      aria-label={lihatNoKk ? "Sembunyikan No. KK" : "Tampilkan No. KK"}
+                      title={lihatNoKk ? "Sembunyikan No. KK" : "Tampilkan No. KK"}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+                      onClick={() => setLihatNoKk((v) => !v)}
+                    >
+                      <span className="material-symbols-outlined text-[20px]">{lihatNoKk ? "visibility_off" : "visibility"}</span>
+                    </button>
+                  </div>
+                  {editErrors.noKk && <span className="text-xs text-error font-semibold">{editErrors.noKk}</span>}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-on-surface">Alamat</label>
+                <input
+                  className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${editErrors.alamat ? "ring-2 ring-error" : ""}`}
+                  type="text"
+                  value={formEdit.alamat}
+                  onChange={(e) => setFormEdit({ ...formEdit, alamat: e.target.value })}
+                />
+                {editErrors.alamat && <span className="text-xs text-error font-semibold">{editErrors.alamat}</span>}
+              </div>
+
+              {/* ===== 14 kolom data KK lengkap (bisa diperbaiki Pengurus RT) ===== */}
+              <p className="text-[11px] font-bold uppercase tracking-wider text-primary pt-1">Data Kartu Keluarga</p>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Tempat Lahir</label>
+                  <input
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    type="text"
+                    placeholder="Contoh: Jakarta"
+                    value={formEdit.tempatLahir}
+                    onChange={(e) => setFormEdit({ ...formEdit, tempatLahir: e.target.value })}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Tanggal Lahir</label>
+                  <input
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    type="date"
+                    value={formEdit.tglLahir}
+                    onChange={(e) => setFormEdit({ ...formEdit, tglLahir: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Jenis Kelamin</label>
+                  <select
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    value={formEdit.jenisKelamin}
+                    onChange={(e) => setFormEdit({ ...formEdit, jenisKelamin: e.target.value })}
+                  >
+                    <option value="">— Pilih —</option>
+                    {denganNilai(jenisKelaminOpsi, formEdit.jenisKelamin).map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Agama</label>
+                  <select
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    value={formEdit.agama}
+                    onChange={(e) => setFormEdit({ ...formEdit, agama: e.target.value })}
+                  >
+                    <option value="">— Pilih —</option>
+                    {denganNilai(agamaOpsi, formEdit.agama).map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Pendidikan</label>
+                  <select
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    value={formEdit.pendidikan}
+                    onChange={(e) => setFormEdit({ ...formEdit, pendidikan: e.target.value })}
+                  >
+                    <option value="">— Pilih —</option>
+                    {denganNilai(pendidikanOpsi, formEdit.pendidikan).map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Jenis Pekerjaan</label>
+                  <select
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    value={formEdit.pekerjaan}
+                    onChange={(e) => setFormEdit({ ...formEdit, pekerjaan: e.target.value })}
+                  >
+                    <option value="">— Pilih —</option>
+                    {denganNilai(pekerjaanOpsi, formEdit.pekerjaan).map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Golongan Darah</label>
+                  <select
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    value={formEdit.goldarah}
+                    onChange={(e) => setFormEdit({ ...formEdit, goldarah: e.target.value })}
+                  >
+                    <option value="">— Pilih —</option>
+                    {denganNilai(goldarahOpsi, formEdit.goldarah).map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Status Perkawinan</label>
+                  <select
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    value={formEdit.statusKawin}
+                    onChange={(e) => setFormEdit({ ...formEdit, statusKawin: e.target.value })}
+                  >
+                    <option value="">— Pilih —</option>
+                    {denganNilai(statusKawinOpsi, formEdit.statusKawin).map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Tanggal Perkawinan</label>
+                  <input
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    type="date"
+                    value={formEdit.tglKawin}
+                    onChange={(e) => setFormEdit({ ...formEdit, tglKawin: e.target.value })}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Status Hubungan dalam Keluarga</label>
+                  <select
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    value={formEdit.hubungan}
+                    onChange={(e) => setFormEdit({ ...formEdit, hubungan: e.target.value })}
+                  >
+                    <option value="">— Pilih —</option>
+                    {denganNilai(hubunganOpsi, formEdit.hubungan).map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">Warga Negara</label>
+                  <select
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                    value={formEdit.wargaNegara}
+                    onChange={(e) => setFormEdit({ ...formEdit, wargaNegara: e.target.value })}
+                  >
+                    <option value="">— Pilih —</option>
+                    {denganNilai(wargaNegaraOpsi, formEdit.wargaNegara).map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface">No. WA (10-13 Digit)</label>
+                  <input
+                    className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface font-mono focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${editErrors.noWa ? "ring-2 ring-error" : ""}`}
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={13}
+                    value={formEdit.noWa}
+                    onChange={(e) => setFormEdit({ ...formEdit, noWa: e.target.value.replace(/\D/g, "").slice(0, 13) })}
+                  />
+                  {editErrors.noWa && <span className="text-xs text-error font-semibold">{editErrors.noWa}</span>}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-on-surface">Status Portal</label>
+                <select
+                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                  value={formEdit.statusPortal}
+                  onChange={(e) => setFormEdit({ ...formEdit, statusPortal: e.target.value })}
+                >
+                  {/* B4 · kelima label status (kamus `statusAksesKePortal`) —
+                      `denganNilai` hanya menyiapkan nilai asing di luar kamus. */}
+                  {denganNilai(STATUS_PORTAL_OPSI, formEdit.statusPortal).map(
+                    (o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </div>
+
+              <div className="p-3 rounded-xl bg-primary-container/25 border border-primary/15 flex items-start gap-2">
+                <span className="material-symbols-outlined text-primary text-[16px] mt-0.5">sync</span>
+                <p className="text-xs text-on-surface-variant leading-relaxed">
+                  Perubahan akan tersimpan dan <strong className="text-on-surface">tersinkron di kedua portal</strong> bila warga ini terdaftar pada Kartu Keluarga (Data Keluarga).
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-surface-container-high">
+                <button type="button" className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors" onClick={() => setEditing(null)}>Batal</button>
+                <button type="submit" disabled={simpanSedang} className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60">
+                  <span className="material-symbols-outlined text-[18px]">save</span>
+                  Simpan Perubahan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Konfirmasi Hapus Data Warga */}
+      {hapusTarget && (
+        <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-surface-container-lowest shadow-2xl p-6 flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-error-container/40 flex items-center justify-center text-error shrink-0">
+                <span className="material-symbols-outlined text-[22px]">delete</span>
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-on-surface">Hapus Data Warga?</h3>
+                <p className="text-xs text-on-surface-variant">Data yang sudah tidak dipakai akan dihapus permanen.</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-surface-container-low flex flex-col gap-1.5">
+              <span className="text-sm font-bold text-on-surface">{hapusTarget.nama}</span>
+              <span className="text-xs text-on-surface-variant break-all">
+                {hapusTarget.alamat} &bull; {maskedNoKk(hapusTarget.noKk)}
+              </span>
+            </div>
+
+            <p className="text-xs text-on-surface-variant leading-relaxed">
+              Warga ini akan dihapus dari <strong className="text-on-surface">Data Warga</strong> dan dari
+              <strong className="text-on-surface"> Data Keluarga</strong> (bila terpasang pada Kartu Keluarga).
+              Riwayat surat &amp; pembayaran tetap tersimpan.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-surface-container-high">
+              <button
+                className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors"
+                onClick={() => setHapusTarget(null)}
+              >
+                Batal
+              </button>
+              <button
+                disabled={simpanSedang}
+                className="h-11 px-6 rounded-xl bg-error text-on-error text-sm font-bold shadow-md hover:opacity-90 active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60"
+                onClick={handleHapus}
+              >
+                <span className="material-symbols-outlined text-[18px]">delete</span>
+                Ya, Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Detail Warga */}
+      {detailWarga && (() => {
+        const w = detailWarga;
+        const link = linkFor(w, kkList);
+        const kk = link ? kkList.find((k) => k.id === link.kkId) : undefined;
+        const riwayat: { icon: string; text: string }[] = [];
+        if (link && kk) {
+          riwayat.push({ icon: "sync", text: `Tersinkron dengan Data Keluarga — KK ${maskedNoKk(kk.noKk)} (Kepala: ${kk.kepala}).` });
+        } else {
+          riwayat.push({ icon: "person_add", text: `Terdaftar langsung di basis data ${tenant.rtFull} (input manual Pengurus RT).` });
+        }
+        if (w.statusPortal === "Aktif") {
+          riwayat.push({ icon: "check_circle", text: "Akun portal warga aktif — dapat mengakses layanan mandiri." });
+        } else if (w.statusPortal === "Undangan Dikirim") {
+          const u = undangan.find((x) => digitsOnly(x.noWa) === digitsOnly(w.noWa));
+          riwayat.push({
+            icon: "mail",
+            text: u
+              ? u.status === "Dipakai"
+                ? "Undangan sudah dikonfirmasi warga — akses portal terbuka."
+                : `Undangan aktifasi dibuat — link & QR siap dibagikan, berlaku s/d ${u.berlakuSampai} (status ${u.status}).`
+              : "Undangan aktivasi portal dikirim ke warga lewat WhatsApp.",
+          });
+        } else {
+          riwayat.push({ icon: "schedule", text: "Akun portal belum aktif — kirim undangan untuk aktivasi." });
+        }
+        riwayat.push({ icon: "history", text: `Data tercatat dalam administrasi kependudukan ${tenant.label}.` });
+        return (
+          <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-lg mx-4 sm:mx-auto rounded-2xl bg-surface-container-lowest shadow-2xl p-6 flex flex-col gap-5 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-xs">
+                    {initialsOf(w.nama)}
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-on-surface">{w.nama}</h3>
+                    <p className="text-xs text-on-surface-variant">{w.status} &bull; {w.alamat}</p>
+                  </div>
+                </div>
+                <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={() => setDetailWarga(null)}>
+                  <span className="material-symbols-outlined text-[18px]">close</span>
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-surface-container-low gap-3">
+                  <span className="text-sm text-on-surface-variant shrink-0">NIK</span>
+                  <span className="text-sm font-bold text-on-surface font-mono break-all text-right">{maskedNik(w.nik)}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-surface-container-low gap-3">
+                  <span className="text-sm text-on-surface-variant shrink-0">No. KK</span>
+                  <span className="text-sm font-bold text-on-surface font-mono break-all text-right">{maskedNoKk(w.noKk)}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-surface-container-low gap-3">
+                  <span className="text-sm text-on-surface-variant shrink-0">Alamat</span>
+                  <span className="text-sm font-bold text-on-surface text-right">{w.alamat}, {tenant.label}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-surface-container-low gap-3">
+                  <span className="text-sm text-on-surface-variant shrink-0">No. WA</span>
+                  <span className="text-sm font-bold text-on-surface font-mono text-right">{fmtWa(w.noWa)}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-surface-container-low gap-3">
+                  <span className="text-sm text-on-surface-variant shrink-0">Status Portal</span>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${w.statusBadge}`}>
+                    <span className="w-2 h-2 rounded-full bg-current opacity-60" />
+                    {w.statusPortal}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-surface-container-low gap-3">
+                  <span className="text-sm text-on-surface-variant shrink-0">Peran / Status</span>
+                  <span className={`text-sm font-bold text-right ${w.statusColor}`}>{w.status}</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-surface-container-low flex flex-col gap-2.5">
+                <div className="flex items-center gap-2 text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+                  <span className="material-symbols-outlined text-[16px] text-primary">history</span>
+                  Riwayat Singkat
+                </div>
+                <ul className="flex flex-col gap-2">
+                  {riwayat.map((r, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-on-surface-variant leading-relaxed">
+                      <span className="material-symbols-outlined text-[15px] text-primary mt-0.5 shrink-0">{r.icon}</span>
+                      {r.text}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-surface-container-high">
+                <button className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors" onClick={() => setDetailWarga(null)}>Tutup</button>
+                {w.statusPortal === "Belum Aktif" && (
+                  <button
+                    className="h-11 px-5 rounded-xl bg-tertiary-container/60 text-on-tertiary-container text-sm font-bold shadow-md hover:bg-tertiary-container active:scale-[0.98] transition-all flex items-center gap-2"
+                    onClick={() => { const w2 = detailWarga; setDetailWarga(null); handleKirimUndangan(w2); }}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">qr_code_2</span>
+                    Undangan
+                  </button>
+                )}
+                {/* B5 · aksi sesuai Status Portal — modal ditutup dulu, lalu konfirmasi. */}
+                {aksiAkses(w).map((a) => (
+                  <button
+                    key={a.jenis}
+                    className={`h-11 px-5 rounded-xl text-sm font-bold shadow-md active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60 ${AKSES_KELAS[a.jenis]}`}
+                    disabled={aksiSedang}
+                    onClick={() => { const w2 = detailWarga; setDetailWarga(null); setKonfirmasiAksi({ jenis: a.jenis, warga: w2 }); }}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">{a.ikon}</span>
+                    {a.label}
+                  </button>
+                ))}
+                <button
+                  className="h-11 px-5 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2"
+                  onClick={() => { const w2 = detailWarga; setDetailWarga(null); openEdit(w2); }}
+                >
+                  <span className="material-symbols-outlined text-[18px]">edit</span>
+                  Edit Data
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal: Upload Bulk */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg mx-4 sm:mx-auto rounded-2xl bg-surface-container-lowest shadow-2xl p-6 flex flex-col gap-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-secondary-container/40 flex items-center justify-center text-on-secondary-container">
+                  <span className="material-symbols-outlined text-[22px]">upload_file</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">Upload Bulk Data Warga</h3>
+                  <p className="text-xs text-on-surface-variant">Import data warga dari file CSV atau XLSX</p>
+                </div>
+              </div>
+              <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={() => { setShowUploadModal(false); setUploadFileName(""); }}>
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            {/* Template Download */}
+            <div className="p-4 rounded-xl bg-surface-container-low flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="material-symbols-outlined text-primary text-[24px] shrink-0">description</span>
+                <div className="min-w-0">
+                  <span className="text-sm font-bold text-on-surface block">Template CSV Data Warga</span>
+                  <span className="text-xs text-on-surface-variant">Format: Nama, NIK, No. KK, Alamat, No. WA, Email</span>
+                </div>
+              </div>
+              <button
+                className="h-9 px-3 rounded-lg bg-primary-container text-on-primary text-xs font-bold hover:bg-primary hover:text-on-primary transition-colors flex items-center gap-1 shrink-0"
+                onClick={handleUnduhTemplate}
+              >
+                <span className="material-symbols-outlined text-[16px]">download</span>
+                Unduh Template
+              </button>
+            </div>
+
+            {/* Upload Area */}
+            <label
+              htmlFor="file-upload"
+              className="border-2 border-dashed border-outline-variant hover:border-primary rounded-xl p-8 text-center bg-surface-container-low/50 cursor-pointer transition-colors block"
+            >
+              <span className="material-symbols-outlined text-primary text-[48px] block">cloud_upload</span>
+              <span className="text-sm text-on-surface font-bold mt-2 block">Klik untuk memilih file atau seret ke sini</span>
+              <span className="text-xs text-on-surface-variant block mt-1">Format yang didukung: CSV, XLSX (Maksimal 5 MB)</span>
+              {uploadFileName && (
+                <span className="text-xs text-primary font-bold block mt-2 break-all">
+                  <span className="material-symbols-outlined text-[14px] align-middle">attach_file</span>{" "}
+                  {uploadFileName}
+                </span>
+              )}
+            </label>
+            <input
+              id="file-upload"
+              type="file"
+              accept=".csv,.xlsx"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setUploadFileName(f.name);
+              }}
+            />
+
+            {/* Preview Table */}
+            <div className="rounded-xl border border-surface-container-high overflow-hidden">
+              <div className="px-4 py-3 bg-surface-container-low text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+                Preview Data (3 baris pertama)
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-surface-container-lowest text-on-surface-variant">
+                    <tr>
+                      <th className="py-2 px-4">Nama</th>
+                      <th className="py-2 px-4">NIK</th>
+                      <th className="py-2 px-4">No. KK</th>
+                      <th className="py-2 px-4">Alamat</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-container-high text-on-surface">
+                    <tr className="bg-surface-container-low/30">
+                      <td className="py-2 px-4 font-semibold">Contoh Warga 1</td>
+                      <td className="py-2 px-4 font-mono">317105010105XXXX</td>
+                      <td className="py-2 px-4 font-mono">317105010105XXXX</td>
+                      <td className="py-2 px-4">Blok A1 No. 1</td>
+                    </tr>
+                    <tr className="bg-surface-container-low/30">
+                      <td className="py-2 px-4 font-semibold">Contoh Warga 2</td>
+                      <td className="py-2 px-4 font-mono">317105010105XXXX</td>
+                      <td className="py-2 px-4 font-mono">317105010105XXXX</td>
+                      <td className="py-2 px-4">Blok B2 No. 14</td>
+                    </tr>
+                    <tr className="bg-surface-container-low/30">
+                      <td className="py-2 px-4 font-semibold">Contoh Warga 3</td>
+                      <td className="py-2 px-4 font-mono">317105010105XXXX</td>
+                      <td className="py-2 px-4 font-mono">317105010105XXXX</td>
+                      <td className="py-2 px-4">Blok C1 No. 8</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors"
+                onClick={() => { setShowUploadModal(false); setUploadFileName(""); }}
+              >
+                Batal
+              </button>
+              <button
+                className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2"
+                onClick={handleImportFile}
+              >
+                <span className="material-symbols-outlined text-[18px]">upload_file</span>
+                Import Data
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Kirim Undangan */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg mx-4 sm:mx-auto rounded-2xl bg-surface-container-lowest shadow-2xl p-6 flex flex-col gap-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-tertiary-container/40 flex items-center justify-center text-on-tertiary-container">
+                  <span className="material-symbols-outlined text-[22px]">mail</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">Kirim Undangan Portal</h3>
+                  <p className="text-xs text-on-surface-variant">Pilih warga untuk mengirim undangan aktivasi portal</p>
+                </div>
+              </div>
+              <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={() => { setShowInviteModal(false); setSelectedWarga([]); }}>
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            {/* Select Info */}
+            <div className="p-3 rounded-lg bg-tertiary-container/20 text-xs text-on-surface-variant flex items-center gap-2">
+              <span className="material-symbols-outlined text-[16px] text-tertiary">info</span>
+              {selectedWarga.length > 0 ? (
+                <span><strong className="text-on-surface">{selectedWarga.length}</strong> warga dipilih untuk dikirim undangan</span>
+              ) : (
+                <span>Pilih warga dari tabel di bawah atau gunakan checkbox</span>
+              )}
+            </div>
+
+            {/* Resident List */}
+            <div className="rounded-xl border border-surface-container-high overflow-hidden max-h-60 overflow-y-auto">
+              <div className="divide-y divide-surface-container-high">
+                {rows.filter((w) => w.statusPortal !== "Aktif").map((warga) => (
+                  <label key={warga.id} className="flex items-center gap-3 px-4 py-3 hover:bg-surface-container-low/50 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      className="rounded border-outline-variant text-primary focus:ring-primary"
+                      checked={selectedWarga.includes(warga.id)}
+                      onChange={() => toggleSelectWarga(warga.id)}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-bold text-on-surface block truncate">{warga.nama}</span>
+                      <span className="text-xs text-on-surface-variant">{warga.alamat} &bull; {fmtWa(warga.noWa)}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${warga.statusBadge}`}>
+                      {warga.statusPortal}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Message Preview */}
+            <div className="p-4 rounded-xl bg-surface-container-low flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-on-surface-variant">
+                <span className="material-symbols-outlined text-[16px]">chat</span>
+                Pesan Undangan via WhatsApp:
+              </div>
+              <div className="text-xs text-on-surface leading-relaxed p-3 rounded-lg bg-surface-container-lowest">
+                Assalamu&apos;alaikum wr. wb. Yth. Warga {tenant.rtFull} {tenant.rwFull},<br /><br />
+                Anda diundang untuk mengaktifkan portal layanan warga SIWARGA. Buka link undangan unik milik Anda
+                (dibagikan Pengurus lewat tombol <strong>Undangan</strong> pada data warga) lalu{" "}
+                <strong>buat kata sandi</strong> portal Anda di halaman undangan.<br /><br />
+                Salam,<br />
+                Pengurus {tenant.rtFull} {tenant.rwFull}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors"
+                onClick={() => { setShowInviteModal(false); setSelectedWarga([]); }}
+              >
+                Batal
+              </button>
+              <button
+                className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={selectedWarga.length === 0 || kirimSedang}
+                onClick={async () => {
+                  if (kirimSedang) return;
+                  setKirimSedang(true);
+                  // Satu panggilan per no. HP unik — API-first per warga; baris
+                  // yang sukses diberi status "Undangan Dikirim", yang gagal
+                  // (mis. CONFLICT warga sudah aktif) dilaporkan via flash.
+                  const sudah: string[] = [];
+                  const idBerhasil: string[] = [];
+                  const gagal: { nama: string; pesan: string }[] = [];
+                  for (const id of selectedWarga) {
+                    const r = rows.find((x) => x.id === id);
+                    if (!r || sudah.includes(digitsOnly(r.noWa))) continue;
+                    sudah.push(digitsOnly(r.noWa));
+                    try {
+                      await onUndanganWarga({ nama: r.nama, alamat: r.alamat, noWa: r.noWa });
+                      idBerhasil.push(r.id);
+                    } catch (err) {
+                      gagal.push({ nama: r.nama, pesan: pesanGalatUndangan(err) });
+                    }
+                  }
+                  setKirimSedang(false);
+                  markUndangan(idBerhasil);
+                  setShowInviteModal(false);
+                  setSelectedWarga([]);
+                  if (gagal.length === 0) {
+                    flash(`Undangan aktivasi dibuat untuk ${idBerhasil.length} warga — buka tombol Undangan tiap baris untuk QR/link masing-masing.`);
+                  } else if (idBerhasil.length === 0) {
+                    flash(`Undangan gagal dibuat — ${gagal[0].pesan}`);
+                  } else {
+                    flash(`${idBerhasil.length} undangan terkirim — gagal untuk ${gagal.map((x) => x.nama).join(", ")}: ${gagal[0].pesan}`);
+                  }
+                }}
+              >
+                {kirimSedang ? (
+                  <>
+                    <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+                    Mengirim…
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[18px]">send</span>
+                    Kirim ke {selectedWarga.length} Warga
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Kartu Undangan (QR + link) untuk warga terpilih */}
+      {kartuUndangan && (
+        <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md mx-4 sm:mx-auto rounded-2xl bg-surface-container-lowest shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="flex items-center justify-between px-5 py-4 bg-surface-container-low border-b border-surface-container-high">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-tertiary-container/40 flex items-center justify-center text-on-tertiary-container">
+                  <span className="material-symbols-outlined text-[20px]">qr_code_2</span>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-on-surface">Undangan Portal Warga</h3>
+                  <p className="text-[11px] text-on-surface-variant">Link &amp; QR untuk {kartuUndangan.nama}</p>
+                </div>
+              </div>
+              <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={() => setKartuUndangan(null)}>
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+            <div className="overflow-y-auto p-4 flex flex-col gap-4">
+              <KartuUndangan u={kartuUndangan} />
+              <div className="p-3 rounded-xl bg-surface-container-low text-[11px] text-on-surface-variant leading-relaxed flex items-start gap-2">
+                <span className="material-symbols-outlined text-[15px] text-primary mt-0.5 shrink-0">info</span>
+                <span>
+                  Bagikan link atau QR ini ke warga &rarr; warga <strong>buat kata sandi portal</strong> di
+                  halaman undangan &rarr; akses Portal Warga terbuka untuk update data pribadi &amp; keluarga.
+                  Undangan hanya dapat dibuat untuk warga terdaftar di Data Warga.
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* B5 · konfirmasi aksi undangan/akses — dialog bersama lintas halaman */}
+      {konfirmasiAksi &&
+        (() => {
+          const info = infoAksiAkses(konfirmasiAksi.jenis, konfirmasiAksi.warga);
+          const w = konfirmasiAksi.warga;
+          return (
+            <KonfirmasiDialog
+              judul={info.judul}
+              pesan={info.pesan}
+              ikon={info.ikon}
+              aksen={info.aksen}
+              labelYa={info.labelYa}
+              sedang={aksiSedang}
+              detail={
+                <div className="p-3.5 rounded-xl bg-surface-container-low flex flex-col gap-1.5">
+                  <span className="text-sm font-bold text-on-surface">{w.nama}</span>
+                  <span className="text-xs text-on-surface-variant break-all">
+                    {w.alamat} &bull; {maskedNoKk(w.noKk)}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 mt-1 self-start rounded-full text-xs font-bold ${w.statusBadge}`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-current opacity-60" />
+                    {w.statusPortal}
+                  </span>
+                </div>
+              }
+              onBatal={() => setKonfirmasiAksi(null)}
+              onYa={() => void jalankanAksi()}
+            />
+          );
+        })()}
+
+      {/* B6 · kotak masuk keamanan — token undangan yang disentuh >1 perangkat */}
+      {lihatTemuan && (
+        <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl mx-4 sm:mx-auto rounded-2xl bg-surface-container-lowest shadow-2xl p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-error-container/40 flex items-center justify-center text-error shrink-0">
+                  <span className="material-symbols-outlined text-[22px]">gpp_maybe</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">Perlu Perhatian</h3>
+                  <p className="text-xs text-on-surface-variant leading-relaxed">
+                    Undangan yang dibuka dari lebih dari satu perangkat — kemungkinan tautan dibagikan ke pihak lain.
+                  </p>
+                </div>
+              </div>
+              <button
+                className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface shrink-0"
+                onClick={() => setLihatTemuan(false)}
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {(temuan ?? []).map((t) => (
+                <div
+                  key={t.id}
+                  className="rounded-xl border border-error-container/60 bg-surface-container-low p-4 flex flex-col gap-2.5"
+                >
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <span className="text-sm font-bold text-on-surface block">{t.nama}</span>
+                      <span className="text-[11px] text-on-surface-variant">
+                        {t.noHp ? fmtWa(t.noHp) : "No. HP tidak tercatat"} &bull; status{" "}
+                        {statusAksesKePortal(t.statusAkses)} &bull; undangan {t.status.replace("_", " ")}
+                      </span>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-error-container text-on-error-container text-[11px] font-bold shrink-0">
+                      {t.jumlahPerangkat} Perangkat &bull; {t.jumlahPercobaan} Percobaan
+                    </span>
+                  </div>
+                  <ul className="flex flex-col gap-1.5">
+                    {t.percobaan.slice(0, 10).map((p, i) => (
+                      <li
+                        key={`${p.deviceHash}-${i}-${p.waktu}`}
+                        className="flex items-start justify-between gap-3 text-[11px] text-on-surface-variant bg-surface-container-lowest rounded-lg px-3 py-2"
+                      >
+                        <span className="font-mono break-all">
+                          {p.deviceHash.slice(0, 12)}&hellip; &bull; {p.ip ?? "IP tak tercatat"}
+                        </span>
+                        <span className="text-right shrink-0">
+                          {new Date(p.waktu).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}{" "}
+                          &bull; <strong className="text-on-surface">{p.hasil ?? "tanpa hasil"}</strong>
+                        </span>
+                      </li>
+                    ))}
+                    {t.percobaan.length > 10 && (
+                      <li className="text-[11px] text-on-surface-variant px-3">
+                        &hellip; {t.percobaan.length - 10} percobaan lain tidak ditampilkan.
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-surface-container-high">
+              <button
+                className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-all flex items-center gap-2 disabled:opacity-60"
+                onClick={() => void segarkanInspeksi()}
+                disabled={inspeksiSedang}
+              >
+                <span className={`material-symbols-outlined text-[18px] ${inspeksiSedang ? "animate-spin" : ""}`}>
+                  refresh
+                </span>
+                Muat Ulang
+              </button>
+              <button
+                className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all"
+                onClick={() => setLihatTemuan(false)}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

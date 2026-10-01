@@ -1,0 +1,70 @@
+# Deploy Portal Warga ke GitHub Pages.
+#
+# Dilakukan otomatis setiap push ke `main`:
+#   • Build apps/web dengan base "/SIWARGA/" (URL publik <user>.github.io/SIWARGA/)
+#   • VITE_KONSOL_ADMIN=off → konsol sysadmin TIDAK ikut dipublikasikan
+#     (portal itu belum berautentikasi — keputusan produk 1 Okt 2026)
+#   • VITE_BACKEND=off → tanpa backend: seluruh API dijawab OFFLINE oleh
+#     klien → portal berjalan penuh di mode demo (data seed lokal)
+#   • 404.html = salinan index.html → deep link (/undangan/<token>,
+#     /q/<token>) tetap terbuka di GitHub Pages yang tak punya aturan SPA.
+#
+# Aktivasi: repo Settings → Pages → Source = "GitHub Actions"
+# (dinyalakan sekali lewat `gh api .../pages -f build_type=workflow`).
+name: Deploy Portal Warga (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pasang pnpm (versi dari packageManager)
+        uses: pnpm/action-setup@v4
+
+      - name: Pasang Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependensi
+        run: pnpm install --frozen-lockfile
+
+      - name: Build portal web (base /SIWARGA/, konsol sysadmin nonaktif)
+        run: pnpm --filter @siwarga/web build
+        env:
+          VITE_BASE: /SIWARGA/
+          VITE_KONSOL_ADMIN: "off"
+          VITE_BACKEND: "off"
+
+      - name: Siapkan deep-link SPA (404.html) + anti-Jekyll
+        run: |
+          cp apps/web/dist/index.html apps/web/dist/404.html
+          touch apps/web/dist/.nojekyll
+
+      - name: Konfigurasi GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Unggah artefak Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+      - name: Deploy ke GitHub Pages
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,22 @@
+-- =============================================================================
+-- F-2 · Jalur lookup token undangan (task B1 — aktivasi publik)
+--
+-- Halaman publik `/undangan/<token>` (spesifikasi §5.1 GET & POST aktivasi)
+-- harus menemukan SATU baris `token_undangan` SEBELUM identitas RT diketahui:
+-- pada saat itu tidak ada sesi, GUC scope masih kosong, dan policy `p_scope_rt`
+-- menyaring semua baris (gagal-aman §4.6). Tanpa jalur ini aktivasi mustahil.
+--
+-- Policy ini sangat sempit — meniru migrasi 20260928000100 untuk `warga`:
+--   • hanya SELECT (tanpa WITH CHECK) → INSERT/UPDATE/DELETE lewat scope 'auth'
+--     tetap ditolak RLS; transisi status token hanya mungkin lewat scope 'rt';
+--   • hanya aktif ketika aplikasi menyetel `app.scope_level = 'auth'` lewat
+--     `SET LOCAL` di dalam transaksi (`denganScopeAuth()` di services/db.ts).
+--     GUC tidak dapat di-set klien PostgreSQL biasa — hanya kode server yang
+--     menghasilkannya, dan seluruh policy lain tetap menolak level 'auth';
+--   • seluruh pemanggil dibungkus `cariTokenAktivasi()`
+--     (services/undanganWarga.ts) yang SELALU men-target tepat SATU baris by id
+--     dan memverifikasi kode (argon2id terhadap `kode_hash`) sebelum baris
+--     apa pun dikembalikan — kode asli tidak pernah disimpan (§14.1).
+-- =============================================================================
+CREATE POLICY p_auth_lookup_token ON "token_undangan" FOR SELECT
+  USING (COALESCE(current_setting('app.scope_level', true), '') = 'auth');

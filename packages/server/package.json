@@ -1,0 +1,48 @@
+{
+  "name": "@siwarga/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SIWARGA backend — Fastify + Prisma + PostgreSQL RLS (F-1)",
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:stack": "node scripts/dev-stack.mjs",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:diff": "prisma migrate diff",
+    "db:seed": "tsx prisma/seed.ts"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/rate-limit": "^11.2.0",
+    "@node-rs/argon2": "^2.2.1",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.12.5",
+    "pg": "^8.23.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/pg": "^8",
+    "embedded-postgres": "^18.2.0-beta.15",
+    "prisma": "7.10.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.6.3",
+    "vite": "5.4.21",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,23 @@
+-- =============================================================================
+-- F-2 · Jalur lookup autentikasi (task B1–B3)
+--
+-- `warga` memakai policy `p_scope_rt` + FORCE ROW LEVEL SECURITY, sehingga
+-- koneksi tanpa GUC scope melihat NOL baris (gagal-aman §4.6). Rute login warga
+-- §5.1 (`POST /auth/warga/login` no. HP → warga) harus menemukan SATU baris warga
+-- SEBELUM identitas RT diketahui — mustahil lewat `p_scope_rt`.
+--
+-- Policy bersifat sangat sempit:
+--   • hanya SELECT (tanpa WITH CHECK) → INSERT/UPDATE/DELETE tetap ditolak RLS;
+--   • hanya aktif ketika aplikasi menyetel `app.scope_level = 'auth'` lewat
+--     `SET LOCAL` di dalam transaksi (`denganScopeAuth()` di services/db.ts).
+--     GUC tidak dapat di-set klien PostgreSQL biasa — hanya kode server yang
+--     menghasilkannya, dan keempat policy lain tetap menolak level 'auth'.
+--   • seluruh pemanggil dibungkus fungsi `cariWargaUntukLogin()` /
+--     `cariScopeWarga()` (services/identitasWarga.ts) yang SELALU men-target
+--     satu baris (by no_hp / by id) dan tidak pernah mengembalikan daftar.
+--
+-- Tabel kredensial (`kredensial_warga`) & sesi (`sesi_login`) sengaja tidak
+-- di-RLS (lihat migrasi 0002) — isolasinya lewat cek aplikasi di route login.
+-- =============================================================================
+CREATE POLICY p_auth_lookup_warga ON "warga" FOR SELECT
+  USING (COALESCE(current_setting('app.scope_level', true), '') = 'auth');
