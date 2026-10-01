@@ -22,6 +22,7 @@ import {
   GalatApi,
   generateTagihanRt,
   hapusWargaRt,
+  imporWargaRt,
   inspeksiUndanganRt,
   kategoriIuranRt,
   kategoriKasKeServer,
@@ -59,6 +60,7 @@ import {
   type BarisWargaRtServer,
   type EntriRiwayatLogin,
   type HasilGenerateTagihan,
+  type HasilImporWarga,
   type KeluargaRingkasServer,
   type KategoriIuranServer,
   type PatchKontakKeluarga,
@@ -863,6 +865,33 @@ export default function App() {
     }
   };
 
+  // A10 · Migrasi Data (§9.1(6)) — impor CSV/XLSX: API-first tipis seperti B13;
+  // OFFLINE → `null` (DataWargaRT lanjut jalur demo dengan pesan jujur); galat
+  // lain (400 kolom salah, 413 kebesaran, sesi habis) DITERUSKAN — tidak pernah
+  // "berhasil" untuk kegagalan. Sukses → MUAT ULANG daftar warga + KK dari
+  // server (impor dapat membuat puluhan KK sekaligus — daripada menerapkan
+  // per-item lewat callback, daftar segar inilah sumber kebenarannya).
+  const imporDataWargaRt = async (file: File): Promise<HasilImporWarga | null> => {
+    let hasil: HasilImporWarga;
+    try {
+      hasil = await imporWargaRt(file);
+    } catch (e) {
+      if (e instanceof GalatApi && e.code === "OFFLINE") return null;
+      tanganiSesiHabis(e);
+      throw e;
+    }
+    try {
+      const d = await daftarWargaRt();
+      setWargaRtList(d.warga.map(barisServerKeWargaRt));
+      setKkList(d.keluarga.map(keluargaKeKkData));
+    } catch (e) {
+      // Impor SUDAH tercatat di server; kegagalan muat-ulang hanya membuat
+      // tampilan usang sampai muat berikutnya — sesi habis tetap dialihkan.
+      tanganiSesiHabis(e);
+    }
+    return hasil;
+  };
+
   // Baris ajuan lokal (mode demo/OFFLINE) — identik bentuknya dengan baris
   // server supaya panel tidak bercabang.
   const ajuanLokal = (p: {
@@ -1655,6 +1684,7 @@ export default function App() {
         onSimpanWarga={simpanWargaRt}
         onTambahWarga={tambahDataWargaRt}
         onHapusWarga={hapusDataWargaRt}
+        onImporWarga={imporDataWargaRt}
         undangan={undanganList}
         onUndanganWarga={undanganUntukWarga}
         ajuan={ajuanRt}

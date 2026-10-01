@@ -24,6 +24,7 @@ import { ruteAuthWarga } from "./routes/auth-warga.js";
 import { ruteHealth } from "./routes/health.js";
 import { ruteIuranRt } from "./routes/iuranRt.js";
 import { ruteIuranWarga } from "./routes/iuranWarga.js";
+import { ruteImporWarga } from "./routes/rtImporWarga.js";
 import { ruteKasRt } from "./routes/kasRt.js";
 import { ruteRtAjuanPerubahan } from "./routes/rtAjuanPerubahan.js";
 import { ruteRtDataWarga } from "./routes/rtDataWarga.js";
@@ -102,6 +103,9 @@ export async function buatAplikasi(): Promise<FastifyInstance> {
   // B12 · persuratan resmi & verifikasi publik (§6.6): kop pengaturan RT,
   // antrian/penerbitan surat, ajukan surat warga, dan cek QR `/q/:token`
   await app.register(ruteRtSurat, { prefix: PREFIX_API });
+
+  // A10 · §9.1(6) Migrasi Data: impor CSV/XLSX warga → `impor_data` (§5.4)
+  await app.register(ruteImporWarga, { prefix: PREFIX_API });
 
   await app.ready();
   return app;

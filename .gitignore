@@ -27,3 +27,7 @@ Thumbs.db
 # Database pengembangan (embedded-postgres) — jangan pernah di-commit
 .data-dev/
 packages/server/.data-dev/
+
+# Berkas impor Migrasi Data (A10) — hanya disimpan lokal di server
+.data-impor/
+packages/server/.data-impor/

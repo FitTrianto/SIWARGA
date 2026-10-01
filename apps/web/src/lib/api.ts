@@ -89,7 +89,11 @@ export async function minta<T>(path: string, opsi: Opsi = {}): Promise<T> {
   const timer = setTimeout(() => kontrol.abort(), TIMEOUT_MS);
 
   const headers: Record<string, string> = { ...(opsi.headers ?? {}) };
-  if (opsi.body !== undefined) headers["content-type"] = "application/json";
+  // `FormData` (impor berkas A10): browser menyetel `multipart/form-data`
+  // beserta boundary-nya sendiri — menyetel `content-type` secara manual
+  // justru merusak parse berkas di server.
+  const multipart = opsi.body instanceof FormData;
+  if (opsi.body !== undefined && !multipart) headers["content-type"] = "application/json";
   if (opsi.csrf) {
     const csrf = bacaCookie("csrf_token");
     if (csrf) headers["x-csrf-token"] = csrf;
@@ -101,7 +105,8 @@ export async function minta<T>(path: string, opsi: Opsi = {}): Promise<T> {
       method: opsi.method ?? "GET",
       credentials: "same-origin",
       headers,
-      body: opsi.body === undefined ? undefined : JSON.stringify(opsi.body),
+      body:
+        opsi.body === undefined ? undefined : multipart ? (opsi.body as FormData) : JSON.stringify(opsi.body),
       signal: kontrol.signal,
     });
   } catch {
@@ -1112,6 +1117,37 @@ export function tambahWargaRt(
   payload: TambahWargaRtPayload,
 ): Promise<{ warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer }> {
   return minta("/rt/warga", { method: "POST", body: payload, csrf: true });
+}
+
+// --- A10 · Migrasi Data (§9.1(6)) — impor CSV/XLSX warga ---------------------
+
+/** Satu baris yang ditolak impor (nomor baris file + nama + alasan — tanpa NIK). */
+export interface AlasanTolakImpor {
+  nomor: number;
+  nama: string;
+  pesan: string;
+}
+
+/** Hasil `POST /rt/warga/import` — ringkasan + alasan penolakan per baris. */
+export interface HasilImporWarga {
+  id: string;
+  namaFile: string;
+  status: "selesai" | "gagal";
+  jumlahBaris: number;
+  berhasil: number;
+  gagal: number;
+  alasan: AlasanTolakImpor[];
+}
+
+/**
+ * POST /rt/warga/import — berkas multipart (≤5 MB, `.csv`/`.xlsx`, §5.4).
+ * Respons 200 walau 0 baris masuk (`status: "gagal"`) — `alasan[]` menjelaskan
+ * kenapa; struktur file salah (kolom wajib hilang dll.) membalas GalatApi 400.
+ */
+export function imporWargaRt(file: File): Promise<HasilImporWarga> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  return minta("/rt/warga/import", { method: "POST", body: form, csrf: true });
 }
 
 /** PATCH /rt/warga/:id — ubah sebagian (mode patch: hanya field yang dikirim). */

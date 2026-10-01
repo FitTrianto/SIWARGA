@@ -5615,3 +5615,307 @@ describe("B12 · persuratan resmi & verifikasi QR", () => {
     }
   });
 });
+
+
+describe("A10 · Migrasi Data — impor CSV/XLSX (/rt/warga/import · §9.1(6) · §5.4)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRt = "";
+  let csrfRt = "";
+  let sidRt05 = "";
+  let csrfRt05 = "";
+  let sidWarga = "";
+
+  const sesiRt = () => ({ sid: sidRt, csrf_token: csrfRt });
+
+  /**
+   * Multipart mentah (tanpa dependensi): field `file` berisi bytes — mendukung
+   * teks CSV maupun buffer biner XLSX. `tanpaCsrf` sengaja membuang cookie &
+   * header untuk menguji guard.
+   */
+  const kirim = (
+    namaFile: string,
+    isiBerkas: string | Buffer,
+    opsi: { sid?: string; csrf?: string; tanpaCsrf?: boolean } = {},
+  ) => {
+    const B = `----ujiimpor${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+    const bagian = Buffer.isBuffer(isiBerkas) ? isiBerkas : Buffer.from(isiBerkas, "utf8");
+    const payload = Buffer.concat([
+      Buffer.from(
+        `--${B}\r\nContent-Disposition: form-data; name="file"; filename="${namaFile}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+        "utf8",
+      ),
+      bagian,
+      Buffer.from(`\r\n--${B}--\r\n`, "utf8"),
+    ]);
+    const sid = opsi.sid ?? sidRt;
+    const csrf = opsi.csrf ?? csrfRt;
+    return app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/import`,
+      cookies: opsi.tanpaCsrf ? { sid } : { sid, csrf_token: csrf },
+      headers: {
+        "content-type": `multipart/form-data; boundary=${B}`,
+        ...(opsi.tanpaCsrf ? {} : { "x-csrf-token": csrf }),
+      },
+      payload,
+    });
+  };
+
+  /** 3 baris contoh: 1 kelompok 2 anggota (inferensi kepala) + 1 KK tunggal. */
+  const CSV_SUKSES = [
+    "Nama,NIK,No. KK,Alamat,No. WA,Email",
+    "Uji Impor Satu,3171050101990001,3171050101990010,Jl. Impor No. 1,081299000991,satu@uji.test",
+    "Uji Impor Dua,3171050101990002,3171050101990010,Jl. Impor No. 1,,dua@uji.test",
+    "Uji Impor Tiga,3171050101990003,3171050101990011,Jl. Impor No. 2,,",
+  ].join("\r\n");
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+
+    const rt = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt04@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt.statusCode, "login RT04").toBe(200);
+    sidRt = cookieDari(rt, "sid")!;
+    csrfRt = cookieDari(rt, "csrf_token")!;
+
+    const rt05 = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt05@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt05.statusCode, "login RT05").toBe(200);
+    sidRt05 = cookieDari(rt05, "sid")!;
+    csrfRt05 = cookieDari(rt05, "csrf_token")!;
+
+    const w = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(w.statusCode, "login warga").toBe(200);
+    sidWarga = cookieDari(w, "sid")!;
+  }, 60_000);
+
+  afterAll(async () => {
+    // Jejak berkas impor uji dihapus (folder & DB uji sementara dibuang
+    // cluster embedded di akhir proses tes — berkasnya tidak).
+    try {
+      const ada = readdirSync(join(DIR_SERVER, ".data-impor")).filter((n) =>
+        /(uji-sukses|uji-campuran|lintas-rt)\.csv$|uji\.xlsx$/.test(n),
+      );
+      await Promise.all(ada.map((n) => rm(join(DIR_SERVER, ".data-impor", n), { force: true })));
+    } catch {
+      /* folder mungkin belum pernah terbentuk */
+    }
+    await tutupAplikasiUji();
+  });
+
+  it("guard: tanpa sesi / sesi warga / tanpa CSRF → 401; struktur file salah → 400 tanpa jejak impor_data", async () => {
+    const tanpa = await app.inject({ method: "POST", url: `${api}/rt/warga/import` });
+    expect(tanpa.statusCode).toBe(401);
+    expect(isi(tanpa).error?.code).toBe("UNAUTHORIZED");
+
+    // sesi warga lolos CSRF (cookie+header cocok) namun ditolak wajibRt (scope)
+    const warga = await kirim("uji-sukses.csv", CSV_SUKSES, { sid: sidWarga, csrf: "nonce-kebaca" });
+    expect(warga.statusCode, "rute RT menolak sesi warga").toBe(401);
+
+    const tanpaCsrf = await kirim("uji-sukses.csv", CSV_SUKSES, { tanpaCsrf: true });
+    expect(tanpaCsrf.statusCode).toBe(401);
+    expect(isi(tanpaCsrf).error?.message).toMatch(/CSRF/);
+
+    // kolom wajib hilang → 400 menyebut kolomnya, TANPA baris impor_data
+    const kolom = await kirim("kurang-kolom.csv", "Nama,NIK,Alamat\r\nUji,3171050101990001,Jl. X");
+    expect(kolom.statusCode).toBe(400);
+    expect(isi(kolom).error?.code).toBe("VALIDATION");
+    expect(isi(kolom).error?.message).toMatch(/No\. KK/);
+    expect(await hitung(PLATFORM, "SELECT count(*)::int AS n FROM impor_data")).toBe(0);
+
+    // ekstensi di luar kontrak → 400
+    const txt = await kirim("data.txt", "bukan csv sama sekali");
+    expect(txt.statusCode).toBe(400);
+    expect(isi(txt).error?.message).toMatch(/csv/i);
+    expect(await hitung(PLATFORM, "SELECT count(*)::int AS n FROM impor_data")).toBe(0);
+  });
+
+  it("impor sukses CSV: warga+KK masuk, impor_data tercatat dengan berkas nyata, audit, NIK ter-encrypt", async () => {
+    const res = await kirim("uji-sukses.csv", CSV_SUKSES);
+    expect(res.statusCode).toBe(200);
+    const d = isi(res).data as {
+      status: string;
+      jumlahBaris: number;
+      berhasil: number;
+      gagal: number;
+      alasan: unknown[];
+    };
+    expect(d).toMatchObject({ status: "selesai", jumlahBaris: 3, berhasil: 3, gagal: 0 });
+    expect(d.alasan).toEqual([]);
+    // §14: payload respons tidak pernah memuat NIK plaintext
+    expect(JSON.stringify(d)).not.toMatch(/\b\d{16}\b/);
+
+    const g = await app.inject({ method: "GET", url: `${api}/rt/warga`, cookies: sesiRt() });
+    expect(g.statusCode).toBe(200);
+    const data = isi(g).data as {
+      warga: { nama: string; nikMasked: string | null; hubungan: string; kk: { noKk: string } }[];
+      keluarga: { kk: { noKk: string; kepala: string; jumlahAnggota: number } }[];
+    };
+    const satu = data.warga.find((x) => x.nama === "Uji Impor Satu");
+    expect(satu, "baris impor terbaca via GET").toBeTruthy();
+    expect(satu!.nikMasked).toMatch(/x{4}/);
+    expect(JSON.stringify(data), "GET tanpa NIK plaintext").not.toMatch(/\b\d{16}\b/);
+
+    const kk10 = data.keluarga.find((k) => k.kk.noKk === "3171-xxxx-xxxx-0010");
+    expect(kk10, "KK kelompok No.KK ...0010 dibuat impor").toBeTruthy();
+    expect(kk10!.kk.kepala, "inferensi: baris pertama = kepala").toBe("Uji Impor Satu");
+    expect(kk10!.kk.jumlahAnggota).toBe(2);
+
+    // NIK tersimpan ter-encrypt — dekripsi memakai kunci uji membuktikannya
+    const q = await denganScope(PLATFORM, (c) =>
+      c.query("SELECT nik_encrypted FROM warga WHERE rt_id = $1 AND nama = 'Uji Impor Satu'", [idRt04]),
+    );
+    expect(q.rows.length, "baris warga impor ada di DB").toBe(1);
+    expect(dekripsiNik(q.rows[0].nik_encrypted as Uint8Array, Buffer.from(KUNCI_NIK, "base64"))).toBe(
+      "3171050101990001",
+    );
+
+    // impor_data tercatat + berkas TERSIMPAN nyata (file_url tidak bohong)
+    const im = await denganScope(PLATFORM, (c) =>
+      c.query(
+        "SELECT file_url, status, berhasil, gagal, jumlah_baris, diunggah_oleh FROM impor_data WHERE nama_file = 'uji-sukses.csv'",
+      ),
+    );
+    expect(im.rows.length).toBe(1);
+    const baris = im.rows[0] as {
+      file_url: string;
+      status: string;
+      berhasil: number;
+      gagal: number;
+      jumlah_baris: number;
+      diunggah_oleh: string;
+    };
+    expect(baris).toMatchObject({ status: "selesai", berhasil: 3, gagal: 0, jumlah_baris: 3 });
+    expect(baris.file_url).toMatch(/^\.data-impor\//);
+    expect(baris.diunggah_oleh, "pelaku = pengurus RT aktif").toBeTruthy();
+    expect(existsSync(join(DIR_SERVER, baris.file_url)), "berkas benar-benar ada di disk").toBe(true);
+
+    // jejak audit — antrian nama file + hitungan saja (tanpa NIK)
+    expect(
+      await hitung({ level: "rt", id: idRt04 }, "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'impor_warga'"),
+    ).toBeGreaterThan(0);
+    const au = await denganScope(PLATFORM, (c) =>
+      c.query("SELECT ringkasan, sesudah FROM audit_log WHERE aksi = 'impor_warga' ORDER BY created_at DESC LIMIT 1"),
+    );
+    expect(JSON.stringify(au.rows), "audit tanpa NIK plaintext").not.toMatch(/\b\d{16}\b/);
+    expect(String((au.rows[0] as { ringkasan: string }).ringkasan)).toMatch(/uji-sukses\.csv/);
+  });
+
+  it("impor ulang file identik → nol duplikat (dedup NIK per-RT) + status 'gagal' jujur", async () => {
+    const res = await kirim("uji-sukses.csv", CSV_SUKSES);
+    expect(res.statusCode).toBe(200);
+    const d = isi(res).data as { status: string; berhasil: number; gagal: number; alasan: { pesan: string }[] };
+    expect(d).toMatchObject({ status: "gagal", berhasil: 0, gagal: 3 });
+    expect(d.alasan, "alasan per baris ikut dikirim").toHaveLength(3);
+    expect(d.alasan[0].pesan).toMatch(/sudah terdaftar/);
+
+    // nol baris ganda — jumlah "Uji Impor" di RT04 tetap 3
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE rt_id = $1 AND nama LIKE 'Uji Impor%'", [
+        idRt04,
+      ]),
+    ).toBe(3);
+    // percobaan kedua tetap tercatat sebagai impor_data (jejak audit usaha impor)
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM impor_data WHERE nama_file = 'uji-sukses.csv'"),
+    ).toBe(2);
+  });
+
+  it("baris rusak dicatat per-baris tanpa membatalkan baris valid; baris baru bergabung ke KK lama", async () => {
+    const csv = [
+      "Nama,NIK,No. KK,Alamat,No. WA,Email",
+      "Uji Impor Empat,3171050101990004,3171050101990010,Jl. Impor No. 1,,",
+      "Rusak NIK,12345,3171050101990013,Jl. Rusak No. 1,,",
+    ].join("\r\n");
+    const res = await kirim("uji-campuran.csv", csv);
+    expect(res.statusCode).toBe(200);
+    const d = isi(res).data as {
+      status: string;
+      berhasil: number;
+      gagal: number;
+      alasan: { nomor: number; nama: string; pesan: string }[];
+    };
+    expect(d).toMatchObject({ status: "selesai", berhasil: 1, gagal: 1 });
+    expect(d.alasan[0]).toMatchObject({ nomor: 3, nama: "Rusak NIK" });
+    expect(d.alasan[0].pesan).toMatch(/16 digit/);
+
+    const g = await app.inject({ method: "GET", url: `${api}/rt/warga`, cookies: sesiRt() });
+    const data = isi(g).data as {
+      warga: { nama: string }[];
+      keluarga: { kk: { noKk: string; kepala: string; jumlahAnggota: number } }[];
+    };
+    expect(data.warga.some((x) => x.nama === "Uji Impor Empat"), "baris valid tetap masuk").toBe(true);
+    const kk10 = data.keluarga.find((k) => k.kk.noKk === "3171-xxxx-xxxx-0010")!;
+    expect(kk10.kk.kepala, "kepala lama tidak tergeser oleh anggota baru").toBe("Uji Impor Satu");
+    expect(kk10.kk.jumlahAnggota, "jumlah_anggota KK lama ikut digeser").toBe(3);
+  });
+
+  it("melebihi cap 1000 baris → 400 tanpa jejak", async () => {
+    const baris = ["Nama,NIK,No. KK,Alamat"];
+    for (let i = 0; i < 1001; i++) baris.push(`Warga Cap ${i},1,2,3`);
+    const res = await kirim("uji-cap.csv", baris.join("\r\n"));
+    expect(res.statusCode).toBe(400);
+    expect(isi(res).error?.message).toMatch(/melebihi/);
+    expect(await hitung(PLATFORM, "SELECT count(*)::int AS n FROM impor_data WHERE nama_file = 'uji-cap.csv'")).toBe(
+      0,
+    );
+  });
+
+  it("dedup NIK bersifat PER-RT: RT05 boleh mengimpor NIK yang sama milik RT04, cakupan terisolasi", async () => {
+    const csv = [
+      "Nama,NIK,No. KK,Alamat,No. WA,Email",
+      "Uji Impor Lintas,3171050101990001,3171050101990014,Jl. Lintas No. 1,,",
+    ].join("\r\n");
+    const res = await kirim("lintas-rt.csv", csv, { sid: sidRt05, csrf: csrfRt05 });
+    expect(res.statusCode).toBe(200);
+    expect(isi(res).data).toMatchObject({ status: "selesai", berhasil: 1, gagal: 0 });
+
+    // RT04 tak tersentuh oleh impor RT05
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE rt_id = $1 AND nama = 'Uji Impor Satu'", [
+        idRt04,
+      ]),
+    ).toBe(1);
+
+    const r05 = await app.inject({ method: "GET", url: `${api}/rt/warga`, cookies: { sid: sidRt05 } });
+    const data05 = isi(r05).data as { warga: { nama: string }[] };
+    expect(data05.warga.some((x) => x.nama === "Uji Impor Lintas"), "baris RT05 = milik RT05").toBe(true);
+    expect(data05.warga.some((x) => x.nama === "Uji Impor Satu"), "RT05 tak melihat warga RT04").toBe(false);
+  });
+
+  it("impor XLSX (sheet pertama; sel teks & angka) sukses dengan NIK numerik ter-encrypt", async () => {
+    const modul = await import("exceljs");
+    const ExcelJS = modul.default;
+    const buku = new ExcelJS.Workbook();
+    const lembar = buku.addWorksheet("Data");
+    lembar.addRow(["Nama", "NIK", "No. KK", "Alamat", "No. WA", "Email"]);
+    lembar.addRow(["Uji Impor Xlsx", "3171050101990005", "3171050101990015", "Jl. Xlsx No. 9", "", ""]);
+    // NIK sebagai angka — uji normalisasi sel numerik (16 digit < 2^53)
+    lembar.addRow(["Uji Impor Angka", 3171050101990006, 3171050101990016, "Jl. Xlsx No. 10", "", ""]);
+    const buf = Buffer.from(await buku.xlsx.writeBuffer());
+
+    const res = await kirim("uji.xlsx", buf);
+    expect(res.statusCode).toBe(200);
+    expect(isi(res).data).toMatchObject({ status: "selesai", jumlahBaris: 2, berhasil: 2, gagal: 0 });
+
+    const q = await denganScope(PLATFORM, (c) =>
+      c.query("SELECT nik_encrypted FROM warga WHERE rt_id = $1 AND nama = 'Uji Impor Angka'", [idRt04]),
+    );
+    expect(q.rows.length, "baris XLSX numerik masuk").toBe(1);
+    expect(dekripsiNik(q.rows[0].nik_encrypted as Uint8Array, Buffer.from(KUNCI_NIK, "base64"))).toBe(
+      "3171050101990006",
+    );
+  });
+});

@@ -48,6 +48,7 @@ import {
   statusKawinKeServer,
   wargaNegaraKeServer,
   type BarisWargaRtServer,
+  type HasilImporWarga,
   type KeluargaRingkasServer,
   type PatchWargaRt,
   type StatusAksesServer,
@@ -85,6 +86,15 @@ interface DataWargaRTProps {
   onHapusWarga?: (
     id: string,
   ) => Promise<{ id: string; keluarga: KeluargaRingkasServer | null } | null>;
+  /**
+   * A10 · Migrasi Data (§9.1(6)): kirim berkas ke `POST /rt/warga/import`
+   * (multipart, §5.4). OFFLINE → `null` (mode demo — halaman menampilkan
+   * pesan jujur, tidak ada "impor sukses" palsu); galat non-OFFLINE
+   * DILEMPAR agar pesan server tampil. Sukses → App.tsx memuat ulang daftar
+   * warga + KK (impor dapat membuat banyak KK sekaligus) — halaman ini cukup
+   * menampilkan ringkasan hasil + alasan penolakan.
+   */
+  onImporWarga?: (file: File) => Promise<HasilImporWarga | null>;
   /** Daftar undangan aktif (sumber kebenaran bersama di App.tsx). */
   undangan: Undangan[];
   /**
@@ -168,7 +178,7 @@ function denganNilai(opsi: string[], nilai: string): string[] {
   return v && !opsi.includes(v) ? [v, ...opsi] : opsi;
 }
 
-export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onHapusWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
+export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onHapusWarga, onImporWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<PortalStatus>("all");
   const [showInputModal, setShowInputModal] = useState(false);
@@ -189,6 +199,10 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKk
   const [prosesAjuan, setProsesAjuan] = useState(false);
   const { flash, toast } = useFlash();
   const [uploadFileName, setUploadFileName] = useState("");
+  /** Berkas terpilih — objek `File` asli yang dikirim ke server (nama saja tak cukup). */
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  /** Sedang mengimpor — tombol dimatikan agar berkas tak terkirim dua kali. */
+  const [imporSedang, setImporSedang] = useState(false);
 
   // ---- Form "Tambah Data KK": 1 KK berisi beberapa NIK (kepala, istri, anak) ----
   const [formKk, setFormKk] = useState({ noKk: "", alamat: "" });
@@ -876,14 +890,54 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKk
     flash("Template CSV data warga berhasil diunduh.");
   }
 
-  function handleImportFile() {
-    if (!uploadFileName) {
+  function tutupUpload() {
+    setShowUploadModal(false);
+    setUploadFileName("");
+    setUploadFile(null);
+  }
+
+  async function handleImportFile() {
+    if (!uploadFile) {
       flash("Pilih file CSV/XLSX terlebih dahulu.");
       return;
     }
-    flash(`File "${uploadFileName}" berhasil diimpor — data warga ditambahkan.`);
-    setUploadFileName("");
-    setShowUploadModal(false);
+    if (imporSedang) return;
+    setImporSedang(true);
+    try {
+      // A10 · Migrasi Data — API-first: berkas dikirim apa adanya ke
+      // `POST /rt/warga/import`; server yang memparse, memvalidasi, dan
+      // mencatat `impor_data` + audit (§5.4). OFFLINE → `null` → jalur demo
+      // di bawah; galat server (400 kolom salah, 413 kebesaran, sesi habis)
+      // tampil apa adanya — tidak pernah "berhasil" untuk kegagalan.
+      if (onImporWarga) {
+        const hasil = await onImporWarga(uploadFile);
+        if (hasil) {
+          const alasanPertama = hasil.alasan[0];
+          const rincian =
+            hasil.gagal > 0 && alasanPertama
+              ? ` ${hasil.gagal} ditolak — baris ${alasanPertama.nomor} (${alasanPertama.nama}): ${alasanPertama.pesan}`
+              : "";
+          flash(
+            hasil.berhasil > 0
+              ? `Impor "${hasil.namaFile}": ${hasil.berhasil}/${hasil.jumlahBaris} baris masuk.${rincian}`
+              : `Tidak ada baris yang masuk dari "${hasil.namaFile}" — perbaiki lalu impor ulang.${rincian}`,
+          );
+          tutupUpload();
+          return;
+        }
+      }
+      // Mode demo (backend dimatikan): impor adalah operasi server — tidak      // ada "impor sukses" palsu (prinsip api.ts: klien tidak pernah
+      // menyamar sebagai sukses). Data demo tetap bisa ditambah manual lewat
+      // form Tambah Data KK.
+      flash(
+        `Mode demo: impor "${uploadFile.name}" membutuhkan server menyala — tidak ada data yang diubah. Tambahkan data lewat form Tambah Data KK.`,
+      );
+      tutupUpload();
+    } catch (err) {
+      flash(err instanceof GalatApi ? err.message : "Impor data gagal diproses — coba lagi.");
+    } finally {
+      setImporSedang(false);
+    }
   }
 
   /* ---------- Seleksi & filter ---------- */
@@ -2098,7 +2152,7 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKk
                   <p className="text-xs text-on-surface-variant">Import data warga dari file CSV atau XLSX</p>
                 </div>
               </div>
-              <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={() => { setShowUploadModal(false); setUploadFileName(""); }}>
+              <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={tutupUpload}>
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
@@ -2143,7 +2197,10 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKk
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) setUploadFileName(f.name);
+                if (f) {
+                  setUploadFileName(f.name);
+                  setUploadFile(f);
+                }
               }}
             />
 
@@ -2190,16 +2247,19 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKk
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors"
-                onClick={() => { setShowUploadModal(false); setUploadFileName(""); }}
+                onClick={tutupUpload}
               >
                 Batal
               </button>
               <button
-                className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2"
+                className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                 onClick={handleImportFile}
+                disabled={imporSedang || !uploadFile}
               >
-                <span className="material-symbols-outlined text-[18px]">upload_file</span>
-                Import Data
+                <span className="material-symbols-outlined text-[18px]">
+                  {imporSedang ? "progress_activity" : "upload_file"}
+                </span>
+                {imporSedang ? "Mengimpor..." : "Import Data"}
               </button>
             </div>
           </div>
