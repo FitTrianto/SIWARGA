@@ -8,7 +8,6 @@ import {
   StatusPembayaran,
   TagihanTambahan,
   deskripsiIuran,
-  downloadText,
   formatRupiah,
   hariIni,
   hitungIuranBulanan,
@@ -20,7 +19,7 @@ import {
   shortAlamat,
 } from "../../lib/shared";
 import { useFlash } from "../../lib/useFlash";
-import type { RingkasTagihanServer } from "../../lib/api";
+import { labelPeriodeServer, type RingkasTagihanServer } from "../../lib/api";
 
 interface IuranTagihanProps {
   onNavigate?: (page: string) => void;
@@ -35,7 +34,8 @@ interface IuranTagihanProps {
   onBayar: (p: Pembayaran) => void | Promise<void>;
   kasRt: KasRt[];
   tagihanTambahan: TagihanTambahan[];
-  onBayarTagihanTambahan: (id: string) => void;
+  /** Bayar tagihan kondisional → ajukan bukti (true = terkirim ke server). */
+  onBayarTagihanTambahan: (t: TagihanTambahan) => Promise<boolean> | boolean;
 }
 
 /** Arsip statis riwayat periode sebelumnya (hunian ini). */
@@ -61,6 +61,8 @@ interface BarisRiwayat {
   periodeLabel: string;
   periodeDetail: string;
   total: string;
+  /** Nominal mentah (untuk PDF kuitansi — `total` hanya label tampilan). */
+  jumlah: number;
   metode: string;
   metodeIcon: string;
   status: StatusPembayaran;
@@ -279,6 +281,7 @@ export function IuranTagihan({
       periodeLabel: p.periode,
       periodeDetail: p.paket || "-",
       total: formatRupiah(p.jumlah),
+      jumlah: p.jumlah,
       metode: p.metode,
       metodeIcon: p.metodeIcon,
       status: p.status,
@@ -293,6 +296,7 @@ export function IuranTagihan({
       periodeLabel: rb.periodeLabel,
       periodeDetail: rb.periodeDetail,
       total: formatRupiah(rb.total),
+      jumlah: rb.total,
       metode: rb.metode,
       metodeIcon: rb.metodeIcon,
       status: rb.status,
@@ -350,30 +354,33 @@ export function IuranTagihan({
     setShowTunai(true);
   }
 
-  function unduhKuitansi(r: BarisRiwayat) {
-    const judul =
-      r.status === "Lunas" ? "KUITANSI PEMBAYARAN IURAN" : "PENGAJUAN PEMBAYARAN IURAN";
-    const isi = [
-      judul,
-      `${tenant.rtFull} — Lingkungan ${tenant.perumahan}`,
-      "---------------------------------------------",
-      `No. Kuitansi : ${r.id.toUpperCase()}`,
-      `Tanggal      : ${r.tanggal}${r.jam ? ` ${r.jam}` : ""}`,
-      `Warga        : ${r.atasNama}`,
-      `Hunian       : ${r.hunian}`,
-      `Periode      : ${r.periodeLabel} (${r.periodeDetail})`,
-      `Jumlah       : ${r.total}`,
-      `Metode       : ${r.metode}`,
-      `Status       : ${r.status}`,
-      "---------------------------------------------",
-      "Dokumen dihasilkan otomatis oleh Siwarga.",
-    ].join("\n");
-    downloadText(`kuitansi-iuran-${r.id}.txt`, isi, "text/plain;charset=utf-8");
-    flash(
-      r.status === "Lunas"
-        ? "Kuitansi pembayaran berhasil diunduh."
-        : "Bukti pengajuan diunduh — kuitansi resmi terbit setelah verifikasi Bendahara RT."
-    );
+  /**
+   * Unduh kuitansi — kini PDF (A5, jsPDF) via dynamic import, konsisten dengan
+   * `lib/pdfSurat.ts`. Berjalan penuh di klien sehingga OFFLINE pun unduhan
+   * tetap jujur (tanpa menyamar sukses server).
+   */
+  async function unduhKuitansi(r: BarisRiwayat) {
+    try {
+      const { simpanPdfKuitansi } = await import("../../lib/pdfKuitansi");
+      simpanPdfKuitansi({
+        judul: r.status === "Lunas" ? "Kuitansi Pembayaran Iuran" : "Pengajuan Pembayaran Iuran",
+        ref: r.id.toUpperCase(),
+        tanggal: `${r.tanggal}${r.jam ? ` ${r.jam}` : ""}`,
+        warga: r.atasNama,
+        hunian: r.hunian,
+        periode: `${r.periodeLabel}${r.periodeDetail && r.periodeDetail !== "-" ? ` (${r.periodeDetail})` : ""}`,
+        jumlah: r.jumlah,
+        metode: r.metode,
+        status: r.status,
+      });
+      flash(
+        r.status === "Lunas"
+          ? "Kuitansi PDF berhasil diunduh."
+          : "Bukti pengajuan PDF diunduh — kuitansi resmi terbit setelah verifikasi Bendahara RT."
+      );
+    } catch {
+      flash("Kuitansi gagal dibuat — coba lagi.");
+    }
   }
 
   return (
@@ -710,8 +717,18 @@ export function IuranTagihan({
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-lg font-extrabold text-error font-mono">{formatRupiah(item.nominal)}</span>
-                    <span className="block text-xs text-on-surface-variant">Jatuh Tempo: {item.tenggat}</span>
+                    <span className="text-lg font-extrabold text-error font-mono">
+                      {formatRupiah(item.sisa !== undefined && item.sisa > 0 ? item.sisa : item.nominal)}
+                    </span>
+                    <span className="block text-xs text-on-surface-variant">
+                      {item.periode ? `${labelPeriodeServer(item.periode)} · ` : ""}
+                      Jatuh Tempo: {item.tenggat}
+                    </span>
+                    {item.sisa !== undefined && item.sisa > 0 && item.sisa < item.nominal && (
+                      <span className="block text-[11px] text-on-surface-variant">
+                        Sisa dari {formatRupiah(item.nominal)} (sebagian terbayar)
+                      </span>
+                    )}
                   </div>
                   {item.status === "Lunas" ? (
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-secondary-container text-on-secondary-container">
@@ -720,7 +737,18 @@ export function IuranTagihan({
                   ) : (
                     <button
                       className="h-9 px-4 rounded-lg bg-primary text-on-primary text-sm font-bold hover:bg-primary-container transition-all active:scale-95"
-                      onClick={() => { onBayarTagihanTambahan(item.id); flash(`Pembayaran ${item.nama} diajukan — menunggu verifikasi pengurus RT.`); }}
+                      onClick={async () => {
+                        try {
+                          const dariServer = await onBayarTagihanTambahan(item);
+                          flash(
+                            dariServer
+                              ? `Pembayaran ${item.nama} diajukan — menunggu verifikasi pengurus RT.`
+                              : `Mode demo (server mati): pembayaran ${item.nama} dicatat lokal — status tetap "Menunggu Verifikasi".`
+                          );
+                        } catch {
+                          flash("Pengajuan pembayaran gagal — periksa koneksi lalu coba lagi.");
+                        }
+                      }}
                     >
                       Bayar
                     </button>

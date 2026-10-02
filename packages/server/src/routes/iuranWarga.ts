@@ -3,6 +3,7 @@
  *
  *   GET  /warga/iuran/tagihan?periode=      → tagihan periode + status turunan
  *   GET  /warga/iuran/riwayat?dari=&sampai= → riwayat pembayaran + alokasi
+ *   GET  /warga/iuran/kondisional           → tagihan insidental milik sendiri
  *   POST /warga/iuran/bukti                 → ajukan bukti (menunggu_verifikasi)
  *
  * Aturan §4.6 yang ditegakkan di sini:
@@ -175,6 +176,47 @@ export const ruteIuranWarga: FastifyPluginAsync = async (app) => {
         label: riwayat.length === 0 ? "Belum Ada Pembayaran" : `${riwayat.length} transaksi`,
       },
     });
+  });
+
+  /**
+   * Tagihan kondisional (insidental) milik warga login — semua periode,
+   * status turunan dari `sisa` (§4.4). Sumbernya `POST /rt/iuran/kondisional`
+   * (Portal RT); baris dengan `sisa > 0` adalah yang harus dibayar warga.
+   */
+  app.get("/warga/iuran/kondisional", async (req, reply) => {
+    const { wargaId, rtId } = wajibWarga(req);
+
+    const daftar = await denganScopeRequest(req, async (tx) => {
+      const tagihan = await tx.tagihan.findMany({
+        where: { rtId, wargaId, sumber: "insidental" },
+        include: { kategori: { select: { id: true, nama: true } } },
+        orderBy: [{ periode: "desc" }, { dibuatPada: "desc" }],
+        take: 100,
+      });
+
+      return tagihan.map((t) => {
+        const h = statusTurunan({
+          sisa: Number(t.sisa),
+          nominalAwal: Number(t.nominal),
+          periode: t.periode,
+          periodeAktif: config.periodeAktif,
+          keringananAktif: false,
+        });
+        return {
+          id: t.id,
+          kategoriId: t.kategoriId,
+          nama: t.kategori.nama,
+          periode: t.periode,
+          nominal: Number(t.nominal),
+          sisa: Number(t.sisa),
+          tenggat: t.tenggat ? tanggalPendek(t.tenggat) : null,
+          status: h.status,
+          label: h.label,
+        };
+      });
+    });
+
+    return reply.ok({ daftar });
   });
 
   app.post("/warga/iuran/bukti", async (req, reply) => {

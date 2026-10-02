@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { config } from "./config.js";
 import { pasangAuth } from "./plugins/auth.js";
+import { pasangAutoTagihan } from "./plugins/autoTagihan.js";
 import { pasangErrorHandler, statusDariKode } from "./plugins/errorHandler.js";
 import { pasangRateLimit } from "./plugins/ratelimit.js";
 import { pasangScope } from "./plugins/scope.js";
@@ -106,6 +107,10 @@ export async function buatAplikasi(): Promise<FastifyInstance> {
 
   // A10 · §9.1(6) Migrasi Data: impor CSV/XLSX warga → `impor_data` (§5.4)
   await app.register(ruteImporWarga, { prefix: PREFIX_API });
+
+  // Iuran · §6.4.3: generate tagihan bulanan OTOMATIS saat start + interval
+  // 6 jam (idempoten; dilewati pada mode test agar fixture tes deterministik).
+  await pasangAutoTagihan(app);
 
   await app.ready();
   return app;

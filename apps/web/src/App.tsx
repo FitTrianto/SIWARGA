@@ -10,12 +10,14 @@ import {
   barisKePembayaran,
   barisServerKeWargaRt,
   barisSuratServerKeFe,
+  buatKondisionalRt,
   buatSuratRt,
   buatUndanganRt,
   cabutUndanganRt,
   catatKasRt,
   daftarAjuanPerubahanRt,
   daftarKasRt,
+  daftarKondisionalRt,
   daftarSuratRt,
   daftarWargaRt,
   entriKeKasRt,
@@ -28,6 +30,9 @@ import {
   kategoriKasKeServer,
   keluargaKeKkData,
   kirimUlangUndanganRt,
+  kondisionalRtKeKartu,
+  kondisionalWarga,
+  kondisionalWargaKeKartu,
   koreksiKasRt,
   labelKeIso,
   logoutPengurus,
@@ -524,6 +529,16 @@ export default function App() {
           if (tanganiSesiHabis(e)) return;
           console.info("[iuran] memakai data demo:", e instanceof GalatApi ? e.code : e);
         }
+        // Iuran kondisional (tagihan insidental buatan pengurus) — daftar server
+        // jadi rujukan kartu "Iuran Kondisional"; OFFLINE → data demo dipakai.
+        try {
+          const k = await kondisionalWarga();
+          if (batal) return;
+          setTagihanTambahanList(k.daftar.map(kondisionalWargaKeKartu));
+        } catch (e) {
+          if (tanganiSesiHabis(e)) return;
+          console.info("[kondisional] memakai data demo:", e instanceof GalatApi ? e.code : e);
+        }
         // B12 · persuratan resmi (§5.3): daftar surat milik warga + baris dari
         // server jadi rujukan; `noKk` dipaksa ke nilai KK sesi ini agar filter
         // Pengajuan Surat tetap menangkap baris server (format No. KK DB bisa
@@ -555,6 +570,9 @@ export default function App() {
     // Baris Data Warga milik sesi RT sebelumnya TIDAK boleh bocor ke sesi
     // berikutnya — kembalikan ke demo dengan identity-guard seperti kkList.
     setWargaRtList((prev) => (prev === wargaRtDefault ? prev : wargaRtDefault));
+    // Kartu iuran kondisional daftar sesi sebelumnya juga tidak boleh bocor
+    // (pola sama: identity-guard ke data demo).
+    setTagihanTambahanList((prev) => (prev === tagihanTambahanDefault ? prev : tagihanTambahanDefault));
     if (peranMasuk === "rt") {
       let batal = false;
       void (async () => {
@@ -578,6 +596,15 @@ export default function App() {
           );
         } catch (e) {
           console.info("[iuran] memakai data demo:", e instanceof GalatApi ? e.code : e);
+        }
+        // Iuran kondisional di sisi RT: daftar tagihan insidental + progres
+        // per warga dari server; OFFLINE → data demo dipertahankan.
+        try {
+          const k = await daftarKondisionalRt();
+          if (batal) return;
+          setTagihanTambahanList(k.daftar.map(kondisionalRtKeKartu));
+        } catch (e) {
+          console.info("[kondisional-rt] memakai data demo:", e instanceof GalatApi ? e.code : e);
         }
         // F-6 · buku kas: ganti seluruh state (urut jurnal — baris terakhir = saldo
         // terkini). Galat terpisah supaya kegagalan kas tidak membatalkan iuran.
@@ -615,6 +642,43 @@ export default function App() {
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peranMasuk]);
+
+  // F-6/iuran · muat ulang ringkas + riwayat + iuran kondisional milik warga
+  // login. Dipanggil saat halaman iuran DIBUKAKAN dan saat polling selama status
+  // masih "Menunggu Verifikasi" — tanpa ini Portal Warga tertinggal jauh di
+  // "Menunggu Verifikasi" sesudah pengurus memverifikasi (isu status sync).
+  const muatIuranWargaSesi = async (): Promise<void> => {
+    try {
+      const [riwayat, tagihan] = await Promise.all([riwayatIuran(), tagihanIuran()]);
+      setRingkasTagihanWarga(tagihan.ringkas);
+      const nama = kkList[0]?.kepala ?? "Warga";
+      setPembayaran(riwayat.riwayat.map((b) => barisKePembayaran(b, alamatWarga, nama)));
+    } catch (e) {
+      if (tanganiSesiHabis(e)) return;
+      console.info("[iuran] gagal memuat ulang:", e instanceof GalatApi ? e.code : e);
+    }
+    try {
+      const k = await kondisionalWarga();
+      setTagihanTambahanList(k.daftar.map(kondisionalWargaKeKartu));
+    } catch (e) {
+      console.info("[kondisional] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+  };
+
+  // Refresh tiap kali halaman iuran warga dibuka (bukan cuma sekali saat login).
+  useEffect(() => {
+    if (peranMasuk === "warga" && page === "iuran-tagihan") void muatIuranWargaSesi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, peranMasuk]);
+
+  // Polling ringan 30 detik HANYA selama status "Menunggu Verifikasi" — badge
+  // berubah sendiri sesudah pengurus menyetujui (janji teks di halaman iuran).
+  useEffect(() => {
+    if (peranMasuk !== "warga" || ringkasTagihanWarga?.status !== "menunggu_verifikasi") return;
+    const jeda = window.setInterval(() => void muatIuranWargaSesi(), 30_000);
+    return () => window.clearInterval(jeda);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peranMasuk, ringkasTagihanWarga?.status]);
 
   // Gerbang peran: bila halaman portal tidak cocok dengan sesi berjalan (mis.
   // sesi warga terdorong ke halaman Portal RT lewat tombol kembali undangan),
@@ -1101,23 +1165,97 @@ export default function App() {
     setSuratList((prev) => [baru, ...prev]);
   };
 
-  // RT membuat tagihan tambahan → langsung tampil di tagihan warga (sasaran sama).
-  const tambahTagihanTambahan = (t: TagihanTambahanBaru) => {
-    setTagihanTambahanList((prev) => [
-      {
-        ...t,
-        id: `tt${Date.now()}`,
-        icon: t.target && t.target !== "semua" ? "home_work" : "receipt",
-        ref: `INV-2026-10-${String(prev.length + 1).padStart(2, "0")}`,
-        status: "Belum",
-      },
-      ...prev,
-    ]);
+  // RT membuat tagihan kondisional → API-first (POST /rt/iuran/kondisional):
+  // tagihan benar-benar tersimpan & tampil di Portal Warga. OFFLINE → baris
+  // lokal mode demo (tetap disebut demo, bukan sukses server). Galat lain
+  // (validasi / sesi habis) DITERUSKAN agar komponen menampilkan gagal.
+  const tambahTagihanTambahan = async (t: TagihanTambahanBaru): Promise<void> => {
+    // Target "alamat rumah" dipetakan ke wargaId aktif milik RT tersebut.
+    const targetWargaId =
+      t.target && t.target !== "semua"
+        ? wargaRtList
+            .filter((w) => w.idWarga && shortAlamat(w.alamat) === shortAlamat(t.target as string))
+            .map((w) => w.idWarga as string)
+        : undefined;
+    if (t.target && t.target !== "semua" && (!targetWargaId || targetWargaId.length === 0)) {
+      throw new Error(`Rumah "${t.target}" tidak ditemukan pada data warga aktif.`);
+    }
+    try {
+      await buatKondisionalRt({
+        nama: t.nama,
+        nominal: t.nominal,
+        ...(t.tenggatIso ? { tenggat: t.tenggatIso } : {}),
+        ...(targetWargaId ? { target: targetWargaId } : {}),
+      });
+    } catch (e) {
+      if (!(e instanceof GalatApi && e.code === "OFFLINE")) {
+        tanganiSesiHabis(e);
+        throw e;
+      }
+      // OFFLINE → mode demo: baris lokal (perilaku lama) tanpa mengaku tersimpan.
+      setTagihanTambahanList((prev) => [
+        {
+          ...t,
+          id: `tt${Date.now()}`,
+          icon: t.target && t.target !== "semua" ? "home_work" : "receipt",
+          ref: `INV-2026-10-${String(prev.length + 1).padStart(2, "0")}`,
+          status: "Belum",
+        },
+        ...prev,
+      ]);
+      return;
+    }
+    // Sukses server → muat ulang daftar agar progres & label ikut terbarui;
+    // bila muat ulang gagal, tagihan tetap tercatat (tampil pada muat berikutnya).
+    try {
+      const k = await daftarKondisionalRt();
+      setTagihanTambahanList(k.daftar.map(kondisionalRtKeKartu));
+    } catch {
+      /* tagihan sudah tercatat di server — daftar dimuat ulang pada akses berikutnya */
+    }
   };
 
-  // Warga menandai tagihan tambahan lunas → status terlihat di Portal RT.
-  const bayarTagihanTambahan = (id: string) => {
-    setTagihanTambahanList((prev) => prev.map((t) => (t.id === id ? { ...t, status: "Lunas" } : t)));
+  // Warga membayar tagihan kondisional → AJUAN BUKTI ke server (status
+  // "Menunggu Verifikasi" sampai pengurus memverifikasi) — bukan penanda lunas
+  // sepihak seperti perilaku demo lama. OFFLINE → baris lokal berstatus jujur
+  // "Menunggu Verifikasi" (mode demo), bukan "Lunas".
+  const bayarTagihanTambahan = async (t: TagihanTambahan): Promise<boolean> => {
+    const nominal = t.sisa !== undefined && t.sisa > 0 ? t.sisa : t.nominal;
+    const nama = kkList[0]?.kepala ?? "Warga";
+    const alamat = shortAlamat(kkList[0]?.alamat ?? "");
+    let baris: Pembayaran;
+    let dariServer = true;
+    try {
+      const hasil = await ajukanBuktiIuran(
+        { nominal, metode: "transfer", catatan: `Tagihan kondisional: ${t.nama}` },
+        `knd-${t.id}-${Date.now()}`,
+      );
+      baris = barisKePembayaran(hasil.pembayaran, alamat, nama);
+    } catch (e) {
+      if (!(e instanceof GalatApi && e.code === "OFFLINE")) {
+        tanganiSesiHabis(e);
+        throw e;
+      }
+      dariServer = false;
+      baris = {
+        id: `pay-${Date.now()}`,
+        alamat,
+        nama,
+        periode: PERIODE_AKTIF,
+        paket: t.nama,
+        jumlah: nominal,
+        metode: "Transfer Bank",
+        metodeIcon: "account_balance",
+        tanggal: hariIni(),
+        status: "Menunggu Verifikasi",
+      };
+    }
+    setPembayaran((prev) => [baris, ...prev.filter((x) => x.id !== baris.id)]);
+    // Ringkas status (Menunggu → Lunas setelah verifikasi) ikut diperbarui.
+    void tagihanIuran()
+      .then((r) => setRingkasTagihanWarga(r.ringkas))
+      .catch(() => undefined);
+    return dariServer;
   };
 
   const catatAudit = (e: Omit<AuditEntry, "id" | "waktu" | "aksiBadge" | "ipAddress"> & { ipAddress?: string }) => {
@@ -1708,6 +1846,18 @@ export default function App() {
             // OFFLINE karena state demo tetap dipakai).
             void daftarKasRt()
               .then((k) => setKasRtList(k.entri.map(entriKeKasRt)))
+              .catch(() => undefined);
+            // Sinkron status dua arah: baris pembayaran & kartu kondisional RT
+            // dimuat ulang dari server (alokasi/sisa terbaru, bukan cache lokal).
+            void pembayaranRt()
+              .then((r) =>
+                setPembayaran(
+                  r.pembayaran.map((b) => barisKePembayaran(b, b.alamat ?? "-", b.nama ?? "-")),
+                ),
+              )
+              .catch(() => undefined);
+            void daftarKondisionalRt()
+              .then((k) => setTagihanTambahanList(k.daftar.map(kondisionalRtKeKartu)))
               .catch(() => undefined);
           } catch (e) {
             // OFFLINE → mode demo, tetap perbarui state lokal; galat lain (sesi

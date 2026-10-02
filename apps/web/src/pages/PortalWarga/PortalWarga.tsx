@@ -32,7 +32,7 @@ interface PortalWargaProps {
   surat: Surat[];
   tagihanTambahan: TagihanTambahan[];
   pembayaran: Pembayaran[];
-  onBayarTagihanTambahan: (id: string) => void;
+  onBayarTagihanTambahan: (t: TagihanTambahan) => Promise<boolean> | boolean;
 }
 
 const kategoriIconById: Record<string, string> = {
@@ -479,7 +479,7 @@ export function PortalWarga({
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
                             <span className="text-sm font-extrabold text-on-surface font-mono">
-                              {formatRupiah(t.nominal)}
+                              {formatRupiah(t.sisa !== undefined && t.sisa > 0 ? t.sisa : t.nominal)}
                             </span>
                             {t.status === "Lunas" ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-secondary-container text-on-secondary-container text-[11px] font-bold">
@@ -489,7 +489,18 @@ export function PortalWarga({
                             ) : (
                               <button
                                 className="h-9 px-4 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-all"
-                                onClick={() => onBayarTagihanTambahan(t.id)}
+                                onClick={async () => {
+                                  try {
+                                    const dariServer = await onBayarTagihanTambahan(t);
+                                    flash(
+                                      dariServer
+                                        ? `Pembayaran ${t.nama} diajukan — menunggu verifikasi pengurus RT.`
+                                        : `Mode demo (server mati): pembayaran ${t.nama} dicatat lokal — status tetap "Menunggu Verifikasi".`,
+                                    );
+                                  } catch {
+                                    flash("Pengajuan pembayaran gagal — periksa koneksi lalu coba lagi.");
+                                  }
+                                }}
                               >
                                 Bayar
                               </button>

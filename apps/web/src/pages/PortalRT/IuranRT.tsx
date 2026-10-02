@@ -73,7 +73,7 @@ interface IuranRTProps {
   alamatWarga: string;
   kendaraanR4Count: number;
   tagihanTambahan: TagihanTambahan[];
-  onTambahTagihanTambahan: (t: TagihanTambahanBaru) => void;
+  onTambahTagihanTambahan: (t: TagihanTambahanBaru) => Promise<void>;
   /** B7 — `GET /rt/iuran/pengaturan`; `null` = OFFLINE. */
   onMuatPengaturanIuran: () => Promise<PengaturanIuranRt | null>;
   /** B7 — master kategori dari server; `null` = OFFLINE. */
@@ -290,7 +290,9 @@ export function IuranRT({
       setKonfirmasiGenerate(false);
       if (hasil) {
         flash(
-          `Tagihan ${labelPeriodeServer(hasil.periode)} — ${hasil.dibuat} dibuat, ${hasil.dilewati} dilewati (sudah tercatat).`
+          `Tagihan ${labelPeriodeServer(hasil.periode)} — ${hasil.dibuat} dibuat, ${hasil.dilewati} dilewati` +
+            (hasil.sinkron ? `, ${hasil.sinkron} disinkronkan dengan profil iuran` : "") +
+            " (sudah tercatat)."
         );
         setPemicuMuat((n) => n + 1);
       } else {
@@ -440,6 +442,8 @@ export function IuranRT({
         status,
         modeTerpisah && status === "Lunas" ? kategoriTujuan : undefined,
       );
+      // Refetch baris tagihan (sisa/alokasi diperbarui server setelah verifikasi).
+      setPemicuMuat((n) => n + 1);
       flash(
         status === "Lunas"
           ? `Pembayaran ${p.nama} (${p.alamat}) berhasil diverifikasi`
@@ -457,6 +461,7 @@ export function IuranRT({
       for (const p of pendingList) {
         await onVerifikasi(p.id, "Lunas", modeTerpisah ? kategoriTujuan : undefined);
       }
+      setPemicuMuat((n) => n + 1);
       flash(`${jumlah} pembayaran berhasil diverifikasi sekaligus`);
     } catch {
       flash("Sebagian verifikasi gagal — periksa koneksi lalu coba lagi.");
@@ -475,7 +480,31 @@ export function IuranRT({
     flash("Template verifikasi pembayaran berhasil diunduh");
   }
 
-  function handleSubmitTagihan(e: React.FormEvent) {
+  /**
+   * Unduh kuitansi warga LUNAS dari modal detail rumah (PDF, klien — konsisten
+   * dengan Portal Warga; tetap jalan OFFLINE karena tidak menyentuh server).
+   */
+  async function unduhKuitansiRt(p: Pembayaran) {
+    try {
+      const { simpanPdfKuitansi } = await import("../../lib/pdfKuitansi");
+      simpanPdfKuitansi({
+        judul: p.status === "Lunas" ? "Kuitansi Pembayaran Iuran" : "Pengajuan Pembayaran Iuran",
+        ref: p.id.toUpperCase(),
+        tanggal: p.tanggal,
+        warga: p.nama,
+        hunian: shortAlamat(p.alamat),
+        periode: p.periode,
+        jumlah: p.jumlah,
+        metode: p.metode,
+        status: p.status,
+      });
+      flash("Kuitansi PDF berhasil diunduh.");
+    } catch {
+      flash("Kuitansi gagal dibuat — coba lagi.");
+    }
+  }
+
+  async function handleSubmitTagihan(e: React.FormEvent) {
     e.preventDefault();
     const nama = formTagihan.nama.trim();
     const nominal = Number(formTagihan.nominal);
@@ -485,12 +514,23 @@ export function IuranRT({
     }
     const target =
       formTagihan.target === "pilih" && targetAlamat ? targetAlamat : "semua";
-    onTambahTagihanTambahan({
-      nama,
-      nominal,
-      tenggat: isoKeTenggat(formTagihan.jatuhTempo) || "-",
-      target,
-    });
+    try {
+      await onTambahTagihanTambahan({
+        nama,
+        nominal,
+        tenggat: isoKeTenggat(formTagihan.jatuhTempo) || "-",
+        tenggatIso: formTagihan.jatuhTempo || undefined,
+        target,
+      });
+    } catch (err) {
+      // Galat server (validasi/sesi) ditampilkan apa adanya — tanpa sukses palsu.
+      flash(
+        err instanceof Error && err.message
+          ? err.message
+          : "Tagihan gagal dibuat — periksa koneksi lalu coba lagi.",
+      );
+      return;
+    }
     flash(`Tagihan "${nama}" berhasil dibuat`);
     setShowCreateModal(false);
     setFormTagihan({ nama: "", nominal: "", jatuhTempo: "", target: "semua" });
@@ -1172,8 +1212,20 @@ export function IuranRT({
                     <div className="text-sm font-bold text-on-surface">{t.nama}</div>
                     <div className="text-xs text-on-surface-variant">
                       Tenggat <span className="font-mono">{t.tenggat}</span> · Target:{" "}
-                      {t.target && t.target !== "semua" ? t.target : "Semua Rumah"}
+                      {t.targetSemua
+                        ? "Semua Rumah"
+                        : t.target && t.target !== "semua"
+                          ? t.target
+                          : t.total
+                            ? `${t.total} rumah`
+                            : "Semua Rumah"}
+                      {t.periode ? ` · ${labelPeriodeServer(t.periode)}` : ""}
                     </div>
+                    {t.total !== undefined && t.lunasCount !== undefined && (
+                      <div className="text-xs text-on-surface-variant">
+                        {t.lunasCount} dari {t.total} warga target sudah lunas
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center justify-between lg:justify-end gap-3">
@@ -1186,7 +1238,9 @@ export function IuranRT({
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full bg-current opacity-60" />
-                    {t.status}
+                    {t.total !== undefined && t.lunasCount !== undefined && t.lunasCount > 0 && t.lunasCount < t.total
+                      ? `${t.lunasCount}/${t.total} Lunas`
+                      : t.status}
                   </span>
                 </div>
               </div>
@@ -1614,6 +1668,16 @@ export function IuranRT({
                         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
                         {p.status}
                       </span>
+                      {p.status === "Lunas" && (
+                        <button
+                          title="Unduh kuitansi PDF"
+                          aria-label={`Unduh kuitansi pembayaran ${p.nama}`}
+                          className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-all shrink-0"
+                          onClick={() => void unduhKuitansiRt(p)}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">download</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 ));
@@ -1630,7 +1694,8 @@ export function IuranRT({
           judul="Buat Tagihan Bulan Ini"
           pesan={
             "Server akan membuat tagihan untuk seluruh warga aktif sesuai kategori iuran " +
-            "pada periode berjalan. Tagihan yang sudah tercatat akan DILEWATI (tidak dobel)."
+            "pada periode berjalan. Tagihan yang sudah tercatat akan DILEWATI (tidak dobel); " +
+            "tagihan yang belum teralokasi disesuaikan dengan profil iuran terbaru warga."
           }
           ikon="calendar_add_on"
           aksen="primary"

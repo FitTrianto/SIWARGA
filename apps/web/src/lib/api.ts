@@ -33,6 +33,7 @@ import {
   type StatusAjuan,
   type StatusSuratServer,
   type Surat,
+  type TagihanTambahan,
   type WargaRt,
   labelStatusSurat,
 } from "./shared";
@@ -460,14 +461,23 @@ export function simpanPengaturanIuranRt(
 export interface HasilGenerateTagihan {
   dibuat: number;
   dilewati: number;
+  /** Tagihan BELUM teralokasi yang disesuaikan dengan profil iuran (`sinkronProfil`). */
+  sinkron?: number;
   periode: string;
 }
 
-/** B9 — "Buat Tagihan Bulan Ini"; tanpa `periode` server memakai `PERIODE_AKTIF`. */
-export function generateTagihanRt(periode?: string): Promise<HasilGenerateTagihan> {
+/**
+ * B9 — "Buat Tagihan Bulan Ini"; tanpa `periode` server memakai `PERIODE_AKTIF`.
+ * `sinkronProfil` (FE selalu true) menyesuaikan tagihan yang belum teralokasi
+ * dengan profil iuran terbaru — inilah jalur bendahara "memodifikasi" tagihan.
+ */
+export function generateTagihanRt(
+  periode?: string,
+  sinkronProfil = true,
+): Promise<HasilGenerateTagihan> {
   return minta("/rt/iuran/tagihan/generate", {
     method: "POST",
-    body: periode ? { periode } : {},
+    body: { ...(periode ? { periode } : {}), sinkronProfil },
     csrf: true,
   });
 }
@@ -485,6 +495,118 @@ export interface KategoriIuranServer {
 
 export function kategoriIuranRt(): Promise<{ kategori: KategoriIuranServer[] }> {
   return minta("/rt/iuran/kategori");
+}
+
+// ---------------------------------------------------------------------------
+// Iuran kondisional (tagihan insidental, `Tagihan.sumber = "insidental"`) —
+// dibuat Portal RT, terlihat & dibayar di Portal Warga, status kembali ke RT.
+// ---------------------------------------------------------------------------
+
+/** Satu kelompok tagihan insidental `GET /rt/iuran/kondisional` (per kategori+periode). */
+export interface KondisionalRtServer {
+  id: string; // "<kategoriId>|<periode>" — kunci grup FE
+  kategoriId: string;
+  periode: string;
+  nama: string;
+  nominal: number;
+  tenggat: string | null; // "25 Okt 2026" (server `tanggalPendek`)
+  total: number;
+  lunas: number;
+  belum: number;
+  /** true bila seluruh hunian berpenghuni ikut ditagih. */
+  targetSemua: boolean;
+  baris: Array<{
+    wargaId: string;
+    nama: string;
+    alamat: string;
+    nominal: number;
+    sisa: number;
+    status: string; // "lunas" | "sebagian" | "belum_bayar"
+    label: string;
+  }>;
+}
+
+/** Satu baris `GET /warga/iuran/kondisional` — tagihan insidental milik sendiri. */
+export interface KondisionalWargaServer {
+  id: string;
+  kategoriId: string;
+  nama: string;
+  periode: string;
+  nominal: number;
+  sisa: number;
+  tenggat: string | null;
+  status: string; // "lunas" | "sebagian" | "belum_bayar"
+  label: string;
+}
+
+/** GET daftar kondisional di Portal RT (periode berjalan + tunggakan insidental). */
+export function daftarKondisionalRt(periode?: string): Promise<{ periode: string; daftar: KondisionalRtServer[] }> {
+  return minta(`/rt/iuran/kondisional${periode ? `?periode=${encodeURIComponent(periode)}` : ""}`);
+}
+
+/** POST buat tagihan kondisional (wajib CSRF). `target` "semua" | wargaId[]. */
+export function buatKondisionalRt(payload: {
+  nama: string;
+  nominal: number;
+  tenggat?: string; // "YYYY-MM-DD"
+  target?: "semua" | string[];
+  periode?: string;
+}): Promise<{ kategoriId: string; periode: string; dibuat: number; target: number }> {
+  return minta("/rt/iuran/kondisional", { method: "POST", body: payload, csrf: true });
+}
+
+/** GET tagihan kondisional milik warga login (semua periode, terbaru dulu). */
+export function kondisionalWarga(): Promise<{ daftar: KondisionalWargaServer[] }> {
+  return minta("/warga/iuran/kondisional");
+}
+
+/** Ikon material mengikuti isi tagihan (hanya glyph — tanpa data lain). */
+function ikonKondisional(nama: string): string {
+  const n = nama.toLowerCase();
+  if (n.includes("fogging") || n.includes("nyamuk") || n.includes("pest")) return "pest_control";
+  if (n.includes("pagar") || n.includes("renov") || n.includes("perbaikan") || n.includes("gedung")) return "construction";
+  if (n.includes("keamanan") || n.includes("siskam") || n.includes("ronda")) return "shield";
+  if (n.includes("kebersihan") || n.includes("sampah") || n.includes("lingkungan")) return "delete_sweep";
+  if (n.includes("acara") || n.includes("syukuran") || n.includes("event")) return "celebration";
+  if (n.includes("kematian") || n.includes("musibah") || n.includes("santunan")) return "volunteer_activism";
+  return "receipt";
+}
+
+/** Referensi tampilan yang tetap bisa dicek pengurus (id kategori server). */
+function refKondisional(kategoriId: string): string {
+  return `KOND-${kategoriId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+}
+
+/** Baris RT → kartu `TagihanTambahan` (progres per warga ikut dibawa). */
+export function kondisionalRtKeKartu(k: KondisionalRtServer): TagihanTambahan {
+  return {
+    id: k.id,
+    icon: ikonKondisional(k.nama),
+    nama: k.nama,
+    ref: refKondisional(k.kategoriId),
+    nominal: k.nominal,
+    tenggat: k.tenggat ?? "-",
+    status: k.total > 0 && k.lunas >= k.total ? "Lunas" : "Belum",
+    total: k.total,
+    lunasCount: k.lunas,
+    periode: k.periode,
+    ...(k.targetSemua ? { targetSemua: true } : {}),
+  };
+}
+
+/** Baris warga → kartu `TagihanTambahan` di Portal Warga (sisa dibawa). */
+export function kondisionalWargaKeKartu(k: KondisionalWargaServer): TagihanTambahan {
+  return {
+    id: k.id,
+    icon: ikonKondisional(k.nama),
+    nama: k.nama,
+    ref: refKondisional(k.kategoriId),
+    nominal: k.nominal,
+    sisa: k.sisa,
+    tenggat: k.tenggat ?? "-",
+    status: k.status === "lunas" ? "Lunas" : "Belum",
+    periode: k.periode,
+  };
 }
 
 /** B9/B10 — satu baris `GET /rt/iuran/tagihan` (satu warga, beragam kategori). */

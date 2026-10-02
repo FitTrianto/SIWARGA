@@ -10,6 +10,8 @@
  *   GET   /rt/iuran/pengaturan               → modeAlokasi/tenggatHari/dendaAktif (B7)
  *   PATCH /rt/iuran/pengaturan               → ubah pengaturan iuran (B7)
  *   POST  /rt/iuran/tagihan/generate         → generate tagihan bulanan idempoten (B9)
+ *   POST  /rt/iuran/kondisional              → buat tagihan insidental (iuran kondisional)
+ *   GET   /rt/iuran/kondisional              → daftar tagihan insidental + status per warga
  *   GET   /rt/warga/:id/profil-iuran         → profil iuran per warga (B9, deviasi kontrak)
  *   PUT   /rt/warga/:id/profil-iuran         → simpan nominal/unit override (B9, deviasi kontrak)
  *
@@ -28,9 +30,13 @@ import { catatAudit } from "../plugins/audit.js";
 import { verifikasiCsrf } from "../plugins/csrf.js";
 import { GalatTolak, wajibRt } from "../plugins/guard.js";
 import { denganScopeRequest } from "../plugins/scope.js";
-import type { Prisma } from "../generated/prisma/client.js";
 import type { DbTransaksi } from "../services/db.js";
 import { terapkanAlokasiPembayaran, tanggalPendek } from "../services/alokasiRepo.js";
+import {
+  PENGATURAN_IURAN_DASAR,
+  generateTagihanPeriode,
+  tenggatPeriode,
+} from "../services/generateTagihan.js";
 import { selisihBulan, statusTurunan } from "../services/statusTagihan.js";
 import {
   LABEL_PEMBAYARAN,
@@ -89,9 +95,27 @@ const skemaPengaturanIuran = z
 /**
  * B9 — generate tagihan bulanan: `periode` opsional, mengikuti `PERIODE_AKTIF`
  * (dev `2026-10`) bila tidak dikirim — tombol FE "Buat Tagihan Bulan Ini"
- * cukup mengirim `{}` tanpa menghitung periode sendiri.
+ * cukup mengirim `{}` tanpa menghitung periode sendiri. `sinkronProfil`
+ * menyesuaikan tagihan yang belum teralokasi dengan profil iuran terbaru.
  */
-const skemaGenerateTagihan = z.object({ periode: skemaPeriode.optional() });
+const skemaGenerateTagihan = z.object({
+  periode: skemaPeriode.optional(),
+  sinkronProfil: z.boolean().optional(),
+});
+
+/** Kondisional (insidental): tagihan sekali jalan buatan pengurus RT. */
+const skemaKondisional = z.object({
+  nama: z.string().trim().min(2, "Nama tagihan minimal 2 karakter.").max(80),
+  nominal: z.coerce.number().positive("Nominal harus lebih dari 0.").max(1_000_000_000),
+  tenggat: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Tenggat harus berformat YYYY-MM-DD.")
+    .optional(),
+  // "semua" = seluruh warga aktif; selain itu daftar wargaId milik RT.
+  target: z.union([z.literal("semua"), z.array(skemaId).min(1).max(2000)]).default("semua"),
+  periode: skemaPeriode.optional(),
+});
+const skemaQueryKondisional = z.object({ periode: skemaPeriode.optional() });
 
 /** B9 — override nominal/unit per warga untuk satu kategori. */
 const skemaProfilIuran = z.object({
@@ -109,9 +133,6 @@ const skemaProfilIuran = z.object({
   jumlahUnit: z.coerce.number().int("Jumlah unit harus bilangan bulat.").min(1).max(999).optional(),
 });
 
-/** Default `pengaturan_rt` (§6.4.3) bila baris pengaturan belum pernah dibuat. */
-const PENGATURAN_IURAN_DASAR = { modeAlokasi: "gabungan", tenggatHari: 10, dendaAktif: false } as const;
-
 /**
  * B7 — validasi `kategoriTujuan` SEBELUM alokasi dijalankan: kategori wajib
  * milik RT yang sama dan masih aktif. Dilempar di awal transaksi supaya tidak
@@ -125,17 +146,6 @@ async function pastikanKategoriTujuan(tx: DbTransaksi, rtId: string, kategoriId:
   if (!kategori) {
     throw new GalatTolak("NOT_FOUND", "Kategori iuran tujuan tidak ditemukan.");
   }
-}
-
-/**
- * B9 — tenggat tagihan satu periode: `min(tenggat_hari, hari_akhir_bulan)`
- * sehingga bulan pendek (Feb) tidak pernah melewati akhir bulan (§6.4.3).
- */
-function tenggatPeriode(periode: string, tenggatHari: number): Date {
-  const [tahun, bulan] = periode.split("-").map(Number);
-  const hariAkhirBulan = new Date(Date.UTC(tahun, bulan, 0)).getUTCDate();
-  const hari = Math.min(Math.max(1, tenggatHari), hariAkhirBulan);
-  return new Date(Date.UTC(tahun, bulan - 1, hari));
 }
 
 export const ruteIuranRt: FastifyPluginAsync = async (app) => {
@@ -670,82 +680,21 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * B9 — generate tagihan satu periode (bulk, idempoten).
-   *
-   * Aturan: warga `status_aktif` × kategori `aktif` dan bukan `insidental`;
-   * nominal = `(profil.nominal_berlaku ?? kategori.nominal_default) × (per_unit ? profil.jumlah_unit : 1)`;
-   * nominal ≤ 0 dilewati (dihitung `dilewati`); tenggat = `min(tenggat_hari, hari_akhir_bulan)`.
-   * Kombinasi `(warga, kategori, periode)` unik → generate ulang tidak pernah
-   * menduplikasi tagihan (dihitung juga sebagai `dilewati`).
+   * B9 — generate tagihan satu periode (bulk, idempoten). `sinkronProfil`
+   * (opsional) menyesuaikan tagihan yang BELUM teralokasi dengan profil iuran
+   * terbaru — inilah jalur "bendahara memodifikasi tagihan" (§6.4.3).
+   * Logika penuh terpusat di `services/generateTagihan.ts` dan dipakai juga
+   * oleh pemeriksa otomatis `plugins/autoTagihan.ts`.
    */
   app.post("/rt/iuran/tagihan/generate", { preHandler: verifikasiCsrf }, async (req, reply) => {
     const { rtId, sesi } = wajibRt(req);
-    const { periode = config.periodeAktif } = skemaGenerateTagihan.parse(req.body ?? {});
+    const { periode = config.periodeAktif, sinkronProfil } = skemaGenerateTagihan.parse(req.body ?? {});
 
     const hasil = await denganScopeRequest(req, async (tx) => {
       const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
-      const pengaturan = await tx.pengaturanRt.findUnique({
-        where: { rtId },
-        select: { tenggatHari: true },
+      const gen = await generateTagihanPeriode(tx, rtId, periode, {
+        sinkronProfil: sinkronProfil === true,
       });
-      const tenggatHari = pengaturan?.tenggatHari ?? PENGATURAN_IURAN_DASAR.tenggatHari;
-
-      const warga = await tx.warga.findMany({
-        where: { rtId, statusAkses: "aktif" },
-        select: { id: true },
-      });
-      const kategori = await tx.kategoriIuran.findMany({
-        where: { rtId, statusAktif: true, tipeTarif: { not: "insidental" } },
-        select: { id: true, tipeTarif: true, nominalDefault: true },
-      });
-      const profil = await tx.profilIuranWarga.findMany({
-        where: { rtId },
-        select: { wargaId: true, kategoriId: true, nominalBerlaku: true, jumlahUnit: true },
-      });
-      const ada = await tx.tagihan.findMany({
-        where: { rtId, periode },
-        select: { wargaId: true, kategoriId: true },
-      });
-
-      const kunciAda = new Set(ada.map((t) => `${t.wargaId}|${t.kategoriId}`));
-      const petaProfil = new Map(profil.map((p) => [`${p.wargaId}|${p.kategoriId}`, p]));
-      const tenggat = tenggatPeriode(periode, tenggatHari);
-      const baris: Prisma.TagihanCreateManyInput[] = [];
-      let dibuat = 0;
-      let dilewati = 0;
-
-      for (const w of warga) {
-        for (const k of kategori) {
-          const kunci = `${w.id}|${k.id}`;
-          if (kunciAda.has(kunci)) {
-            dilewati += 1; // tagihan periode ini sudah ada — idempoten
-            continue;
-          }
-          const p = petaProfil.get(kunci);
-          const dasar = p?.nominalBerlaku != null ? Number(p.nominalBerlaku) : Number(k.nominalDefault);
-          const unit = k.tipeTarif === "per_unit" ? (p?.jumlahUnit ?? 1) : 1;
-          const nominal = r2(dasar * unit);
-          if (nominal <= 0) {
-            dilewati += 1; // nominal nol = memang tidak ditagihkan
-            continue;
-          }
-          baris.push({
-            rtId,
-            wargaId: w.id,
-            kategoriId: k.id,
-            periode,
-            nominal,
-            nominalAwal: nominal,
-            sisa: nominal,
-            tenggat,
-            status: "belum_bayar",
-            sumber: "bulk",
-          });
-          dibuat += 1;
-        }
-      }
-
-      if (baris.length > 0) await tx.tagihan.createMany({ data: baris });
 
       await catatAudit(
         {
@@ -758,17 +707,255 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
           aksi: "generate_tagihan",
           aksiBadge: "Dibuat",
           entitas: "tagihan",
-          sesudah: { periode, dibuat, dilewati },
-          ringkasan: `Generate tagihan ${periode}: ${dibuat} dibuat, ${dilewati} dilewati`,
+          sesudah: { periode, dibuat: gen.dibuat, dilewati: gen.dilewati, sinkron: gen.sinkron },
+          ringkasan:
+            `Generate tagihan ${periode}: ${gen.dibuat} dibuat, ${gen.dilewati} dilewati` +
+            (gen.sinkron > 0 ? `, ${gen.sinkron} disinkronkan dengan profil` : ""),
           ip: req.ipAsli,
         },
         tx,
       );
 
-      return { dibuat, dilewati, periode };
+      return { dibuat: gen.dibuat, dilewati: gen.dilewati, sinkron: gen.sinkron, periode };
     });
 
     return reply.ok(hasil);
+  });
+
+  /**
+   * Kondisional (insidental) — tagihan sekali jalan yang dibuat pengurus RT
+   * dan terlihat DI KEDUA portal (§6.4.1 tipe `insidental`, `sifat opsional`;
+   * tidak ikut generate bulanan).
+   *
+   *   POST /rt/iuran/kondisional → buat tagihan untuk target warga
+   *
+   * Kategori insidental dibuat sekali per nama (unik per RT) lalu dipakai
+   * ulang — pembuatan berikutnya dengan nama sama tinggal menambah baris
+   * `tagihan` (`sumber: "insidental"`). `target` "semua" = seluruh warga
+   * aktif; selain itu daftar wargaId yang divalidasi milik RT & aktif.
+   */
+  app.post("/rt/iuran/kondisional", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+    const input = skemaKondisional.parse(req.body ?? {});
+    const periode = input.periode ?? config.periodeAktif;
+
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+
+      let tenggat: Date;
+      if (input.tenggat) {
+        const d = new Date(`${input.tenggat}T00:00:00.000Z`);
+        if (Number.isNaN(d.getTime())) {
+          throw new GalatTolak("VALIDATION", "Tenggat tidak valid.");
+        }
+        tenggat = d;
+      } else {
+        const pengaturan = await tx.pengaturanRt.findUnique({
+          where: { rtId },
+          select: { tenggatHari: true },
+        });
+        const tenggatHari = pengaturan?.tenggatHari ?? PENGATURAN_IURAN_DASAR.tenggatHari;
+        tenggat = tenggatPeriode(periode, tenggatHari);
+      }
+
+      // Kategori insidental per nama (unik per RT) — buat sekali, pakai ulang.
+      let kategori = await tx.kategoriIuran.findFirst({
+        where: { rtId, nama: input.nama },
+        select: { id: true, tipeTarif: true },
+      });
+      if (kategori && kategori.tipeTarif !== "insidental") {
+        throw new GalatTolak(
+          "VALIDATION",
+          `Nama "${input.nama}" sudah dipakai kategori iuran reguler — pilih nama lain.`,
+        );
+      }
+      if (!kategori) {
+        const urutan = await tx.kategoriIuran.count({ where: { rtId } });
+        kategori = await tx.kategoriIuran.create({
+          data: {
+            rtId,
+            nama: input.nama,
+            tipeTarif: "insidental",
+            sifat: "opsional",
+            nominalDefault: input.nominal,
+            urutan,
+            statusAktif: true,
+          },
+          select: { id: true, tipeTarif: true },
+        });
+      }
+      const kategoriId = kategori.id;
+
+      let target: Array<{ id: string }>;
+      if (input.target === "semua") {
+        target = await tx.warga.findMany({
+          where: { rtId, statusAkses: "aktif" },
+          select: { id: true },
+        });
+      } else {
+        target = await tx.warga.findMany({
+          where: { rtId, statusAkses: "aktif", id: { in: input.target } },
+          select: { id: true },
+        });
+        if (target.length === 0) {
+          throw new GalatTolak("VALIDATION", "Target tagihan tidak berisi warga aktif RT ini.");
+        }
+      }
+      if (target.length === 0) {
+        throw new GalatTolak("VALIDATION", "Belum ada warga aktif untuk ditagihkan.");
+      }
+
+      // `skipDuplicates` + unique (warga, kategori, periode) → klik dobel /
+      // buat ulang dengan nama sama tidak pernah menggandakan tagihan.
+      const buat = await tx.tagihan.createMany({
+        data: target.map((w) => ({
+          rtId,
+          wargaId: w.id,
+          kategoriId,
+          periode,
+          nominal: input.nominal,
+          nominalAwal: input.nominal,
+          sisa: input.nominal,
+          tenggat,
+          status: "belum_bayar" as const,
+          sumber: "insidental",
+        })),
+        skipDuplicates: true,
+      });
+
+      await catatAudit(
+        {
+          scopeLevel: "rt",
+          scopeId: rtId,
+          actorId: oleh,
+          actorRole: "rt_admin",
+          portal: "rt",
+          modul: "iuran",
+          aksi: "buat_tagihan_kondisional",
+          aksiBadge: "Dibuat",
+          entitas: "tagihan",
+          sesudah: {
+            nama: input.nama,
+            nominal: input.nominal,
+            periode,
+            target: target.length,
+            dibuat: buat.count,
+          },
+          ringkasan: `Tagihan kondisional "${input.nama}" Rp ${input.nominal} — ${buat.count} warga ditagih (${periode})`,
+          ip: req.ipAsli,
+        },
+        tx,
+      );
+
+      return { kategoriId, periode, dibuat: buat.count, target: target.length };
+    });
+
+    return reply.ok(hasil);
+  });
+
+  /**
+   * Daftar tagihan kondisional di Portal RT: periode berjalan (apa adanya) +
+   * tagihan periode LAMPAU yang masih punya sisa — pengurus selalu bisa
+   * melihat kewajiban yang belum lunas untuk diverifikasi.
+   */
+  app.get("/rt/iuran/kondisional", async (req, reply) => {
+    const { rtId } = wajibRt(req);
+    const { periode = config.periodeAktif } = skemaQueryKondisional.parse(req.query);
+
+    const daftar = await denganScopeRequest(req, async (tx) => {
+      const tagihan = await tx.tagihan.findMany({
+        where: {
+          rtId,
+          sumber: "insidental",
+          OR: [{ periode }, { sisa: { gt: 0 } }],
+        },
+        include: {
+          kategori: { select: { id: true, nama: true } },
+          warga: { select: { id: true, nama: true, rumahId: true } },
+        },
+        orderBy: [{ periode: "asc" }, { dibuatPada: "asc" }],
+      });
+      const rumah = await tx.rumah.findMany({
+        where: { rtId },
+        select: { id: true, alamatPendek: true },
+      });
+      const petaRumah = new Map(rumah.map((r) => [r.id, r.alamatPendek]));
+      // Seluruh hunian berpenghuni (warga aktif) — pembanding label target FE.
+      const wargaAktif = await tx.warga.findMany({
+        where: { rtId, statusAkses: "aktif" },
+        select: { rumahId: true },
+      });
+      const alamatBerpenghuni = new Set(
+        wargaAktif
+          .map((w) => (w.rumahId ? petaRumah.get(w.rumahId) : null))
+          .filter((a): a is string => Boolean(a)),
+      );
+
+      const grup = new Map<
+        string,
+        {
+          id: string;
+          kategoriId: string;
+          periode: string;
+          nama: string;
+          nominal: number;
+          tenggat: string | null;
+          baris: Array<{
+            wargaId: string;
+            nama: string;
+            alamat: string;
+            nominal: number;
+            sisa: number;
+            status: string;
+            label: string;
+          }>;
+        }
+      >();
+
+      for (const t of tagihan) {
+        const kunci = `${t.kategori.id}|${t.periode}`;
+        let g = grup.get(kunci);
+        if (!g) {
+          g = {
+            id: kunci,
+            kategoriId: t.kategori.id,
+            periode: t.periode,
+            nama: t.kategori.nama,
+            nominal: Number(t.nominal),
+            tenggat: t.tenggat ? tanggalPendek(t.tenggat) : null,
+            baris: [],
+          };
+          grup.set(kunci, g);
+        }
+        const h = statusTurunan({
+          sisa: Number(t.sisa),
+          nominalAwal: Number(t.nominal),
+          periode: t.periode,
+          periodeAktif: config.periodeAktif,
+          keringananAktif: false,
+        });
+        g.baris.push({
+          wargaId: t.warga.id,
+          nama: t.warga.nama,
+          alamat: (t.warga.rumahId ? petaRumah.get(t.warga.rumahId) : null) ?? "-",
+          nominal: Number(t.nominal),
+          sisa: Number(t.sisa),
+          status: h.status,
+          label: h.label,
+        });
+      }
+
+      return [...grup.values()].map((g) => {
+        const lunas = g.baris.filter((b) => b.status === "lunas").length;
+        const alamats = new Set(g.baris.map((b) => b.alamat));
+        const targetSemua =
+          alamatBerpenghuni.size > 0 &&
+          [...alamatBerpenghuni].every((a) => alamats.has(a));
+        return { ...g, total: g.baris.length, lunas, belum: g.baris.length - lunas, targetSemua };
+      });
+    });
+
+    return reply.ok({ periode, daftar });
   });
 
   /**

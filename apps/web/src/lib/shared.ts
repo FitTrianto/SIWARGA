@@ -1432,13 +1432,26 @@ export interface TagihanTambahan {
   nama: string;
   ref: string;
   nominal: number;
+  /** Sisa tagihan bila sudah dibayar sebagian (dari server; hilang = penuh). */
+  sisa?: number;
   tenggat: string;
   status: StatusTagihanTambahan;
   /** Tidak diisi / "semua" = tagihan seluruh hunian; selain itu alamat pendek target. */
   target?: string;
+  /** Jumlah warga target (Portal RT) — progres "3/5 Lunas". */
+  total?: number;
+  /** Jumlah warga yang sudah lunas (Portal RT). */
+  lunasCount?: number;
+  /** "YYYY-MM" periode tagihan bila berbeda dari periode berjalan. */
+  periode?: string;
+  /** true bila seluruh hunian berpenghuni ikut ditagih (Portal RT). */
+  targetSemua?: boolean;
 }
 
-export type TagihanTambahanBaru = Omit<TagihanTambahan, "id" | "icon" | "ref" | "status">;
+export type TagihanTambahanBaru = Omit<TagihanTambahan, "id" | "icon" | "ref" | "status"> & {
+  /** Tenggat ISO "YYYY-MM-DD" untuk API; `tenggat` (tampilan) dipakai mode demo. */
+  tenggatIso?: string;
+};
 
 export const tagihanTambahanDefault: TagihanTambahan[] = [
   { id: "k1", icon: "pest_control", nama: "Fogging Nyamuk Demam Berdarah", ref: "INV-2026-10-FG01", nominal: 20000, tenggat: "25 Okt 2026", status: "Belum", target: "semua" },

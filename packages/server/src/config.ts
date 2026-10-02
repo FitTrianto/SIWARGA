@@ -24,10 +24,12 @@ const skemaEnv = z.object({
   /** Rate limit rute auth (§14.1: 10 req/menit/IP). */
   AUTH_RATE_LIMIT_PER_MENIT: z.coerce.number().int().positive().default(10),
   /** Periode iuran berjalan 'YYYY-MM' — PRD menetapkan Oktober 2026. */
+  // Opsional: tanpa env, sistem mengikuti bulan berjalan (rotasi otomatis
+  // tiap bulan — lihat `config.periodeAktif`). Isi env untuk mengunci periode.
   PERIODE_AKTIF: z
     .string()
     .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "harus format YYYY-MM, mis. 2026-10")
-    .default("2026-10"),
+    .optional(),
 });
 
 const hasilParse = skemaEnv.safeParse(process.env);
@@ -77,8 +79,16 @@ export const config = {
   databaseUrl: env.DATABASE_URL,
   sessionIdleDetik: env.SESSION_IDLE_DETIK,
   authRateLimitPerMenit: env.AUTH_RATE_LIMIT_PER_MENIT,
-  /** Periode iuran berjalan 'YYYY-MM' (PERIODE_AKTIF = Oktober 2026). */
-  periodeAktif: env.PERIODE_AKTIF,
+  /** Periode iuran berjalan 'YYYY-MM'. `PERIODE_AKTIF` (env) menimpa; tanpa
+   *  env, sistem mengikuti bulan BERJALAN — rotasi otomatis tiap bulan tanpa
+   *  restart, sehingga generate tagihan bulanan benar-benar "otomatis tiap
+   *  bulan". Mode test dikunci '2026-10' agar tes selalu deterministik. */
+  get periodeAktif(): string {
+    if (env.PERIODE_AKTIF) return env.PERIODE_AKTIF;
+    if (env.NODE_ENV === "test") return "2026-10";
+    const kini = new Date();
+    return `${kini.getFullYear()}-${String(kini.getMonth() + 1).padStart(2, "0")}`;
+  },
   /** TTL refresh token sesi (hari) */
   refreshTtlHari: 14,
   /** Durasi penguncian akun setelah ≥3 kata sandi salah (§4.3) */

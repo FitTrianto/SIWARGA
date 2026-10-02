@@ -4699,7 +4699,8 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
       payload: { periode },
     });
     expect(ulang.statusCode).toBe(200);
-    expect(isi(ulang).data).toEqual({ dibuat: 0, dilewati: belumAda, periode });
+    // `sinkron: 0` — tanpa `sinkronProfil` tidak ada tagihan yang disentuh
+    expect(isi(ulang).data).toEqual({ dibuat: 0, dilewati: belumAda, sinkron: 0, periode });
     expect(await tagihanPeriode(periode), "generate ulang tidak menduplikasi baris").toBe(data.dibuat);
 
     // `periode` opsional → mengikuti periode aktif sistem (2026-10)
@@ -4725,6 +4726,306 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
       ),
       "tiga panggilan generate = tiga audit",
     ).toBe(3);
+  });
+
+  it("Iuran kondisional (money-path): RT buat → warga lihat & bayar → setujui → lunas sinkron di dua portal", async () => {
+    interface GrupKondisional {
+      nama: string;
+      periode: string;
+      total: number;
+      lunas: number;
+      belum: number;
+      targetSemua: boolean;
+      baris: Array<{ wargaId: string; nominal: number; sisa: number; status: string }>;
+    }
+    interface BarisKondisional {
+      id: string;
+      nama: string;
+      periode: string;
+      nominal: number;
+      sisa: number;
+      status: string;
+    }
+
+    const nama = "Iuran Fogging Darurat";
+
+    // 1. RT membuat tagihan insidental untuk SATU warga (target spesifik)
+    const payload = { nama, nominal: 45000, target: [idAhmad], tenggat: "2026-10-25" };
+    const buat = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kondisional`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload,
+    });
+    expect(buat.statusCode).toBe(200);
+    const hasilBuat = isi(buat).data as { kategoriId: string; periode: string; dibuat: number; target: number };
+    expect(hasilBuat.periode, "tanpa periode → periode aktif 2026-10").toBe("2026-10");
+    expect(hasilBuat.target).toBe(1);
+    expect(hasilBuat.dibuat).toBe(1);
+
+    // kategori dibuat sekali bertipe insidental + sifat opsional (§6.4.1)
+    const kategori = await dalamScopePlat((c) =>
+      c.query("SELECT tipe_tarif AS tipe, wajib_opsional AS sifat FROM kategori_iuran WHERE id = $1", [
+        hasilBuat.kategoriId,
+      ]),
+    );
+    expect((kategori.rows[0] as { tipe: string }).tipe).toBe("insidental");
+    expect((kategori.rows[0] as { sifat: string }).sifat).toBe("opsional");
+
+    // klik ulang (nama + target sama) → idempoten, tidak menggandakan tagihan
+    const ulang = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kondisional`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload,
+    });
+    expect(ulang.statusCode).toBe(200);
+    expect((isi(ulang).data as { dibuat: number }).dibuat, "createMany skipDuplicates").toBe(0);
+
+    // guard: tanpa CSRF → ditolak; sesi warga tak bisa membuat; target lintas RT → ditolak
+    const tanpaCsrf = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kondisional`,
+      cookies: sesiRt(),
+      payload: { nama: "Iuran Tanpa CSRF", nominal: 1000 },
+    });
+    expect(tanpaCsrf.statusCode).toBe(401);
+
+    const wargaBuat = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kondisional`,
+      cookies: { sid: sidWarga },
+      headers: csrfRtHeader(),
+      payload: { nama: "Iuran Warga", nominal: 1000 },
+    });
+    expect(wargaBuat.statusCode).toBe(401);
+
+    const lintas = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kondisional`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { nama: "Iuran Lintas RT", nominal: 1000, target: [idWargaRt05] },
+    });
+    expect(lintas.statusCode).toBe(400);
+    expect(isi(lintas).error?.code).toBe("VALIDATION");
+
+    // 2. Portal RT melihat progres — belum lunas
+    const rtSebelum = await app.inject({ method: "GET", url: `${api}/rt/iuran/kondisional`, cookies: sesiRt() });
+    expect(rtSebelum.statusCode).toBe(200);
+    const grupSebelum = (isi(rtSebelum).data.daftar as GrupKondisional[]).find((g) => g.nama === nama);
+    expect(grupSebelum, "tagihan kondisional muncul di Portal RT").toBeTruthy();
+    expect(grupSebelum!.periode).toBe("2026-10");
+    expect(grupSebelum!.total).toBe(1);
+    expect(grupSebelum!.lunas).toBe(0);
+    expect(grupSebelum!.belum).toBe(1);
+    expect(grupSebelum!.targetSemua, "target spesifik ≠ seluruh hunian").toBe(false);
+    expect(grupSebelum!.baris[0].wargaId).toBe(idAhmad);
+    expect(grupSebelum!.baris[0].nominal).toBe(45000);
+    expect(grupSebelum!.baris[0].sisa).toBe(45000);
+    expect(grupSebelum!.baris[0].status).toBe("belum_bayar");
+
+    // RLS: RT05 tidak pernah melihat tagihan RT04; sesi warga tak bisa baca endpoint RT
+    const rt05 = await app.inject({ method: "GET", url: `${api}/rt/iuran/kondisional`, cookies: sesiRt05() });
+    expect(rt05.statusCode).toBe(200);
+    expect((isi(rt05).data.daftar as GrupKondisional[]).some((g) => g.nama === nama)).toBe(false);
+
+    const wargaBaca = await app.inject({
+      method: "GET",
+      url: `${api}/rt/iuran/kondisional`,
+      cookies: { sid: sidWarga },
+    });
+    expect(wargaBaca.statusCode).toBe(401);
+
+    // 3. Portal Warga melihat tagihan kondisional miliknya
+    const wargaLihat = await app.inject({
+      method: "GET",
+      url: `${api}/warga/iuran/kondisional`,
+      cookies: { sid: sidWarga },
+    });
+    expect(wargaLihat.statusCode).toBe(200);
+    const baris = (isi(wargaLihat).data.daftar as BarisKondisional[]).find((b) => b.nama === nama);
+    expect(baris, "warga target melihat tagihan kondisionalnya").toBeTruthy();
+    expect(baris!.periode).toBe("2026-10");
+    expect(baris!.nominal).toBe(45000);
+    expect(baris!.sisa).toBe(45000);
+    expect(baris!.status).toBe("belum_bayar");
+
+    // 4. Warga ajukan bukti → menunggu_verifikasi; sisa tagihan BELUM berkurang
+    const bayar = await app.inject({
+      method: "POST",
+      url: `${api}/warga/iuran/bukti`,
+      cookies: { sid: sidWarga },
+      headers: { "idempotency-key": "uji-kondisional-0001" },
+      payload: { nominal: 45000, metode: "transfer", catatan: `Tagihan kondisional: ${nama}` },
+    });
+    expect(bayar.statusCode).toBe(200);
+    const idBayar = isi(bayar).data.pembayaran.id as string;
+    expect(isi(bayar).data.pembayaran.status).toBe("menunggu_verifikasi");
+
+    const sisaSebelum = await dalamScopePlat((c) =>
+      c.query("SELECT sisa::float AS sisa FROM tagihan WHERE id = $1", [baris!.id]),
+    );
+    expect(Number((sisaSebelum.rows[0] as { sisa: number }).sisa), "sisa tak berkurang sebelum verifikasi").toBe(
+      45000,
+    );
+
+    // 5. RT setujui — mode terpisah mensyaratkan kategoriTujuan (B7)
+    const kasSebelum = await jumlahEntriKas();
+    const setujui = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/pembayaran/${idBayar}/setujui`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kategoriTujuan: hasilBuat.kategoriId },
+    });
+    expect(setujui.statusCode).toBe(200);
+
+    // alokasi FIFO mengurangi sisa tagihan kondisional → lunas; kas otomatis tercatat
+    const sesudah = await dalamScopePlat((c) =>
+      c.query("SELECT sisa::float AS sisa FROM tagihan WHERE id = $1", [baris!.id]),
+    );
+    expect(Number((sesudah.rows[0] as { sisa: number }).sisa), "sisa = 0 setelah verifikasi").toBe(0);
+    expect(await jumlahEntriKas(), "verifikasi menulis satu entri kas otomatis").toBe(kasSebelum + 1);
+
+    // 6. STATUS SINKRON di dua portal: RT & warga sama-sama melihat lunas
+    const rtSesudah = await app.inject({ method: "GET", url: `${api}/rt/iuran/kondisional`, cookies: sesiRt() });
+    const grup = (isi(rtSesudah).data.daftar as GrupKondisional[]).find((g) => g.nama === nama);
+    expect(grup!.lunas).toBe(1);
+    expect(grup!.belum).toBe(0);
+    expect(grup!.baris[0].status).toBe("lunas");
+    expect(grup!.baris[0].sisa).toBe(0);
+
+    const wargaSesudah = await app.inject({
+      method: "GET",
+      url: `${api}/warga/iuran/kondisional`,
+      cookies: { sid: sidWarga },
+    });
+    const barisLunas = (isi(wargaSesudah).data.daftar as BarisKondisional[]).find((b) => b.nama === nama);
+    expect(barisLunas!.sisa, "sisa warga ikut 0").toBe(0);
+    expect(barisLunas!.status).toBe("lunas");
+  });
+
+  it("Bendahara modifikasi tagihan: sinkronProfil menyesuaikan yang belum teralokasi, tak menyentuh yang teralokasi", async () => {
+    const periode = "2026-11";
+    const bacaTagihan = () =>
+      dalamScopePlat((c) =>
+        c.query(
+          "SELECT nominal::float AS nominal, sisa::float AS sisa FROM tagihan WHERE warga_id = $1 AND kategori_id = $2 AND periode = $3",
+          [idAhmad, idKategoriDatar, periode],
+        ),
+      );
+
+    // tagihan datar Ahmad 2026-11 sudah ada dari tes B9 (nominal profil 30.000, belum teralokasi)
+    const sebelum = (await bacaTagihan()).rows[0] as { nominal: number; sisa: number };
+    expect(sebelum.nominal, "nominal profil lama").toBe(30000);
+    expect(sebelum.sisa).toBe(30000);
+
+    // bendahara mengubah profil iuran: 30.000 → 45.000
+    const profil = await app.inject({
+      method: "PUT",
+      url: `${api}/rt/warga/${idAhmad}/profil-iuran`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kategoriId: idKategoriDatar, nominalBerlaku: 45000 },
+    });
+    expect(profil.statusCode).toBe(200);
+
+    // generate TANPA sinkronProfil → tagihan lama dibiarkan (idempoten saja)
+    const tanpa = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tagihan/generate`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { periode },
+    });
+    expect(tanpa.statusCode).toBe(200);
+    expect(isi(tanpa).data).toMatchObject({ dibuat: 0, sinkron: 0 });
+    expect(
+      ((await bacaTagihan()).rows[0] as { nominal: number }).nominal,
+      "tanpa flag → tagihan tak tersentuh",
+    ).toBe(30000);
+
+    // generate DENGAN sinkronProfil → tagihan BELUM teralokasi disesuaikan profil
+    const dengan = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tagihan/generate`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { periode, sinkronProfil: true },
+    });
+    expect(dengan.statusCode).toBe(200);
+    const hasil = isi(dengan).data as { dibuat: number; sinkron: number; periode: string };
+    expect(hasil.periode).toBe(periode);
+    expect(hasil.dibuat, "idempoten — tak ada tagihan baru").toBe(0);
+    expect(hasil.sinkron, "minimal tagihan Ahmad disesuaikan").toBeGreaterThanOrEqual(1);
+    const disinkron = (await bacaTagihan()).rows[0] as { nominal: number; sisa: number };
+    expect(disinkron.nominal, "nominal ikut profil terbaru").toBe(45000);
+    expect(disinkron.sisa, "sisa ikut profil selama belum teralokasi").toBe(45000);
+
+    // alokasi SELURUH tagihan datar Ahmad (mode terpisah → kategoriTujuan datar)
+    const totalDatar = Number(
+      (
+        (
+          await dalamScopePlat((c) =>
+            c.query(
+              "SELECT COALESCE(SUM(sisa), 0)::float AS n FROM tagihan WHERE warga_id = $1 AND kategori_id = $2 AND sisa > 0",
+              [idAhmad, idKategoriDatar],
+            ),
+          )
+        ).rows[0] as { n: number }
+      ).n,
+    );
+    expect(totalDatar, "ada tagihan datar terbuka").toBeGreaterThanOrEqual(45000);
+
+    const bayar = await app.inject({
+      method: "POST",
+      url: `${api}/warga/iuran/bukti`,
+      cookies: { sid: sidWarga },
+      headers: { "idempotency-key": "uji-sinkron-alokasi-0001" },
+      payload: { nominal: totalDatar, metode: "transfer" },
+    });
+    expect(bayar.statusCode).toBe(200);
+    const setujui = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/pembayaran/${isi(bayar).data.pembayaran.id}/setujui`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kategoriTujuan: idKategoriDatar },
+    });
+    expect(setujui.statusCode).toBe(200);
+    expect(
+      ((await bacaTagihan()).rows[0] as { sisa: number }).sisa,
+      "alokasi melunasi tagihan datar 2026-11",
+    ).toBe(0);
+
+    // profil diubah LAGI (45.000 → 50.000) — tagihan kini BER-alokasi
+    const profil2 = await app.inject({
+      method: "PUT",
+      url: `${api}/rt/warga/${idAhmad}/profil-iuran`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kategoriId: idKategoriDatar, nominalBerlaku: 50000 },
+    });
+    expect(profil2.statusCode).toBe(200);
+
+    const ulang = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tagihan/generate`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { periode, sinkronProfil: true },
+    });
+    expect(ulang.statusCode).toBe(200);
+    expect(
+      (isi(ulang).data as { sinkron: number }).sinkron,
+      "tagihan teralokasi dilewati sinkron — jejak kas utuh",
+    ).toBe(0);
+    const akhir = (await bacaTagihan()).rows[0] as { nominal: number; sisa: number };
+    expect(akhir.nominal, "nominal TIDAK berubah meski profil 50.000").toBe(45000);
+    expect(akhir.sisa).toBe(0);
   });
 
   it("B7 · mode terpisah: tanpa kategori tujuan ditolak tanpa jejak; dengan kategori tujuan alokasi satu kategori", async () => {
