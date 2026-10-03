@@ -5601,6 +5601,76 @@ describe("B12 · persuratan resmi & verifikasi QR", () => {
     ).toBe(1);
   });
 
+  it("B12 · PATCH /rt/pengaturan { profil }: persist ke baris `rt` + audit diff (kontrak §5.4)", async () => {
+    // 1. GET kini memuat `profil` dari baris `rt` (sebelumnya form FE hanya lokal)
+    const awal = await app.inject({ method: "GET", url: `${api}/rt/pengaturan`, cookies: sesiRt() });
+    expect(awal.statusCode).toBe(200);
+    const profilAwal = isi(awal).data.profil as { namaRt: string; alamat: string };
+    expect(profilAwal, "GET wajib menyertakan profil RT").toBeDefined();
+    expect(typeof profilAwal.namaRt).toBe("string");
+
+    // 2. PATCH khusus profil → 200 (wajib CSRF) — tanpa menyentuh `pengaturan_rt`
+    const NAMA = "Perumahan Siwarga Uji";
+    const ALAMAT = "Jl. Uji Profil No. 7, RT 004 / RW 012";
+    const simpan = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/pengaturan`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { profil: { namaRt: NAMA, alamat: ALAMAT } },
+    });
+    expect(simpan.statusCode).toBe(200);
+    expect(isi(simpan).data.profil).toEqual({ namaRt: NAMA, alamat: ALAMAT });
+    expect(isi(simpan).data.kop, "PATCH profil tak merusak kop tersimpan").toEqual(KOP_TERSIMPAN);
+
+    // 3. Persist benar-benar terjadi di tabel `rt` (bukan hanya respons API)
+    const mentah = await dalamScopePlat((c) =>
+      c.query("SELECT perumahan, alamat FROM rt WHERE id = $1", [idRt04]),
+    );
+    expect(mentah.rows[0]).toEqual({ perumahan: NAMA, alamat: ALAMAT });
+
+    // 4. Round-trip GET ulang
+    const ulang = await app.inject({ method: "GET", url: `${api}/rt/pengaturan`, cookies: sesiRt() });
+    expect(isi(ulang).data.profil).toEqual({ namaRt: NAMA, alamat: ALAMAT });
+
+    // 5. Validasi: nama kosong → 400 VALIDATION, tanpa tulis (baris tidak berubah)
+    const kosong = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/pengaturan`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { profil: { namaRt: "   ", alamat: ALAMAT } },
+    });
+    expect(kosong.statusCode).toBe(400);
+    expect(isi(kosong).error?.code).toBe("VALIDATION");
+    expect(isi(kosong).error?.message).toMatch(/Nama RT wajib diisi/);
+    const sesudahTolak = await dalamScopePlat((c) =>
+      c.query("SELECT perumahan FROM rt WHERE id = $1", [idRt04]),
+    );
+    expect(sesudahTolak.rows[0], "validasi gagal tidak boleh menulis").toEqual({ perumahan: NAMA });
+
+    // 6. Audit: diff sebelum → sesudah pada entitas `rt`
+    expect(
+      await hitungAudit(
+        "aksi = 'ubah_pengaturan_surat' AND entitas = 'rt'" +
+          " AND sebelum->'profil'->>'namaRt' = $2 AND sesudah->'profil'->>'namaRt' = $3",
+        [profilAwal.namaRt, NAMA],
+      ),
+      "PATCH profil mencatat diff sebelum & sesudah",
+    ).toBe(1);
+
+    // 7. Kembalikan nilai awal (idempoten untuk run berikutnya; tetap ter-audit)
+    const balik = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/pengaturan`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { profil: { namaRt: profilAwal.namaRt, alamat: profilAwal.alamat } },
+    });
+    expect(balik.statusCode).toBe(200);
+    expect(isi(balik).data.profil).toEqual(profilAwal);
+  });
+
   it("B12 · POST /rt/surat: buat baris idempoten + validasi pemohon (deviasi §5.4)", async () => {
     // pemohon tidak dikenal → VALIDATION & tidak ada baris baru
     // (warga tidak pernah dibuat diam-diam oleh endpoint ini)

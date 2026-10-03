@@ -31,16 +31,21 @@ interface PengaturanRTProps {
     patch: Partial<PengaturanIuranRt>,
   ) => Promise<PengaturanIuranRt | null>;
   /**
-   * B12 — `GET /rt/pengaturan` (kop surat resmi §6.6); `null` = OFFLINE (form
-   * memakai kop bawaan). MELEMPAR galat non-OFFLINE (sesi habis ditangani App).
+   * B12 — `GET /rt/pengaturan` (kop surat resmi §6.6 + profil visual + profil
+   * RT + sakelar notifikasi/mode pemeliharaan); `null` = OFFLINE (form memakai
+   * nilai bawaan). MELEMPAR galat non-OFFLINE (sesi habis ditangani App).
    */
   onMuatPengaturanSurat: () => Promise<PengaturanSuratRt | null>;
   /**
-   * B12 — `PATCH /rt/pengaturan` (kop parsial, wajib CSRF) → nilai sesudah;
+   * B12 — `PATCH /rt/pengaturan` (parsial: kop, profil visual, profil RT,
+   * `notifikasiWaEnabled`, `modePemeliharaan`; wajib CSRF) → nilai sesudah;
    * `null` = OFFLINE. MELEMPAR galat non-OFFLINE.
    */
   onSimpanPengaturanSurat: (patch: {
     kop?: Partial<KopSurat>;
+    profil?: { namaRt: string; alamat: string };
+    notifikasiWaEnabled?: boolean;
+    modePemeliharaan?: boolean;
   }) => Promise<PengaturanSuratRt | null>;
 }
 
@@ -178,6 +183,15 @@ export function PengaturanRT({
     kecamatan: tenant.kecamatan,
     kota: tenant.kota,
   });
+  /**
+   * Profil RT API-first (kontrak §5.4 pada `GET/PATCH /rt/pengaturan`):
+   * hanya `namaRT` + `alamatLengkap` yang persist (baris `rt`); nomor RT/RW
+   * dan wilayah adalah identifier turunan → tampil read-only di form.
+   * `profilTersimpan` = snapshot server; `profilOffline` = OFFLINE (mode demo).
+   */
+  const [profilTersimpan, setProfilTersimpan] = useState({ namaRT: "", alamatLengkap: "" });
+  const [profilOffline, setProfilOffline] = useState(false);
+  const [profilSedangSimpan, setProfilSedangSimpan] = useState(false);
 
   const [userAccess, setUserAccess] = useState<UserAccess[]>(userAccessDefault);
 
@@ -186,6 +200,18 @@ export function PengaturanRT({
     autoPengingatIuran: true,
     modePemeliharaan: false,
   });
+  /**
+   * Sakelar "Pengaturan Umum" API-first: `notifikasiWA` ↔ `notifikasiWaEnabled`
+   * dan `modePemeliharaan` persist di `pengaturan_rt`. `autoPengingatIuran`
+   * BELUM punya endpoint/kolom (belum diimplementasi) → kontrol dinonaktifkan
+   * dengan keterangan jujur, bukan toggle yang mengaku tersimpan.
+   */
+  const [togglesTersimpan, setTogglesTersimpan] = useState({
+    notifikasiWA: true,
+    modePemeliharaan: false,
+  });
+  const [pengaturanOffline, setPengaturanOffline] = useState(false);
+  const [pengaturanSedangSimpan, setPengaturanSedangSimpan] = useState(false);
 
   const [newPengurus, setNewPengurus] = useState({ nama: "", jabatan: "" });
   const [inviteEmail, setInviteEmail] = useState("");
@@ -292,6 +318,10 @@ export function PengaturanRT({
 
   // Muat sekali saat halaman terbuka — penjaga `batal` sama dengan efek B7 di
   // atas (React.StrictMode menjalankan efek dua kali; GET idempoten).
+  // Satu `GET /rt/pengaturan` mengisi tiga blok: kop surat, profil RT, dan
+  // sakelar pengaturan umum (kontrak §5.4 "Profil, banner, stempel, notifikasi,
+  // mode pemeliharaan") — supaya form tidak pernah memakai nilai lokal yang
+  // sebenarnya tidak ada di server.
   useEffect(() => {
     let batal = false;
     onMuatPengaturanSurat()
@@ -302,8 +332,33 @@ export function PengaturanRT({
           setKop(k);
           setKopTersimpan(k);
           setKopOffline(false);
+
+          // Profil RT — server duluan; nilai kosong ("") mempertahankan isi form.
+          const p = {
+            ...profil,
+            namaRT: h.profil?.namaRt || profil.namaRT,
+            alamatLengkap: h.profil?.alamat || profil.alamatLengkap,
+          };
+          setProfil(p);
+          setProfilTersimpan({ namaRT: p.namaRT, alamatLengkap: p.alamatLengkap });
+          setProfilOffline(false);
+
+          // Sakelar pengaturan umum (yang punya kolom server).
+          const t = {
+            notifikasiWA: h.notifikasiWaEnabled,
+            autoPengingatIuran: toggles.autoPengingatIuran,
+            modePemeliharaan: h.modePemeliharaan,
+          };
+          setToggles(t);
+          setTogglesTersimpan({
+            notifikasiWA: t.notifikasiWA,
+            modePemeliharaan: t.modePemeliharaan,
+          });
+          setPengaturanOffline(false);
         } else {
           setKopOffline(true);
+          setProfilOffline(true);
+          setPengaturanOffline(true);
         }
       })
       .catch(() => {
@@ -382,22 +437,99 @@ export function PengaturanRT({
     reader.readAsDataURL(file);
   }
 
-  function handleSimpanProfil(e: React.FormEvent) {
+  /**
+   * Profil RT — API-first `PATCH /rt/pengaturan { profil }` (kontrak §5.4).
+   * Hanya `namaRT` + `alamatLengkap` yang dikirim (kolom `perumahan`/`alamat`
+   * pada baris `rt`); nomor RT/RW & wilayah turunan tidak ikut dikirim.
+   * OFFLINE → nilai lokal berlaku di sesi ini dan TIDAK diklaim tersimpan.
+   */
+  async function handleSimpanProfil(e: React.FormEvent) {
     e.preventDefault();
-    if (!profil.namaRT.trim()) {
+    if (profilSedangSimpan) return flash("Permintaan masih diproses — tunggu sebentar.");
+    const namaRT = profil.namaRT.trim();
+    const alamatLengkap = profil.alamatLengkap.trim();
+    if (!namaRT) {
       flash("Nama RT wajib diisi");
       return;
     }
-    if (!profil.alamatLengkap.trim()) {
+    if (!alamatLengkap) {
       flash("Alamat lengkap wajib diisi");
       return;
     }
-    flash("Profil RT berhasil disimpan");
+    if (namaRT === profilTersimpan.namaRT && alamatLengkap === profilTersimpan.alamatLengkap) {
+      return flash("Belum ada perubahan pada profil RT.");
+    }
+
+    setProfilSedangSimpan(true);
+    try {
+      const sesudah = await onSimpanPengaturanSurat({ profil: { namaRt: namaRT, alamat: alamatLengkap } });
+      setProfilSedangSimpan(false);
+      if (sesudah) {
+        const p = {
+          ...profil,
+          namaRT: sesudah.profil?.namaRt || namaRT,
+          alamatLengkap: sesudah.profil?.alamat || alamatLengkap,
+        };
+        setProfil(p);
+        setProfilTersimpan({ namaRT: p.namaRT, alamatLengkap: p.alamatLengkap });
+        setProfilOffline(false);
+        flash("Profil RT tersimpan — nama & alamat kini dibaca dari server.");
+      } else {
+        // OFFLINE: server tak terjangkau → nilai lokal berlaku di sesi ini saja.
+        setProfilTersimpan({ namaRT, alamatLengkap });
+        setProfilOffline(true);
+        flash("Mode demo (server tidak terjangkau) — profil RT hanya berlaku di sesi ini, TIDAK tersimpan di server.");
+      }
+    } catch (err) {
+      setProfilSedangSimpan(false);
+      return flash(err instanceof GalatApi ? err.message : "Profil RT gagal disimpan — coba lagi.");
+    }
   }
 
-  function handleSimpanPengaturan(e: React.FormEvent) {
+  /**
+   * Pengaturan umum — API-first `PATCH /rt/pengaturan` (parsial; hanya yang
+   * berubah). `autoPengingatIuran` sengaja TIDAK dikirim: sakelarnya dinonaktifkan
+   * di UI karena endpoint/kolomnya belum diimplementasi (lihat state `toggles`).
+   */
+  async function handleSimpanPengaturan(e: React.FormEvent) {
     e.preventDefault();
-    flash("Pengaturan umum berhasil disimpan");
+    if (pengaturanSedangSimpan) return flash("Permintaan masih diproses — tunggu sebentar.");
+    const patch: { notifikasiWaEnabled?: boolean; modePemeliharaan?: boolean } = {};
+    if (toggles.notifikasiWA !== togglesTersimpan.notifikasiWA) patch.notifikasiWaEnabled = toggles.notifikasiWA;
+    if (toggles.modePemeliharaan !== togglesTersimpan.modePemeliharaan) {
+      patch.modePemeliharaan = toggles.modePemeliharaan;
+    }
+    if (Object.keys(patch).length === 0) return flash("Belum ada perubahan pada pengaturan umum.");
+
+    setPengaturanSedangSimpan(true);
+    try {
+      const sesudah = await onSimpanPengaturanSurat(patch);
+      setPengaturanSedangSimpan(false);
+      if (sesudah) {
+        setToggles((t) => ({
+          ...t,
+          notifikasiWA: sesudah.notifikasiWaEnabled,
+          modePemeliharaan: sesudah.modePemeliharaan,
+        }));
+        setTogglesTersimpan({
+          notifikasiWA: sesudah.notifikasiWaEnabled,
+          modePemeliharaan: sesudah.modePemeliharaan,
+        });
+        setPengaturanOffline(false);
+        flash(
+          `Pengaturan umum tersimpan — notifikasi WA ${sesudah.notifikasiWaEnabled ? "aktif" : "nonaktif"}, ` +
+            `mode pemeliharaan ${sesudah.modePemeliharaan ? "aktif" : "nonaktif"}.`,
+        );
+      } else {
+        // OFFLINE: server tak terjangkau → nilai lokal berlaku di sesi ini saja.
+        setTogglesTersimpan({ notifikasiWA: toggles.notifikasiWA, modePemeliharaan: toggles.modePemeliharaan });
+        setPengaturanOffline(true);
+        flash("Mode demo (server tidak terjangkau) — pengaturan umum hanya berlaku di sesi ini, TIDAK tersimpan di server.");
+      }
+    } catch (err) {
+      setPengaturanSedangSimpan(false);
+      return flash(err instanceof GalatApi ? err.message : "Pengaturan umum gagal disimpan — coba lagi.");
+    }
   }
 
   function handleAddPengurus(e: React.FormEvent) {
@@ -542,9 +674,17 @@ export function PengaturanRT({
             </div>
             <div>
               <h2 className="text-lg font-bold text-on-surface">Profil RT</h2>
-              <p className="text-xs text-on-surface-variant mt-0.5">Informasi dasar wilayah {tenant.rtFull}</p>
+              <p className="text-xs text-on-surface-variant mt-0.5">
+                Nama &amp; alamat disimpan di server (§5.4); nomor RT/RW &amp; wilayah hanya tampil dari data induk.
+              </p>
             </div>
           </div>
+          {profilOffline && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-error-container/40 text-on-error-container text-[11px] font-bold uppercase tracking-wider">
+              <span className="material-symbols-outlined text-[13px]">cloud_off</span>
+              Mode demo — belum tersimpan di server
+            </span>
+          )}
         </div>
         <form onSubmit={handleSimpanProfil} className="flex flex-col gap-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -554,7 +694,7 @@ export function PengaturanRT({
                 Nama RT
               </label>
               <input
-                className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all disabled:text-on-surface-variant"
                 value={profil.namaRT}
                 onChange={(e) => setProfil({ ...profil, namaRT: e.target.value })}
               />
@@ -566,9 +706,11 @@ export function PengaturanRT({
                   Nomor RT
                 </label>
                 <input
-                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface-variant cursor-not-allowed"
                   value={profil.nomorRT}
-                  onChange={(e) => setProfil({ ...profil, nomorRT: e.target.value })}
+                  disabled
+                  title="Identifier wilayah — tidak dapat diubah dari halaman ini."
+                  readOnly
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -577,9 +719,11 @@ export function PengaturanRT({
                   Nomor RW
                 </label>
                 <input
-                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface-variant cursor-not-allowed"
                   value={profil.nomorRW}
-                  onChange={(e) => setProfil({ ...profil, nomorRW: e.target.value })}
+                  disabled
+                  title="Identifier wilayah — tidak dapat diubah dari halaman ini."
+                  readOnly
                 />
               </div>
             </div>
@@ -599,35 +743,45 @@ export function PengaturanRT({
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-on-surface">Kelurahan</label>
               <input
-                className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface-variant cursor-not-allowed"
                 value={profil.kelurahan}
-                onChange={(e) => setProfil({ ...profil, kelurahan: e.target.value })}
+                disabled
+                title="Berasal dari data wilayah (kelurahan) — tidak dapat diubah dari halaman ini."
+                readOnly
               />
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-on-surface">Kecamatan</label>
               <input
-                className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface-variant cursor-not-allowed"
                 value={profil.kecamatan}
-                onChange={(e) => setProfil({ ...profil, kecamatan: e.target.value })}
+                disabled
+                title="Berasal dari data wilayah (kelurahan) — tidak dapat diubah dari halaman ini."
+                readOnly
               />
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold text-on-surface">Kota</label>
               <input
-                className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface-variant cursor-not-allowed"
                 value={profil.kota}
-                onChange={(e) => setProfil({ ...profil, kota: e.target.value })}
+                disabled
+                title="Berasal dari data wilayah (kelurahan) — tidak dapat diubah dari halaman ini."
+                readOnly
               />
             </div>
           </div>
+          <p className="text-[11px] text-on-surface-variant -mt-1">
+            Hanya Nama RT &amp; Alamat Lengkap yang dikirim ke server — kolom sisanya identifier wilayah, tampil read-only.
+          </p>
           <div className="flex flex-wrap justify-end gap-3 pt-2 border-t border-surface-container-high">
             <button
               type="submit"
-              className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2"
+              disabled={profilSedangSimpan}
+              className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60"
             >
               <span className="material-symbols-outlined text-[18px]">save</span>
-              Simpan Profil
+              {profilSedangSimpan ? "Menyimpan…" : "Simpan Profil"}
             </button>
           </div>
         </form>
@@ -924,6 +1078,12 @@ export function PengaturanRT({
               <p className="text-xs text-on-surface-variant mt-0.5">Konfigurasi notifikasi dan pemeliharaan</p>
             </div>
           </div>
+          {pengaturanOffline && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-error-container/40 text-on-error-container text-[11px] font-bold uppercase tracking-wider">
+              <span className="material-symbols-outlined text-[13px]">cloud_off</span>
+              Mode demo — belum tersimpan di server
+            </span>
+          )}
         </div>
         <form onSubmit={handleSimpanPengaturan} className="flex flex-col gap-4">
           <div className="flex items-center justify-between p-4 rounded-xl bg-surface-container-low gap-4">
@@ -949,18 +1109,28 @@ export function PengaturanRT({
             <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-tertiary text-[22px]">notifications_active</span>
               <div>
-                <div className="text-sm font-bold text-on-surface">Auto-kirim Pengingat Iuran</div>
-                <div className="text-xs text-on-surface-variant">Kirim pengingat otomatis H-3 jatuh tempo iuran</div>
+                <div className="text-sm font-bold text-on-surface flex items-center gap-2">
+                  Auto-kirim Pengingat Iuran
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-container-high text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
+                    Belum tersedia
+                  </span>
+                </div>
+                <div className="text-xs text-on-surface-variant">
+                  Kirim pengingat otomatis H-3 jatuh tempo iuran — endpoint &amp; kolomnya belum diimplementasi, jadi sakelar
+                  dinonaktifkan (tidak diklaim tersimpan).
+                </div>
               </div>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <label className="relative inline-flex items-center shrink-0 opacity-50 cursor-not-allowed">
               <input
                 type="checkbox"
                 checked={toggles.autoPengingatIuran}
-                onChange={(e) => setToggles({ ...toggles, autoPengingatIuran: e.target.checked })}
+                disabled
+                readOnly
+                title="Fitur belum diimplementasi — perubahan sakelar ini tidak dapat disimpan."
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-surface-container-high peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-on-surface-variant after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:after:bg-on-primary" />
+              <div className="w-11 h-6 bg-surface-container-high rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-on-surface-variant after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:after:bg-on-primary" />
             </label>
           </div>
 
@@ -986,10 +1156,11 @@ export function PengaturanRT({
           <div className="flex flex-wrap justify-end gap-3 pt-2 border-t border-surface-container-high">
             <button
               type="submit"
-              className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2"
+              disabled={pengaturanSedangSimpan}
+              className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60"
             >
               <span className="material-symbols-outlined text-[18px]">save</span>
-              Simpan Pengaturan
+              {pengaturanSedangSimpan ? "Menyimpan…" : "Simpan Pengaturan"}
             </button>
           </div>
         </form>

@@ -1,8 +1,8 @@
 /**
  * Persuratan resmi & verifikasi publik — PRD §6.6 (task B12 · P0).
  *
- *   GET    /rt/pengaturan                    → kop surat + profil visual (B12)
- *   PATCH  /rt/pengaturan                    → simpan kop (whitelist, wajib CSRF)
+ *   GET    /rt/pengaturan                    → kop surat + profil visual + profil RT (B12)
+ *   PATCH  /rt/pengaturan                    → simpan kop/profil RT (whitelist, wajib CSRF)
  *   GET    /rt/surat?status=                 → antrian & arsip persuratan RT
  *   POST   /rt/surat                         → buat baris surat (lihat deviasi)
  *   POST   /rt/surat/:id/terbitkan           → alur RW otomatis bila `perlu_rw`
@@ -22,11 +22,16 @@
  *     dibaca modul lain (hanya diisi seed), jadi penambahan kunci aman dan tidak
  *     memerlukan migrasi skema.
  *   • **`GET/PATCH /rt/pengaturan` memakai whitelist** kop, `bannerUrl`,
- *     `stempelUrl`, `kopSuratUrl`, `notifikasiWaEnabled`, `modePemeliharaan`
- *     (sesuai ringkasan kontrak §5.4). Field iuran (`modeAlokasi`, `tenggatHari`,
- *     `dendaAktif`, `ambangApprovalKas`) TIDAK diterima di sini karena sudah
- *     dimiliki `GET/PATCH /rt/iuran/pengaturan` (B7) — dua tulis ke baris yang
- *     sama dari dua endpoint berbeda akan saling menimpa.
+ *     `stempelUrl`, `kopSuratUrl`, `notifikasiWaEnabled`, `modePemeliharaan`,
+ *     **`profil { namaRt, alamat }`** (sesuai ringkasan kontrak §5.4 "Profil,
+ *     banner, stempel, notifikasi, mode pemeliharaan"). Field profil MENULIS
+ *     baris `rt` (`perumahan`, `alamat`) — RLS `p_rt_registry` mengizinkan RT
+ *     scope menulis barisnya sendiri — sehingga form "Profil RT" di Portal RT
+ *     benar-benar persist (sebelumnya FE melaporkan sukses tanpa endpoint).
+ *     Field iuran (`modeAlokasi`, `tenggatHari`, `dendaAktif`, `ambangApprovalKas`)
+ *     TIDAK diterima di sini karena sudah dimiliki `GET/PATCH /rt/iuran/pengaturan`
+ *     (B7) — dua tulis ke baris yang sama dari dua endpoint berbeda akan saling
+ *     menimpa.
  *   • **`POST /rt/surat` di luar tabel §5.4** (deviasi terdokumentasi): tabel
  *     kontrak hanya memuat `POST /warga/surat` sebagai pembuat baris, tetapi
  *     Portal RT perlu menerbitkan surat atas permintaan warga yang datang
@@ -292,6 +297,23 @@ const skemaKop = z
     { message: "Tidak ada baris kop yang dikirim." },
   );
 
+/**
+ * Profil RT (kontrak §5.4 "Profil" pada `/rt/pengaturan`) — keduanya wajib
+ * lengkap bila dikirim: form profil adalah satu unit (nama + alamat).
+ */
+const skemaProfilRt = z.object({
+  namaRt: z
+    .string()
+    .trim()
+    .min(1, "Nama RT wajib diisi.")
+    .max(120, "Nama RT maksimal 120 karakter."),
+  alamat: z
+    .string()
+    .trim()
+    .min(1, "Alamat lengkap wajib diisi.")
+    .max(200, "Alamat lengkap maksimal 200 karakter."),
+});
+
 /** Whitelist PATCH /rt/pengaturan — lihat catatan desain di kepala berkas. */
 const skemaPatchPengaturan = z
   .object({
@@ -301,6 +323,7 @@ const skemaPatchPengaturan = z
     kopSuratUrl: z.string().trim().max(512).nullable().optional(),
     notifikasiWaEnabled: z.boolean().optional(),
     modePemeliharaan: z.boolean().optional(),
+    profil: skemaProfilRt.optional(),
   })
   .refine(
     (v) =>
@@ -309,7 +332,8 @@ const skemaPatchPengaturan = z
       v.stempelUrl !== undefined ||
       v.kopSuratUrl !== undefined ||
       v.notifikasiWaEnabled !== undefined ||
-      v.modePemeliharaan !== undefined,
+      v.modePemeliharaan !== undefined ||
+      v.profil !== undefined,
     { message: "Minimal satu field harus dikirim." },
   );
 
@@ -338,6 +362,16 @@ const skemaAlasanTolak = z.object({
   catatan: z.string().trim().min(3, "Alasan penolakan wajib diisi (min. 3 karakter).").max(200),
 });
 
+/** Kolom baris `pengaturan_rt` yang ikut dalam `GET/PATCH /rt/pengaturan`. */
+const PilihPengaturanRt = {
+  bannerUrl: true,
+  stempelUrl: true,
+  kopSuratUrl: true,
+  notifikasiWaEnabled: true,
+  modePemeliharaan: true,
+  templateSurat: true,
+} as const;
+
 /** Konfigurasi surat untuk `GET/PATCH /rt/pengaturan`. */
 function jsonPengaturanSurat(row: {
   bannerUrl: string | null;
@@ -357,35 +391,45 @@ function jsonPengaturanSurat(row: {
   };
 }
 
-type JsonPengaturanSurat = ReturnType<typeof jsonPengaturanSurat>;
+/**
+ * Profil RT dari baris `rt` (kontrak §5.4). `perumahan` = nama komplek yang
+ * dipakai FE sebagai "Nama RT"; `alamat` = alamat lengkap. Kolom induk
+ * (`kode_rt`, `kelurahan_id`) TIDAK diekspos di endpoint ini — identifier
+ * wilayah bukan bagian form profil.
+ */
+function jsonProfilRt(row: { perumahan: string | null; alamat: string | null } | null) {
+  return { namaRt: row?.perumahan ?? "", alamat: row?.alamat ?? "" };
+}
+
+type JsonPengaturanSurat = ReturnType<typeof jsonPengaturanSurat> & {
+  profil: ReturnType<typeof jsonProfilRt>;
+};
 
 export const ruteRtSurat: FastifyPluginAsync = async (app) => {
   // =========================================================================
   // B12 · pengaturan kop & profil visual surat
   // =========================================================================
 
-  /** B12 — baca kop surat + profil visual; GET tidak pernah menulis. */
+  /** B12 — baca kop surat + profil visual + profil RT; GET tidak pernah menulis. */
   app.get("/rt/pengaturan", async (req, reply) => {
     const { rtId } = wajibRt(req);
-    const baris = await denganScopeRequest(req, (tx) =>
-      tx.pengaturanRt.findUnique({
-        where: { rtId },
-        select: {
-          bannerUrl: true,
-          stempelUrl: true,
-          kopSuratUrl: true,
-          notifikasiWaEnabled: true,
-          modePemeliharaan: true,
-          templateSurat: true,
-        },
-      }),
-    );
-    return reply.ok(jsonPengaturanSurat(baris));
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const [pengaturan, barisRt] = await Promise.all([
+        tx.pengaturanRt.findUnique({ where: { rtId }, select: PilihPengaturanRt }),
+        tx.rt.findUnique({ where: { id: rtId }, select: { perumahan: true, alamat: true } }),
+      ]);
+      return { pengaturan, barisRt };
+    });
+    return reply.ok({
+      ...jsonPengaturanSurat(hasil.pengaturan),
+      profil: jsonProfilRt(hasil.barisRt),
+    });
   });
 
   /**
-   * B12 — simpan kop surat (parsial, wajib CSRF) + audit ber-diff.
-   * Baris `pengaturan_rt` dibuat bila belum ada (upsert seperti B7).
+   * B12 — simpan kop surat / profil RT (parsial, wajib CSRF) + audit ber-diff.
+   * Baris `pengaturan_rt` dibuat bila belum ada (upsert seperti B7); `profil`
+   * menulis baris `rt` (nama komplek + alamat) pada transaksi yang sama.
    */
   app.patch("/rt/pengaturan", { preHandler: verifikasiCsrf }, async (req, reply) => {
     const { rtId, sesi } = wajibRt(req);
@@ -393,8 +437,14 @@ export const ruteRtSurat: FastifyPluginAsync = async (app) => {
 
     const hasil: JsonPengaturanSurat = await denganScopeRequest(req, async (tx) => {
       const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
-      const lama = await tx.pengaturanRt.findUnique({ where: { rtId } });
-      const sebelum = jsonPengaturanSurat(lama);
+      const [lama, rtLama] = await Promise.all([
+        tx.pengaturanRt.findUnique({ where: { rtId } }),
+        tx.rt.findUnique({ where: { id: rtId }, select: { perumahan: true, alamat: true } }),
+      ]);
+      const sebelum: JsonPengaturanSurat = {
+        ...jsonPengaturanSurat(lama),
+        profil: jsonProfilRt(rtLama),
+      };
 
       const data: {
         bannerUrl?: string | null;
@@ -423,26 +473,36 @@ export const ruteRtSurat: FastifyPluginAsync = async (app) => {
         data.templateSurat = gabungKop(lama?.templateSurat ?? null, kop);
       }
 
-      await tx.pengaturanRt.upsert({
-        where: { rtId },
-        create: { rtId, ...data },
-        update: data,
-      });
+      // Profil RT → baris `rt`. RLS `p_rt_registry` mengizinkan scope `rt`
+      // menulis barisnya sendiri (`id = app.scope_id`), jadi tanpa perlu
+      // jalur khusus; tetap dalam transaksi yang sama dengan audit.
+      if (input.profil) {
+        await tx.rt.update({
+          where: { id: rtId },
+          data: { perumahan: input.profil.namaRt, alamat: input.profil.alamat },
+        });
+      }
+
+      // PATCH khusus profil tidak menyentuh `pengaturan_rt` → upsert dilewati
+      // (Prisma menolak `update` tanpa field).
+      if (Object.keys(data).length > 0) {
+        await tx.pengaturanRt.upsert({
+          where: { rtId },
+          create: { rtId, ...data },
+          update: data,
+        });
+      }
 
       // Baca ulang: `sesudah` harus mencerminkan baris tersimpan apa adanya
       // (merge kop bisa menyisakan kunci lama seperti `daftarTemplate`).
-      const kini = await tx.pengaturanRt.findUnique({
-        where: { rtId },
-        select: {
-          bannerUrl: true,
-          stempelUrl: true,
-          kopSuratUrl: true,
-          notifikasiWaEnabled: true,
-          modePemeliharaan: true,
-          templateSurat: true,
-        },
-      });
-      const sesudah = jsonPengaturanSurat(kini);
+      const [kini, rtKini] = await Promise.all([
+        tx.pengaturanRt.findUnique({ where: { rtId }, select: PilihPengaturanRt }),
+        tx.rt.findUnique({ where: { id: rtId }, select: { perumahan: true, alamat: true } }),
+      ]);
+      const sesudah: JsonPengaturanSurat = {
+        ...jsonPengaturanSurat(kini),
+        profil: jsonProfilRt(rtKini),
+      };
       await catatAudit(
         {
           ...inputAudit(
@@ -450,13 +510,27 @@ export const ruteRtSurat: FastifyPluginAsync = async (app) => {
             "ubah_pengaturan_surat",
             "Pengaturan",
             rtId,
-            `Ubah pengaturan surat: kop ${sesudah.kop ? "diperbarui" : "tidak berubah"}` +
-              (input.modePemeliharaan !== undefined
-                ? `, mode pemeliharaan ${input.modePemeliharaan ? "aktif" : "nonaktif"}`
-                : ""),
+            [
+              input.kop ? `kop surat ${sesudah.kop ? "diperbarui" : "dikosongkan"}` : null,
+              input.profil ? `profil RT "${input.profil.namaRt}"` : null,
+              input.notifikasiWaEnabled !== undefined
+                ? `notifikasi WA ${input.notifikasiWaEnabled ? "aktif" : "nonaktif"}`
+                : null,
+              input.modePemeliharaan !== undefined
+                ? `mode pemeliharaan ${input.modePemeliharaan ? "aktif" : "nonaktif"}`
+                : null,
+              input.bannerUrl !== undefined ||
+              input.stempelUrl !== undefined ||
+              input.kopSuratUrl !== undefined
+                ? "profil visual"
+                : null,
+            ]
+              .filter((x): x is string => x !== null)
+              .join(", ") || "tanpa perubahan",
             sebelum,
             sesudah,
-            "pengaturan_rt",
+            // PATCH khusus profil tak menyentuh `pengaturan_rt` → entitas `rt`.
+            input.profil && Object.keys(data).length === 0 ? "rt" : "pengaturan_rt",
           ),
           actorId: oleh,
           ip: req.ipAsli,

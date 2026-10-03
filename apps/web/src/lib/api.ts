@@ -1569,7 +1569,7 @@ export function barisServerKeWargaRt(b: BarisWargaRtServer): WargaRt {
 // B12 · persuratan resmi & verifikasi QR (§6.6 · §5.3 · §5.7)
 // ---------------------------------------------------------------------------
 
-/** B12 — `GET/PATCH /rt/pengaturan` (whitelist server: kop + profil visual). */
+/** B12 — `GET/PATCH /rt/pengaturan` (whitelist server: kop + profil visual + profil RT). */
 export interface PengaturanSuratRt {
   /** Kop tersimpan; `null` = RT belum pernah mengisi (FE memakai `kopSuratDefault`). */
   kop: KopSurat | null;
@@ -1578,6 +1578,11 @@ export interface PengaturanSuratRt {
   kopSuratUrl: string | null;
   notifikasiWaEnabled: boolean;
   modePemeliharaan: boolean;
+  /**
+   * Profil RT dari baris `rt` (kontrak §5.4): `namaRt` = kolom `perumahan`
+   * (nama komplek), `alamat` = alamat lengkap. Kosong (`""`) bila belum diisi.
+   */
+  profil: { namaRt: string; alamat: string };
 }
 
 /** B12 — satu baris daftar surat (`jsonSurat` server; enum status dipertahankan mentah). */
@@ -1626,7 +1631,7 @@ export function pengaturanSuratRt(): Promise<PengaturanSuratRt> {
   return minta("/rt/pengaturan");
 }
 
-/** B12 — simpan kop/profil surat (parsial, wajib CSRF) → nilai sesudah. */
+/** B12 — simpan kop/profil surat + profil RT (parsial, wajib CSRF) → nilai sesudah. */
 export function simpanPengaturanSuratRt(patch: {
   kop?: Partial<KopSurat>;
   bannerUrl?: string | null;
@@ -1634,6 +1639,8 @@ export function simpanPengaturanSuratRt(patch: {
   kopSuratUrl?: string | null;
   notifikasiWaEnabled?: boolean;
   modePemeliharaan?: boolean;
+  /** Profil RT — kirim `namaRt` & `alamat` lengkap (satu unit form). */
+  profil?: { namaRt: string; alamat: string };
 }): Promise<PengaturanSuratRt> {
   return minta("/rt/pengaturan", { method: "PATCH", body: patch, csrf: true });
 }

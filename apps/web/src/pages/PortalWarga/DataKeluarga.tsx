@@ -430,7 +430,13 @@ export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSim
     setAllKk(updated);
     setSelectedKk(newKk.id);
     onKkAdded?.(newKk);
-    flash(`KK baru dengan ${newKk.anggota.length} anggota berhasil ditambahkan`);
+    // Jujur: Portal Warga TIDAK punya endpoint pembuatan KK (kontrak §5.4 hanya
+    // `GET /warga/keluarga` + `POST /warga/keluarga/ajuan`) — baris ini hanya
+    // hidup di sesi browser ini dan hilang saat muat ulang.
+    flash(
+      `KK baru dengan ${newKk.anggota.length} anggota ditambahkan di sesi ini — TIDAK tersimpan di server. ` +
+        `Ajukan perubahan resmi KK lewat "Ajukan Perubahan" agar Pengurus RT memproses.`,
+    );
   }
 
   return (
@@ -1039,7 +1045,13 @@ export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSim
             const target = updated.find((k) => k.id === selectedKk);
             if (target) onKkUpdated?.(target.id, { anggota: target.anggota });
             setShowTambahAnggota(false);
-            flash(`Anggota "${m.name}" berhasil ditambahkan ke KK`);
+            // Jujur: tidak ada endpoint penambahan anggota di sisi warga —
+            // pengubahan KK resmi melewati ajuan `POST /warga/keluarga/ajuan`
+            // (jenis `tambah_anggota`, kontrak §5.4). Baris lokal hanya tampilan.
+            flash(
+              `Anggota "${m.name}" ditambahkan di sesi ini — TIDAK tersimpan di server. ` +
+                `Ajukan penambahan lewat "Ajukan Perubahan Resmi" (jenis: Tambah Anggota) agar Pengurus RT memproses.`,
+            );
           }}
         />
       )}
@@ -1221,11 +1233,17 @@ export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSim
                 onClick={() => {
                   const count = kendaraanR4 === "Lainnya" ? parseInt(kendaraanR4Custom) || 0 : parseInt(kendaraanR4);
                   onKendaraanR4Change?.(count);
-                  flash("Data hunian berhasil diperbarui");
+                  // Jujur: data hunian (termasuk unit R4) dikelola Pengurus RT;
+                  // Portal Warga tidak punya endpoint untuk menyimpannya, jadi
+                  // perubahan ini hanya menghitung ulang tampilan sesi ini.
+                  flash(
+                    "Perubahan unit R4 hanya berlaku di layar ini — TIDAK tersimpan di server. " +
+                      "Data hunian dikelola Pengurus RT.",
+                  );
                   setShowDetailRumah(false);
                 }}
               >
-                Simpan Perubahan
+                Terapkan di Layar Ini
               </button>
             </div>
           </div>
