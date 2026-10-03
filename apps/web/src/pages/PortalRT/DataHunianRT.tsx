@@ -1,5 +1,12 @@
 import { useState } from "react";
 import { tenant } from "../../lib/tenant";
+import {
+  GalatApi,
+  hunianServerKeHunian,
+  statusHuniDariForm,
+  type HunianServer,
+  type TambahHunianRtPayload,
+} from "../../lib/api";
 import { KkData, HunianRumah } from "../../lib/shared";
 import { EmptyState } from "../../components/EmptyState";
 import { useFlash } from "../../lib/useFlash";
@@ -9,6 +16,13 @@ interface DataHunianRTProps {
   kkList: KkData[];
   hunian: HunianRumah[];
   onHunianChange: (next: HunianRumah[]) => void;
+  /**
+   * §5.4 · API-first (`POST /rt/hunian`): sukses → baris server (id UUID,
+   * turunan jumlah KK); OFFLINE → `null` (halaman lanjut jalur demo lokal
+   * dengan pesan jujur); galat non-OFFLINE DILEMPAR agar pesan server
+   * (mis. 409 blok/alamat kembar) tampil — tidak pernah "sukses" palsu.
+   */
+  onTambahHunian?: (payload: TambahHunianRtPayload) => Promise<HunianServer | null>;
 }
 
 type HunianType = "all" | "pemilik" | "sewa" | "multi-kk" | "kosong";
@@ -31,19 +45,27 @@ function jumlahKK(r: HunianRumah, kkList: KkData[]): number {
 
 function badgeFor(status: string): string {
   if (status === "Multi-KK") return "bg-tertiary-container text-on-tertiary-container";
-  if (status === "Sewa/Kontrak") return "bg-primary-container text-on-primary-container";
+  if (status === "Sewa/Kontrak" || status === "Kos") return "bg-primary-container text-on-primary-container";
   if (status === "Kosong") return "bg-surface-container-high text-on-surface-variant";
   return "bg-secondary-container text-on-secondary-container";
 }
 
 function filterKeyFor(status: string): HunianType {
   if (status === "Multi-KK") return "multi-kk";
-  if (status === "Sewa/Kontrak") return "sewa";
+  if (status === "Sewa/Kontrak" || status === "Kos") return "sewa";
   if (status === "Kosong") return "kosong";
   return "pemilik";
 }
 
-export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange }: DataHunianRTProps) {
+/**
+ * Unit yang tidak dimiliki penghuninya: sewa/kontrak — termasuk turunan
+ * status "Kos" (rumah kos, enum `status_huni` dari server) dan jenis "Rumah Sewa".
+ */
+function sewaAsli(r: HunianRumah): boolean {
+  return r.status === "Sewa/Kontrak" || r.status === "Kos" || r.jenis.includes("Sewa");
+}
+
+export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTambahHunian }: DataHunianRTProps) {
   const rumahList = hunian;
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<HunianType>("all");
@@ -55,54 +77,58 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange }: Dat
     alamat: "",
     jenis: "Rumah Tinggal",
     status: "Dihuni Pemilik",
-    namaPenghuni: "",
   });
-  const [gabungExisting, setGabungExisting] = useState(false);
+  const [simpanSedang, setSimpanSedang] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
 
-  /** Alamat yang diketik sudah terdaftar? (untuk opsi Multi-KK) */
+  /** Alamat yang diketik sudah terdaftar? (alamat kembar = tolak, §5.4) */
   const alamatMatch = formHunian.alamat.trim()
     ? rumahList.find((r) => normAlamat(r.alamat) === normAlamat(formHunian.alamat))
     : undefined;
 
-  function handleAddHunian(e: React.FormEvent) {
+  async function handleAddHunian(e: React.FormEvent) {
     e.preventDefault();
+    if (simpanSedang) return;
     const errors: Record<string, string> = {};
     const blokBaru = formHunian.blok.trim();
     const alamatBaru = formHunian.alamat.trim();
-    const gabung = !!(alamatMatch && gabungExisting);
-    if (!blokBaru && !gabung) errors.blok = "Blok wajib diisi";
+    if (!blokBaru) errors.blok = "Blok wajib diisi";
     if (!alamatBaru) errors.alamat = "Alamat wajib diisi";
-    if (formHunian.status !== "Kosong" && !formHunian.namaPenghuni.trim()) {
-      errors.namaPenghuni = "Nama penghuni/kepala KK wajib diisi";
-    }
-    if (!gabung && blokBaru && rumahList.some((r) => r.blok.toLowerCase() === blokBaru.toLowerCase())) {
+    if (blokBaru && rumahList.some((r) => r.blok.toLowerCase() === blokBaru.toLowerCase())) {
       errors.blok = "Blok sudah terdaftar";
+    }
+    if (alamatMatch) {
+      // Server menolak alamat kembar (unique `alamat_pendek` per RT): satu
+      // alamat = satu baris unit. Multi-KK = banyak KK pada alamat yang SAMA,
+      // didaftarkan lewat menu Data Warga — bukan unit hunian baru.
+      errors.alamat = `Alamat sudah terdaftar sebagai unit Hunian ${alamatMatch.blok} — daftarkan KK baru lewat menu Data Warga.`;
     }
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
-    if (gabung && alamatMatch) {
-      // Satu alamat bisa > 1 KK: tambahkan KK ke hunian yang sudah ada.
-      const dipilih = alamatMatch;
-      const realCount = kkCocok(dipilih, kkList).length;
-      onHunianChange(
-        rumahList.map((r) =>
-          r.id === dipilih.id
-            ? {
-                ...r,
-                kkTerdaftar: r.kkTerdaftar + 1,
-                penghuni: formHunian.namaPenghuni.trim()
-                  ? [...r.penghuni, formHunian.namaPenghuni.trim()]
-                  : r.penghuni,
-              }
-            : r
-        )
-      );
-      const total = Math.max(dipilih.kkTerdaftar + 1, realCount);
-      flash(`KK "${formHunian.namaPenghuni.trim() || "baru"}" ditambahkan ke ${dipilih.blok} — kini ${total} KK (Multi-KK).`);
-    } else {
+    setSimpanSedang(true);
+    try {
+      // §5.4 · API-first: server membuat unit & menautkan balik KK pada alamat
+      // ini (memulihkan "proses terputus"). Sukses → baris server; OFFLINE →
+      // `null` → jalur demo lokal di bawah; galat lain → flash pesan server.
+      if (onTambahHunian) {
+        const hasil = await onTambahHunian({
+          kodeRumah: blokBaru,
+          alamat: alamatBaru,
+          statusHuni: statusHuniDariForm(formHunian.jenis, formHunian.status),
+        });
+        if (hasil) {
+          const baris = hunianServerKeHunian(hasil);
+          onHunianChange([...rumahList, baris]);
+          flash(`Hunian ${baris.blok} — ${baris.alamat} berhasil ditambahkan (tersimpan di server).`);
+          resetForm();
+          return;
+        }
+      }
+
+      // Jalur demo (OFFLINE / tanpa handler) — tambah ke daftar lokal dengan
+      // pesan JUJUR: tidak tersimpan di server (bukan klaim "berhasil" palsu).
       const newRumah: HunianRumah = {
         id: `r-${Date.now()}`,
         blok: blokBaru,
@@ -110,22 +136,23 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange }: Dat
         jenis: formHunian.jenis,
         status: formHunian.status,
         kkTerdaftar: formHunian.status === "Kosong" ? 0 : 1,
-        penghuni: formHunian.status === "Kosong" ? [] : [formHunian.namaPenghuni.trim()],
+        penghuni: [],
       };
       onHunianChange([...rumahList, newRumah]);
-      flash(`Hunian ${newRumah.blok} berhasil ditambahkan`);
+      flash(
+        `Mode demo (server tidak terjangkau) — hunian ${newRumah.blok} hanya tampil di daftar lokal, TIDAK tersimpan di server.`,
+      );
+      resetForm();
+    } catch (err) {
+      flash(err instanceof GalatApi ? err.message : "Gagal menambah hunian — coba lagi.");
+    } finally {
+      setSimpanSedang(false);
     }
-
-    setShowAddHunianModal(false);
-    setFormHunian({ blok: "", alamat: "", jenis: "Rumah Tinggal", status: "Dihuni Pemilik", namaPenghuni: "" });
-    setGabungExisting(false);
-    setFormErrors({});
   }
 
   function resetForm() {
     setShowAddHunianModal(false);
-    setFormHunian({ blok: "", alamat: "", jenis: "Rumah Tinggal", status: "Dihuni Pemilik", namaPenghuni: "" });
-    setGabungExisting(false);
+    setFormHunian({ blok: "", alamat: "", jenis: "Rumah Tinggal", status: "Dihuni Pemilik" });
     setFormErrors({});
   }
 
@@ -141,11 +168,10 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange }: Dat
       r.alamat.toLowerCase().includes(q) ||
       kkNames.includes(q);
     const count = jumlahKK(r, kkList);
-    const sewaAsli = r.status === "Sewa/Kontrak" || r.jenis.includes("Sewa");
     const matchFilter =
       filterType === "all" ||
       (filterType === "pemilik" && r.status === "Dihuni Pemilik") ||
-      (filterType === "sewa" && sewaAsli) ||
+      (filterType === "sewa" && sewaAsli(r)) ||
       (filterType === "multi-kk" && count > 1) ||
       (filterType === "kosong" && r.status === "Kosong");
     return matchSearch && matchFilter;
@@ -154,12 +180,18 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange }: Dat
   const kpiData = [
     { label: "Total Rumah", value: String(rumahList.length), icon: "home", color: "bg-primary-container text-on-primary-container" },
     { label: "Rumah Tetap", value: String(rumahList.filter((r) => r.status === "Dihuni Pemilik").length), icon: "house", color: "bg-secondary-container text-on-secondary-container" },
-    { label: "Sewa/Kontrak", value: String(rumahList.filter((r) => r.status === "Sewa/Kontrak" || r.jenis.includes("Sewa")).length), icon: "key", color: "bg-tertiary-container text-on-tertiary-container" },
+    { label: "Sewa/Kontrak", value: String(rumahList.filter(sewaAsli).length), icon: "key", color: "bg-tertiary-container text-on-tertiary-container" },
     { label: "Multi-KK", value: String(rumahList.filter((r) => jumlahKK(r, kkList) > 1).length), icon: "groups", color: "bg-error-container/40 text-on-error-container" },
   ];
 
   function penghuniList(r: HunianRumah): string[] {
-    return [...kkCocok(r, kkList).map((k) => k.kepala), ...r.penghuni];
+    // Baris server sudah membawa kepala KK ter-link (`r.penghuni`); cocokkan
+    // dengan kkList Portal Warga lalu buang duplikat agar nama tak tampil dua
+    // kali pada detail (KK yang sama terdeteksi dari dua sumber).
+    const nama = [...kkCocok(r, kkList).map((k) => k.kepala), ...r.penghuni]
+      .map((n) => n.trim())
+      .filter(Boolean);
+    return Array.from(new Set(nama));
   }
 
   return (
@@ -372,6 +404,7 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange }: Dat
                   <input
                     className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.blok ? "ring-2 ring-error" : ""}`}
                     placeholder="Contoh: A1"
+                    maxLength={20}
                     value={formHunian.blok}
                     onChange={(e) => setFormHunian({ ...formHunian, blok: e.target.value })}
                   />
@@ -402,6 +435,7 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange }: Dat
                 <input
                   className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.alamat ? "ring-2 ring-error" : ""}`}
                   placeholder="Blok XX No. YY"
+                  maxLength={160}
                   value={formHunian.alamat}
                   onChange={(e) => setFormHunian({ ...formHunian, alamat: e.target.value })}
                 />
@@ -422,52 +456,39 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange }: Dat
                   <option value="Kosong">Kosong</option>
                 </select>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[16px] text-on-surface-variant">person</span>
-                  Nama Penghuni / Kepala KK {formHunian.status === "Kosong" && <span className="text-on-surface-variant font-normal">(opsional, rumah kosong)</span>}
-                </label>
-                <input
-                  className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.namaPenghuni ? "ring-2 ring-error" : ""}`}
-                  placeholder="Nama lengkap kepala keluarga / penghuni"
-                  value={formHunian.namaPenghuni}
-                  onChange={(e) => setFormHunian({ ...formHunian, namaPenghuni: e.target.value })}
-                />
-                {formErrors.namaPenghuni && <span className="text-xs text-error font-semibold">{formErrors.namaPenghuni}</span>}
+              <div className="p-3 rounded-xl bg-secondary-container/20 flex items-start gap-2">
+                <span className="material-symbols-outlined text-secondary text-[16px] mt-0.5">person</span>
+                <p className="text-xs text-on-surface-variant leading-relaxed">
+                  Penghuni unit ini diturunkan otomatis dari Kartu Keluarga yang terdaftar pada alamat ini. Untuk menambah/mengubah penghuni, gunakan menu <strong className="text-on-surface">Data Warga</strong> — data hunian hanya mencatat unit, status huni, dan alamatnya.
+                </p>
               </div>
 
-              {/* Opsi Multi-KK bila alamat sudah terdaftar */}
+              {/* Alamat kembar: hanya informasi — satu alamat = satu baris unit;
+                  Multi-KK dikelola lewat Data Warga, bukan unit baru. */}
               {alamatMatch && (
-                <div className="p-3 rounded-xl bg-tertiary-container/20 flex flex-col gap-2">
-                  <div className="flex items-start gap-2">
-                    <span className="material-symbols-outlined text-tertiary text-[16px] mt-0.5">groups</span>
-                    <p className="text-xs text-on-surface-variant leading-relaxed">
-                      Alamat ini sudah terdaftar sebagai <strong className="text-on-surface">Blok {alamatMatch.blok}</strong> ({alamatMatch.alamat}) dengan {jumlahKK(alamatMatch, kkList)} KK.
-                    </p>
-                  </div>
-                  <label className="flex items-start gap-2 text-xs font-semibold text-on-surface cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 rounded border-outline-variant text-primary focus:ring-primary"
-                      checked={gabungExisting}
-                      onChange={(e) => setGabungExisting(e.target.checked)}
-                    />
-                    <span>Tambahkan sebagai KK baru di hunian tersebut (jadikan Multi-KK, bukan unit baru)</span>
-                  </label>
+                <div className="p-3 rounded-xl bg-tertiary-container/20 flex items-start gap-2">
+                  <span className="material-symbols-outlined text-tertiary text-[16px] mt-0.5">groups</span>
+                  <p className="text-xs text-on-surface-variant leading-relaxed">
+                    Alamat ini sudah terdaftar sebagai <strong className="text-on-surface">Blok {alamatMatch.blok}</strong> ({alamatMatch.alamat}) dengan {jumlahKK(alamatMatch, kkList)} KK. Tambahkan KK baru lewat menu <strong className="text-on-surface">Data Warga</strong> — bukan sebagai unit hunian baru.
+                  </p>
                 </div>
               )}
 
               <div className="p-3 rounded-xl bg-secondary-container/20 flex items-start gap-2">
                 <span className="material-symbols-outlined text-secondary text-[16px] mt-0.5">info</span>
                 <p className="text-xs text-on-surface-variant leading-relaxed">
-                  Satu alamat dapat menampung lebih dari satu KK. Pilih opsi di atas untuk menambah KK pada alamat yang sudah ada, atau isi alamat baru untuk membuat unit hunian baru.
+                  Satu alamat dapat menampung lebih dari satu KK — jumlah KK mengikuti data Kartu Keluarga dari menu Data Warga. Isi alamat yang belum terdaftar untuk membuat unit hunian baru.
                 </p>
               </div>
               <div className="flex items-center justify-end gap-3 pt-2 border-t border-surface-container-high">
                 <button type="button" className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors" onClick={resetForm}>Batal</button>
-                <button type="submit" className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={simpanSedang}
+                  className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-wait disabled:active:scale-100"
+                >
                   <span className="material-symbols-outlined text-[18px]">save</span>
-                  {alamatMatch && gabungExisting ? "Tambahkan KK" : "Simpan Hunian"}
+                  {simpanSedang ? "Menyimpan..." : "Simpan Hunian"}
                 </button>
               </div>
             </form>

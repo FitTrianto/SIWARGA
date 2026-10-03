@@ -506,9 +506,31 @@ export const ruteRtDataWarga: FastifyPluginAsync = async (app) => {
         dataKk.noKk = body.noKk; // P2002 (bentrok per RT) → CONFLICT 409
         snapBaru.noKk = body.noKk;
       }
+      let alamatBaru: string | null = null;
       if (body.alamat !== undefined && body.alamat !== lama.kk.alamat) {
         dataKk.alamat = body.alamat;
         snapBaru.alamat = body.alamat;
+        alamatBaru = body.alamat;
+      }
+      // Re-link rumah saat alamat berubah: alamat dicocokan ulang dengan
+      // aturan yang SAMA seperti POST /rt/warga (alamat ATAU alamat_pendek,
+      // case-insensitive). Tanpa ini, rumah_id tetap menunjuk rumah LAMA —
+      // Status Hunian salah & prasyarat undangan §6.3 terbaca keliru; alamat
+      // baru tanpa unit hunian → null (undangan menunggu hunian dibuat dulu).
+      let idRumahTujuan: string | null = null;
+      if (alamatBaru !== null) {
+        const rumahBaru = await tx.rumah.findFirst({
+          where: {
+            rtId,
+            OR: [
+              { alamat: { equals: alamatBaru, mode: "insensitive" } },
+              { alamatPendek: { equals: alamatBaru, mode: "insensitive" } },
+            ],
+          },
+          select: { id: true },
+        });
+        idRumahTujuan = rumahBaru?.id ?? null;
+        dataKk.rumahId = idRumahTujuan;
       }
       // Semangat patch mode demo: hubungan menjadi "kepala" → nama kepala
       // keluarga di KK ikut menunjuk warga ini.
@@ -530,6 +552,15 @@ export const ruteRtDataWarga: FastifyPluginAsync = async (app) => {
         await tx.kartuKeluarga.update({
           where: { id: lama.kk.id },
           data: dataKk as Prisma.KartuKeluargaUpdateInput,
+        });
+      }
+      if (alamatBaru !== null) {
+        // Seluruh anggota KK ikut pindah: `rumah_id` tersimpan per baris warga
+        // (bukan hanya warga yang diedit) karena prasyarat undangan §6.3
+        // dihitung per warga.
+        await tx.warga.updateMany({
+          where: { kkId: lama.kk.id },
+          data: { rumahId: idRumahTujuan },
         });
       }
 

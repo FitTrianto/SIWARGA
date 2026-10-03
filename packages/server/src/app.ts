@@ -29,6 +29,7 @@ import { ruteImporWarga } from "./routes/rtImporWarga.js";
 import { ruteKasRt } from "./routes/kasRt.js";
 import { ruteRtAjuanPerubahan } from "./routes/rtAjuanPerubahan.js";
 import { ruteRtDataWarga } from "./routes/rtDataWarga.js";
+import { ruteRtHunian } from "./routes/rtHunian.js";
 import { ruteRtSurat } from "./routes/rtSurat.js";
 import { ruteWargaKeluarga } from "./routes/wargaKeluarga.js";
 import type { KodeApi } from "./types.js";
@@ -100,6 +101,10 @@ export async function buatAplikasi(): Promise<FastifyInstance> {
   // B13 · spesifikasi §5.4: CRUD Data Warga Portal RT (GET/POST/PATCH/DELETE
   // `/rt/warga`) — sumber kebenaran bersama Portal RT ↔ Portal Warga
   await app.register(ruteRtDataWarga, { prefix: PREFIX_API });
+
+  // §5.4 · Data Hunian Portal RT (GET/POST `/rt/hunian`) — prasyarat link
+  // rumah & Status Hunian (§6.1/§6.3); sebelumnya hanya state demo FE
+  await app.register(ruteRtHunian, { prefix: PREFIX_API });
 
   // B12 · persuratan resmi & verifikasi publik (§6.6): kop pengaturan RT,
   // antrian/penerbitan surat, ajukan surat warga, dan cek QR `/q/:token`

@@ -16,6 +16,7 @@ import {
   cabutUndanganRt,
   catatKasRt,
   daftarAjuanPerubahanRt,
+  daftarHunianRt,
   daftarKasRt,
   daftarKondisionalRt,
   daftarSuratRt,
@@ -24,6 +25,7 @@ import {
   GalatApi,
   generateTagihanRt,
   hapusWargaRt,
+  hunianServerKeHunian,
   imporWargaRt,
   inspeksiUndanganRt,
   kategoriIuranRt,
@@ -52,11 +54,14 @@ import {
   simpanPengaturanSuratRt,
   simpanProfilIuranRt,
   suratWarga,
+  tambahHunianRt,
+  tambahKategoriRt,
   tambahWargaRt,
   tagihanIuran,
   tagihanRtServer,
   tolakPembayaranRt,
   ubahAksesWargaRt,
+  ubahKategoriRt,
   ubahWargaRt,
   verifikasiAjuanPerubahanRt,
   type AksiSuratRt,
@@ -66,6 +71,7 @@ import {
   type EntriRiwayatLogin,
   type HasilGenerateTagihan,
   type HasilImporWarga,
+  type HunianServer,
   type KeluargaRingkasServer,
   type KategoriIuranServer,
   type PatchKontakKeluarga,
@@ -74,6 +80,8 @@ import {
   type PengaturanSuratRt,
   type RingkasTagihanServer,
   type StatusAksesServer,
+  type TambahHunianRtPayload,
+  type TambahKategoriRtPayload,
   type TambahWargaRtPayload,
   type TemuanInspeksiUndangan,
 } from "./lib/api";
@@ -570,6 +578,9 @@ export default function App() {
     // Baris Data Warga milik sesi RT sebelumnya TIDAK boleh bocor ke sesi
     // berikutnya — kembalikan ke demo dengan identity-guard seperti kkList.
     setWargaRtList((prev) => (prev === wargaRtDefault ? prev : wargaRtDefault));
+    // Daftar hunian server (hasil GET /rt/hunian sesi RT) juga tidak boleh
+    // bocor — kembalikan ke seed demo (pola identity-guard yang sama).
+    setHunianList((prev) => (prev === hunianDefault ? prev : hunianDefault));
     // Kartu iuran kondisional daftar sesi sebelumnya juga tidak boleh bocor
     // (pola sama: identity-guard ke data demo).
     setTagihanTambahanList((prev) => (prev === tagihanTambahanDefault ? prev : tagihanTambahanDefault));
@@ -587,6 +598,17 @@ export default function App() {
         } catch (e) {
           if (tanganiSesiHabis(e)) return;
           console.info("[data-warga] memakai data demo:", e instanceof GalatApi ? e.code : e);
+        }
+        // §5.4 · Data Hunian: daftar unit dari server jadi sumber kebenaran
+        // (sebelumnya state demo FE — "input hunian terputus" tak pernah
+        // tersimpan). OFFLINE / sesi habis → data demo dipertahankan.
+        try {
+          const h = await daftarHunianRt();
+          if (batal) return;
+          setHunianList(h.hunian.map(hunianServerKeHunian));
+        } catch (e) {
+          if (tanganiSesiHabis(e)) return;
+          console.info("[hunian] memakai data demo:", e instanceof GalatApi ? e.code : e);
         }
         try {
           const r = await pembayaranRt();
@@ -910,6 +932,51 @@ export default function App() {
   ): Promise<{ warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer } | null> => {
     try {
       return await tambahWargaRt(payload);
+    } catch (e) {
+      if (e instanceof GalatApi && e.code === "OFFLINE") return null;
+      tanganiSesiHabis(e);
+      throw e;
+    }
+  };
+
+  // §5.4 · Data Hunian (GET/POST /rt/hunian) — API-first pola sama: sukses →
+  // baris server; OFFLINE → `null` (halaman lanjut jalur demo lokal); galat
+  // lain (validasi, 409 blok/alamat kembar, sesi habis) DITERUSKAN supaya pesan
+  // server tampil — tidak pernah "berhasil" untuk kegagalan.
+  const tambahHunianSesi = async (payload: TambahHunianRtPayload): Promise<HunianServer | null> => {
+    try {
+      const h = await tambahHunianRt(payload);
+      return h.hunian;
+    } catch (e) {
+      if (e instanceof GalatApi && e.code === "OFFLINE") return null;
+      tanganiSesiHabis(e);
+      throw e;
+    }
+  };
+
+  // §6.4.1 · master kategori iuran — CRUD API-first: hasil server menggantikan
+  // state (bukan lagi state demo FE); OFFLINE → `null` → jalur demo jujur;
+  // galat 409 nama bentrok & validasi DITERUSKAN agar pesan server tampil.
+  const tambahKategoriSesi = async (
+    payload: TambahKategoriRtPayload,
+  ): Promise<KategoriIuranServer | null> => {
+    try {
+      const h = await tambahKategoriRt(payload);
+      return h.kategori;
+    } catch (e) {
+      if (e instanceof GalatApi && e.code === "OFFLINE") return null;
+      tanganiSesiHabis(e);
+      throw e;
+    }
+  };
+
+  const ubahKategoriSesi = async (
+    id: string,
+    patch: Partial<TambahKategoriRtPayload> & { statusAktif?: boolean },
+  ): Promise<KategoriIuranServer | null> => {
+    try {
+      const h = await ubahKategoriRt(id, patch);
+      return h.kategori;
     } catch (e) {
       if (e instanceof GalatApi && e.code === "OFFLINE") return null;
       tanganiSesiHabis(e);
@@ -1366,9 +1433,25 @@ export default function App() {
     nama: string;
     alamat: string;
     noWa: string;
+    idWarga?: string;
   }): Promise<Undangan> => {
     try {
-      const hasil = await buatUndanganRt(data.noWa);
+      // Kunci penerima `POST /rt/warga/:id/undangan`: UUID warga bila ada.
+      // Tanpa ini, warga TANPA no. HP menghasilkan path kosong
+      // (`/rt/warga//undangan` → 404) sehingga undangan tak pernah terbit.
+      // Id lokal mode-demo (bukan UUID) tidak dikirim — fallback no. HP.
+      const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const wa = digitsOnly(data.noWa);
+      const kunci = data.idWarga && RE_UUID.test(data.idWarga) ? data.idWarga : wa;
+      if (!kunci) {
+        // Jujur & spesifik — jangan biarkan server menjawab 404 path kosong.
+        throw new GalatApi(
+          "VALIDATION",
+          `${data.nama} belum punya no. HP — wajib diisi dulu di Data Warga (syarat login portal).`,
+          400,
+        );
+      }
+      const hasil = await buatUndanganRt(kunci);
       const baru: Undangan = {
         id: hasil.id,
         token: hasil.token,
@@ -1400,6 +1483,16 @@ export default function App() {
 
       // — Mode demo (backend mati): get-or-create pada daftar lokal —
       const digit = digitsOnly(data.noWa);
+      if (digit.length < 10) {
+        // Konfirmasi mode demo memakai 4 digit terakhir no. HP → tanpa nomor
+        // yang lengkap, undangan tak akan bisa diaktifkan. Tolak dengan pesan
+        // jujur, jangan menerbitkan token yang pasti buntu.
+        throw new GalatApi(
+          "VALIDATION",
+          `${data.nama} belum punya no. HP — wajib diisi dulu di Data Warga (syarat login portal).`,
+          400,
+        );
+      }
       const ada = undanganList.find(
         (x) => digitsOnly(x.noWa) === digit && x.status !== "Kedaluwarsa"
       );
@@ -1809,11 +1902,13 @@ export default function App() {
         kkList={kkList}
         hunian={hunianList}
         onHunianChange={setHunianList}
+        onTambahHunian={tambahHunianSesi}
       />,
       "data-warga-rt": <DataWargaRT
         onNavigate={navigate}
         kkList={kkList}
         wargaRt={wargaRtList}
+        hunian={hunianList}
         onWargaRtChange={setWargaRtList}
         onKkUpdated={(kkId, patch) =>
           setKkList((prev) => prev.map((k) => (k.id === kkId ? { ...k, ...patch } : k)))
@@ -1836,6 +1931,8 @@ export default function App() {
         onNavigate={navigate}
         kategoriIuran={kategoriIuran}
         onKategoriChange={setKategoriIuran}
+        onTambahKategori={tambahKategoriSesi}
+        onUbahKategori={ubahKategoriSesi}
         pembayaran={pembayaran}
         onVerifikasi={async (id, status, kategoriTujuan) => {
           try {

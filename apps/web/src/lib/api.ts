@@ -24,16 +24,20 @@ import {
   type AjuanPerubahan,
   type AjuanPerubahanRt,
   type FamilyMember,
+  type HunianRumah,
   type JenisAjuan,
+  type KategoriIuran,
   type KkData,
   type KasRt,
   type KopSurat,
   type MemberFilter,
   type Pembayaran,
+  type SifatIuran,
   type StatusAjuan,
   type StatusSuratServer,
   type Surat,
   type TagihanTambahan,
+  type TipeTarif,
   type WargaRt,
   labelStatusSurat,
 } from "./shared";
@@ -495,6 +499,46 @@ export interface KategoriIuranServer {
 
 export function kategoriIuranRt(): Promise<{ kategori: KategoriIuranServer[] }> {
   return minta("/rt/iuran/kategori");
+}
+
+/** `GET /rt/iuran/kategori` → state `KategoriIuran` FE (unifikasi sumber kategori). */
+export function serverKeKategori(k: KategoriIuranServer): KategoriIuran {
+  return {
+    id: k.id,
+    nama: k.nama,
+    nominal: k.nominalDefault,
+    tipe: k.tipeTarif,
+    sifat: k.sifat,
+    urutan: k.urutan,
+    statusAktif: k.statusAktif,
+  };
+}
+
+/** Payload `POST /rt/iuran/kategori` — `urutan` (terakhir) dihitung server (§6.4.1). */
+export interface TambahKategoriRtPayload {
+  nama: string;
+  nominal: number;
+  tipe: TipeTarif;
+  sifat: SifatIuran;
+}
+
+/** POST `/rt/iuran/kategori` — tambah master kategori (wajib CSRF, nama unik per RT). */
+export function tambahKategoriRt(
+  payload: TambahKategoriRtPayload,
+): Promise<{ kategori: KategoriIuranServer }> {
+  return minta("/rt/iuran/kategori", { method: "POST", body: payload, csrf: true });
+}
+
+/** PATCH `/rt/iuran/kategori/:id` — ubah kategori / toggle status aktif (PRD §6.4.1). */
+export function ubahKategoriRt(
+  id: string,
+  patch: Partial<TambahKategoriRtPayload> & { statusAktif?: boolean },
+): Promise<{ kategori: KategoriIuranServer }> {
+  return minta(`/rt/iuran/kategori/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: patch,
+    csrf: true,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1289,6 +1333,97 @@ export function hapusWargaRt(
   id: string,
 ): Promise<{ id: string; keluarga: KeluargaRingkasServer | null }> {
   return minta(`/rt/warga/${encodeURIComponent(id)}`, { method: "DELETE", csrf: true });
+}
+
+// ===========================================================================
+// DATA HUNIAN — §5.4 (GET/POST /rt/hunian) · PRD §6.1 (Portal RT).
+// Sebelumnya unit hunian hanya state demo FE — hilang saat muat ulang, alamat
+// baru tak muncul di dropdown Data Warga, dan KK di alamat itu tetap tanpa
+// `rumah_id` (Status Hunian kosong + prasyarat undangan §6.3 terblokir).
+// ===========================================================================
+
+/** Satu baris `GET /rt/hunian` — `jumlahKk`/`penghuni` turunan dari KK ter-link. */
+export interface HunianServer {
+  id: string;
+  kodeRumah: string;
+  alamat: string;
+  alamatPendek: string;
+  statusHuni: "milik" | "sewa" | "kontrak" | "kos";
+  unitKendaraanR4: number;
+  jumlahKk: number;
+  penghuni: string[];
+}
+
+/** GET /rt/hunian — daftar unit hunian milik RT sesi (sumber kebenaran). */
+export function daftarHunianRt(): Promise<{ hunian: HunianServer[] }> {
+  return minta("/rt/hunian");
+}
+
+/** Payload `POST /rt/hunian` — gabungan dua pilihan form FE sudah jadi enum. */
+export interface TambahHunianRtPayload {
+  kodeRumah: string;
+  alamat: string;
+  statusHuni: "milik" | "sewa" | "kontrak" | "kos";
+}
+
+/**
+ * POST /rt/hunian — buat 1 unit; server sekalian menautkan balik KK/warga pada
+ * alamat itu yang belum punya `rumah_id` (pemulihan "proses terputus", §6.1).
+ */
+export function tambahHunianRt(
+  payload: TambahHunianRtPayload,
+): Promise<{ hunian: HunianServer }> {
+  return minta("/rt/hunian", { method: "POST", body: payload, csrf: true });
+}
+
+/**
+ * Pemetaan dua select form FE → enum `status_huni` (PRD §6.1) — aturan
+ * gabungan: jenis "Rumah Kos" → `kos`, "Rumah Sewa" → `sewa`, status
+ * "Sewa/Kontrak" → `sewa`, selainnya (termasuk "Kosong") → `milik`. Status
+ * "Kosong" TIDAK ada di enum — tampil diturunkan FE dari jumlah KK = 0.
+ */
+export function statusHuniDariForm(
+  jenis: string,
+  status: string,
+): "milik" | "sewa" | "kontrak" | "kos" {
+  if (jenis === "Rumah Kos") return "kos";
+  if (jenis === "Rumah Sewa") return "sewa";
+  if (status === "Sewa/Kontrak") return "sewa";
+  return "milik";
+}
+
+/** Label tampilan `status_huni` (dipakai turunan status baris hunian). */
+const LABEL_STATUS_HUNI: Partial<Record<HunianServer["statusHuni"], string>> = {
+  milik: "Dihuni Pemilik",
+  sewa: "Sewa/Kontrak",
+  kontrak: "Sewa/Kontrak",
+  kos: "Kos",
+};
+
+/**
+ * `GET /rt/hunian` → `HunianRumah` tampilan. Turunan status dari `jumlahKk`
+ * (0 = "Kosong", >1 = "Multi-KK", selain itu label `status_huni`); kolom
+ * `jenis` turunan `statusHuni` — label demo "Ruko" tak punya padanan enum
+ * (dicatat sebagai deviasi di laporan perbaikan).
+ */
+export function hunianServerKeHunian(h: HunianServer): HunianRumah {
+  const status =
+    h.jumlahKk === 0
+      ? "Kosong"
+      : h.jumlahKk > 1
+        ? "Multi-KK"
+        : (LABEL_STATUS_HUNI[h.statusHuni] ?? "Dihuni Pemilik");
+  const jenis =
+    h.statusHuni === "kos" ? "Rumah Kos" : h.statusHuni === "sewa" || h.statusHuni === "kontrak" ? "Rumah Sewa" : "Rumah Tinggal";
+  return {
+    id: h.id,
+    blok: h.kodeRumah,
+    alamat: h.alamat,
+    jenis,
+    status,
+    kkTerdaftar: h.jumlahKk,
+    penghuni: h.penghuni,
+  };
 }
 
 // --- Konversi label FE ↔ enum DB (kamus PRD §13: label Indonesia di UI) -------

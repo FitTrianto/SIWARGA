@@ -2,6 +2,10 @@
  * Iuran Portal RT — PRD §5.4 (task B7 alokasi FIFO · B8 kas otomatis · B9 · B10) · F-3.
  *
  *   GET   /rt/iuran/kategori                 → daftar kategori iuran (kolom tabel FE)
+ *   POST  /rt/iuran/kategori                 → tambah master kategori (§5.4)
+ *   PATCH /rt/iuran/kategori/:id             → ubah kategori / toggle status aktif
+ *   (DELETE sengaja tidak ada — PRD §6.4.1: "menonaktifkan, bukan hapus fisik";
+ *    FE juga tak punya aksi hapus, lihat catatan di bawah rute PATCH)
  *   GET   /rt/iuran/tagihan?periode=&q=&status=&kategori= → dashboard status per warga
  *   GET   /rt/iuran/pembayaran?status=       → antrean bukti + riwayat pembayaran
  *   POST  /rt/iuran/pembayaran               → catat pembayaran bendahara (alokasi langsung)
@@ -169,6 +173,203 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
     return reply.ok({
       kategori: kategori.map((k) => ({ ...k, nominalDefault: Number(k.nominalDefault) })),
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Master kategori — POST/PATCH (kontrak §5.4 "GET/POST/PATCH/DELETE"; FE
+  // punya form tambah/edit + toggle status → POST & PATCH inilah yang
+  // dibutuhkan). Sebelumnya CRUD kategori hanya mengubah state demo FE:
+  // kategori baru tidak pernah sampai ke server, hilang saat muat ulang, dan
+  // tidak ikut generate tagihan / dropdown alokasi yang dibaca dari server.
+  // -------------------------------------------------------------------------
+
+  const skemaKategoriBaru = z.object({
+    nama: z.string().trim().min(1, "Nama kategori wajib diisi.").max(80, "Nama kategori maksimal 80 karakter."),
+    nominal: z.coerce.number().min(0, "Nominal tidak boleh negatif.").max(1_000_000_000, "Nominal terlalu besar."),
+    tipe: z.enum(["flat", "per_unit", "insidental"]),
+    sifat: z.enum(["wajib", "opsional"]),
+  });
+
+  const skemaKategoriUbah = z
+    .object({
+      nama: z.string().trim().min(1, "Nama kategori wajib diisi.").max(80, "Nama kategori maksimal 80 karakter.").optional(),
+      nominal: z.coerce.number().min(0, "Nominal tidak boleh negatif.").max(1_000_000_000, "Nominal terlalu besar.").optional(),
+      tipe: z.enum(["flat", "per_unit", "insidental"]).optional(),
+      sifat: z.enum(["wajib", "opsional"]).optional(),
+      statusAktif: z.boolean().optional(),
+    })
+    .refine((v) => Object.keys(v).length > 0, { message: "Tidak ada perubahan yang dikirim." });
+
+  /** Aturan bentuk yang sama dengan FE: selain `insidental`, nominal wajib > 0. */
+  function validasiNominal(tipe: string, nominal: number): void {
+    if (tipe !== "insidental" && nominal <= 0) {
+      throw new GalatTolak("VALIDATION", "Nominal harus lebih dari 0.");
+    }
+  }
+
+  /** Tambah master kategori milik RT sesi (urutan = terakhir, +1 dari server). */
+  app.post("/rt/iuran/kategori", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+    const body = skemaKategoriBaru.parse(req.body ?? {});
+    validasiNominal(body.tipe, body.nominal);
+
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+
+      // Nama unik per RT (⭐ schema) — pre-check case-insensitive untuk pesan
+      // jelas; P2002 tetap jaring pengaman di layer errorHandler.
+      const kembar = await tx.kategoriIuran.findFirst({
+        where: { rtId, nama: { equals: body.nama, mode: "insensitive" } },
+        select: { id: true },
+      });
+      if (kembar) throw new GalatTolak("CONFLICT", `Kategori "${body.nama}" sudah terdaftar.`);
+
+      const maks = await tx.kategoriIuran.aggregate({ where: { rtId }, _max: { urutan: true } });
+      const kategori = await tx.kategoriIuran.create({
+        data: {
+          rtId,
+          nama: body.nama,
+          tipeTarif: body.tipe,
+          nominalDefault: body.nominal,
+          sifat: body.sifat,
+          urutan: (maks._max.urutan ?? 0) + 1,
+        },
+        select: { id: true, nama: true, tipeTarif: true, nominalDefault: true, sifat: true, statusAktif: true, urutan: true },
+      });
+
+      await catatAudit(
+        {
+          scopeLevel: "rt",
+          scopeId: rtId,
+          actorId: oleh,
+          actorRole: "rt_admin",
+          portal: "rt",
+          modul: "iuran",
+          aksi: "tambah_kategori",
+          aksiBadge: "Iuran",
+          entitas: "kategori_iuran",
+          entitasId: kategori.id,
+          sesudah: {
+            nama: kategori.nama,
+            tipeTarif: kategori.tipeTarif,
+            nominalDefault: Number(kategori.nominalDefault),
+            sifat: kategori.sifat,
+          },
+          ringkasan: `Tambah kategori "${kategori.nama}" (${kategori.tipeTarif})`,
+          ip: req.ipAsli,
+        },
+        tx,
+      );
+
+      return { kategori: { ...kategori, nominalDefault: Number(kategori.nominalDefault) } };
+    });
+
+    return reply.ok(hasil);
+  });
+
+  /**
+   * Ubah 1 kategori (form edit) ATAU toggle status aktif (PRD §6.4.1:
+   * "menonaktifkan, bukan hapus fisik" — `dinonaktifkan_pada` diisi saat
+   * dinonaktifkan, dikosongkan saat aktif kembali).
+   *
+   * Deviasi terdokumentasi atas baris kontrak §5.4: `DELETE /rt/iuran/kategori`
+   * sengaja TIDAK dibuat — riwayat tagihan/pembayaran tidak boleh kehilangan
+   * induknya, dan FE tak punya aksi hapus (satu-satunya jalan keluar = nonaktif).
+   */
+  app.patch("/rt/iuran/kategori/:id", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+    const { id } = z.object({ id: skemaId }).parse(req.params);
+    const body = skemaKategoriUbah.parse(req.body ?? {});
+
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+      // ID asing / lintas RT → 404 (keberadaan baris tidak bocor).
+      const lama = await tx.kategoriIuran.findFirst({
+        where: { id, rtId },
+        select: {
+          id: true,
+          nama: true,
+          tipeTarif: true,
+          nominalDefault: true,
+          sifat: true,
+          statusAktif: true,
+          urutan: true,
+          dinonaktifkanPada: true,
+        },
+      });
+      if (!lama) throw new GalatTolak("NOT_FOUND", "Kategori iuran tidak ditemukan.");
+
+      const tipeAkhir = body.tipe ?? lama.tipeTarif;
+      const nominalAkhir = body.nominal ?? Number(lama.nominalDefault);
+      validasiNominal(tipeAkhir, nominalAkhir);
+
+      if (body.nama !== undefined && body.nama !== lama.nama) {
+        const kembar = await tx.kategoriIuran.findFirst({
+          where: { rtId, nama: { equals: body.nama, mode: "insensitive" }, NOT: { id: lama.id } },
+          select: { id: true },
+        });
+        if (kembar) throw new GalatTolak("CONFLICT", `Kategori "${body.nama}" sudah terdaftar.`);
+      }
+
+      const data: Record<string, unknown> = {};
+      if (body.nama !== undefined && body.nama !== lama.nama) data.nama = body.nama;
+      if (body.tipe !== undefined && body.tipe !== lama.tipeTarif) data.tipeTarif = body.tipe;
+      if (body.nominal !== undefined && nominalAkhir !== Number(lama.nominalDefault)) {
+        data.nominalDefault = nominalAkhir;
+      }
+      if (body.sifat !== undefined && body.sifat !== lama.sifat) data.sifat = body.sifat;
+      if (body.statusAktif !== undefined && body.statusAktif !== lama.statusAktif) {
+        data.statusAktif = body.statusAktif;
+        // Nonaktif → stempel waktu; aktif kembali → bersihkan (riwayat di DB
+        // mengabadikan kapan kategori sempat mati).
+        data.dinonaktifkanPada = body.statusAktif ? null : (lama.dinonaktifkanPada ?? new Date());
+      }
+      if (Object.keys(data).length === 0) {
+        throw new GalatTolak("VALIDATION", "Tidak ada perubahan yang dikirim.");
+      }
+
+      const kategori = await tx.kategoriIuran.update({
+        where: { id: lama.id },
+        data,
+        select: { id: true, nama: true, tipeTarif: true, nominalDefault: true, sifat: true, statusAktif: true, urutan: true },
+      });
+
+      await catatAudit(
+        {
+          scopeLevel: "rt",
+          scopeId: rtId,
+          actorId: oleh,
+          actorRole: "rt_admin",
+          portal: "rt",
+          modul: "iuran",
+          aksi: "ubah_kategori",
+          aksiBadge: "Iuran",
+          entitas: "kategori_iuran",
+          entitasId: lama.id,
+          sebelum: {
+            nama: lama.nama,
+            tipeTarif: lama.tipeTarif,
+            nominalDefault: Number(lama.nominalDefault),
+            sifat: lama.sifat,
+            statusAktif: lama.statusAktif,
+          },
+          sesudah: {
+            nama: kategori.nama,
+            tipeTarif: kategori.tipeTarif,
+            nominalDefault: Number(kategori.nominalDefault),
+            sifat: kategori.sifat,
+            statusAktif: kategori.statusAktif,
+          },
+          ringkasan: `Ubah kategori "${kategori.nama}" — ${Object.keys(data).join(", ")}`,
+          ip: req.ipAsli,
+        },
+        tx,
+      );
+
+      return { kategori: { ...kategori, nominalDefault: Number(kategori.nominalDefault) } };
+    });
+
+    return reply.ok(hasil);
   });
 
   app.get("/rt/iuran/tagihan", async (req, reply) => {

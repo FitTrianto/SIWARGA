@@ -25,11 +25,13 @@ import {
 import {
   GalatApi,
   labelPeriodeServer,
+  serverKeKategori,
   type BarisProfilIuran,
   type BarisTagihanRtServer,
   type HasilGenerateTagihan,
   type KategoriIuranServer,
   type PengaturanIuranRt,
+  type TambahKategoriRtPayload,
 } from "../../lib/api";
 import { EmptyState } from "../../components/EmptyState";
 import { KonfirmasiDialog } from "../../components/KonfirmasiDialog";
@@ -78,6 +80,17 @@ interface IuranRTProps {
   onMuatPengaturanIuran: () => Promise<PengaturanIuranRt | null>;
   /** B7 — master kategori dari server; `null` = OFFLINE. */
   onMuatKategoriServer: () => Promise<KategoriIuranServer[] | null>;
+  /**
+   * §6.4.1 · CRUD master kategori — API-first: sukses → baris server; OFFLINE
+   * → `null` (halaman lanjut jalur demo lokal + pesan jujur); galat non-OFFLINE
+   * (409 nama bentrok per RT, validasi nominal) DILEMPAR agar pesan server tampil.
+   */
+  onTambahKategori?: (payload: TambahKategoriRtPayload) => Promise<KategoriIuranServer | null>;
+  /** PATCH /rt/iuran/kategori/:id — ubah field / toggle status aktif (bukan hapus). */
+  onUbahKategori?: (
+    id: string,
+    patch: Partial<TambahKategoriRtPayload> & { statusAktif?: boolean },
+  ) => Promise<KategoriIuranServer | null>;
   /** B9 — `POST /rt/iuran/tagihan/generate`; `null` = OFFLINE. */
   onGenerateTagihan: (periode?: string) => Promise<HasilGenerateTagihan | null>;
   /** B9/B10 — `GET /rt/iuran/tagihan`; `null` = OFFLINE. */
@@ -155,6 +168,8 @@ export function IuranRT({
   onTambahTagihanTambahan,
   onMuatPengaturanIuran,
   onMuatKategoriServer,
+  onTambahKategori,
+  onUbahKategori,
   onGenerateTagihan,
   onMuatTagihanServer,
   onMuatProfilIuran,
@@ -172,7 +187,6 @@ export function IuranRT({
   // `null` = OFFLINE / belum dimuat → bagian server menampilkan catatan mode demo,
   // TIDAK PERNAH menyamar sebagai data valid.
   const [pengaturanIuran, setPengaturanIuran] = useState<PengaturanIuranRt | null>(null);
-  const [kategoriServer, setKategoriServer] = useState<KategoriIuranServer[]>([]);
   const [tagihanServer, setTagihanServer] = useState<BarisTagihanRtServer[] | null>(null);
   const [rekapServer, setRekapServer] = useState<TagihanServer["rekap"] | null>(null);
   const [periodeServer, setPeriodeServer] = useState<string>("");
@@ -189,6 +203,9 @@ export function IuranRT({
   // B9 — konfirmasi generate tagihan bulanan.
   const [konfirmasiGenerate, setKonfirmasiGenerate] = useState(false);
   const [generateSedang, setGenerateSedang] = useState(false);
+
+  // §6.4.1 — cegah submit ganda CRUD kategori selagi menunggu respons server.
+  const [kategoriSedang, setKategoriSedang] = useState(false);
 
   // B9 — modal profil iuran per warga (override nominal & jumlah unit R4).
   const [profilTarget, setProfilTarget] = useState<BarisTagihanRtServer | null>(null);
@@ -209,7 +226,10 @@ export function IuranRT({
         const [p, k] = await Promise.all([onMuatPengaturanIuran(), onMuatKategoriServer()]);
         if (batal) return;
         if (p) setPengaturanIuran(p);
-        if (k) setKategoriServer(k);
+        // Unifikasi sumber kategori: hasil server menggantikan state
+        // `kategoriIuran` (bukan lagi dua salinan server + demo yang bisa
+        // berbeda). OFFLINE → `null` → state demo dipertahankan.
+        if (k) onKategoriChange(k.map(serverKeKategori));
       } catch (err) {
         // Sesi habis ditangani App; galat lain ditampilkan tanpa merusak halaman.
         if (!batal && err instanceof GalatApi && err.code !== "UNAUTHORIZED") {
@@ -265,7 +285,7 @@ export function IuranRT({
 
   const modeTerpisah = pengaturanIuran?.modeAlokasi === "terpisah";
   /** Kategori tujuan yang boleh dipilih — hanya yang aktif. */
-  const kategoriTujuanOpsi = kategoriServer.filter((k) => k.statusAktif);
+  const kategoriTujuanOpsi = kategoriIuran.filter((k) => k.statusAktif);
 
   /**
    * B7 — mode `terpisah` mewajibkan kategori tujuan alokasi; `false` berarti
@@ -541,9 +561,13 @@ export function IuranRT({
    * Simpan kategori — SATU form untuk tambah maupun edit, sehingga tidak ada
    * atribut (tipe/sifat) yang bisa terlupa saat Pengurus RT mengubah data seed.
    * Validasi meniru batas DB: nama unik per RT (maks 80 karakter) & nominal >= 0.
+   * API-first (§6.4.1): server jadi sumber kebenaran; OFFLINE → jalur demo
+   * lokal dengan pesan jujur; galat server (409 nama bentrok, validasi) →
+   * pesan tampil & form tetap terbuka untuk diperbaiki.
    */
-  function handleSimpanKategori(e: React.FormEvent) {
+  async function handleSimpanKategori(e: React.FormEvent) {
     e.preventDefault();
+    if (kategoriSedang) return flash("Permintaan masih diproses — tunggu sebentar.");
     const nama = formKategori.nama.trim();
     if (!nama) {
       flash("Nama kategori wajib diisi.");
@@ -572,32 +596,76 @@ export function IuranRT({
       return;
     }
 
-    if (editKategoriId) {
-      onKategoriChange(
-        kategoriIuran.map((c) =>
-          c.id === editKategoriId
-            ? { ...c, nama, nominal, tipe: formKategori.tipe, sifat: formKategori.sifat }
-            : c
-        )
-      );
-      flash(`Kategori "${nama}" berhasil diperbarui`);
-    } else {
-      const urutan = kategoriIuran.reduce((m, c) => Math.max(m, c.urutan), 0) + 1;
-      const baru: KategoriIuran = {
-        id: `k${Date.now()}`,
-        nama,
-        nominal,
-        tipe: formKategori.tipe,
-        sifat: formKategori.sifat,
-        urutan,
-        statusAktif: true,
-      };
-      onKategoriChange([...kategoriIuran, baru]);
-      flash(`Kategori "${nama}" berhasil ditambahkan`);
-    }
+    setKategoriSedang(true);
+    try {
+      if (editKategoriId) {
+        const patch: Partial<TambahKategoriRtPayload> = {
+          nama,
+          nominal,
+          tipe: formKategori.tipe,
+          sifat: formKategori.sifat,
+        };
+        if (onUbahKategori) {
+          const hasil = await onUbahKategori(editKategoriId, patch);
+          if (hasil) {
+            const baris = serverKeKategori(hasil);
+            onKategoriChange(kategoriIuran.map((c) => (c.id === editKategoriId ? baris : c)));
+            flash(`Kategori "${nama}" berhasil diperbarui (tersimpan di server).`);
+            setFormKategori(FORM_KATEGORI_KOSONG);
+            setEditKategoriId(null);
+            return;
+          }
+        }
+        // OFFLINE / tanpa handler → jalur demo lokal, pesan jujur.
+        onKategoriChange(
+          kategoriIuran.map((c) =>
+            c.id === editKategoriId
+              ? { ...c, nama, nominal, tipe: formKategori.tipe, sifat: formKategori.sifat }
+              : c
+          )
+        );
+        flash(`Mode demo (server tidak terjangkau) — kategori "${nama}" hanya berubah di tampilan lokal.`);
+      } else {
+        const payload: TambahKategoriRtPayload = {
+          nama,
+          nominal,
+          tipe: formKategori.tipe,
+          sifat: formKategori.sifat,
+        };
+        if (onTambahKategori) {
+          const hasil = await onTambahKategori(payload);
+          if (hasil) {
+            onKategoriChange([...kategoriIuran, serverKeKategori(hasil)]);
+            flash(`Kategori "${nama}" berhasil ditambahkan (tersimpan di server).`);
+            setFormKategori(FORM_KATEGORI_KOSONG);
+            setEditKategoriId(null);
+            return;
+          }
+        }
+        // Jalur demo (OFFLINE) — urutan dihitung lokal seperti server (max+1).
+        const urutan = kategoriIuran.reduce((m, c) => Math.max(m, c.urutan), 0) + 1;
+        const baru: KategoriIuran = {
+          id: `k${Date.now()}`,
+          nama,
+          nominal,
+          tipe: formKategori.tipe,
+          sifat: formKategori.sifat,
+          urutan,
+          statusAktif: true,
+        };
+        onKategoriChange([...kategoriIuran, baru]);
+        flash(`Mode demo (server tidak terjangkau) — kategori "${nama}" hanya tampil di daftar lokal, TIDAK tersimpan di server.`);
+      }
 
-    setFormKategori(FORM_KATEGORI_KOSONG);
-    setEditKategoriId(null);
+      setFormKategori(FORM_KATEGORI_KOSONG);
+      setEditKategoriId(null);
+    } catch (err) {
+      // Galat non-OFFLINE (409 nama bentrok per RT, validasi nominal, sesi
+      // habis) → pesan server tampil apa adanya; form tidak ditutup.
+      flash(err instanceof GalatApi ? err.message : "Gagal menyimpan kategori — coba lagi.");
+    } finally {
+      setKategoriSedang(false);
+    }
   }
 
   /** Isi form dengan data kategori pilihan (mode edit). */
@@ -614,16 +682,31 @@ export function IuranRT({
   /**
    * Nonaktifkan/aktifkan kategori — PRD §6.4.1 memakai "menonaktifkan", bukan
    * hapus fisik, agar riwayat tagihan, pembayaran, dan kas tetap utuh.
+   * API-first: server menstempel `dinonaktifkan_pada`; OFFLINE → lokal + pesan jujur.
    */
-  function handleToggleStatusKategori(k: KategoriIuran) {
-    onKategoriChange(
-      kategoriIuran.map((c) => (c.id === k.id ? { ...c, statusAktif: !c.statusAktif } : c))
-    );
-    flash(
-      k.statusAktif
-        ? `Kategori "${k.nama}" dinonaktifkan — tidak lagi ditagihkan`
-        : `Kategori "${k.nama}" diaktifkan kembali`
-    );
+  async function handleToggleStatusKategori(k: KategoriIuran) {
+    try {
+      if (onUbahKategori) {
+        const hasil = await onUbahKategori(k.id, { statusAktif: !k.statusAktif });
+        if (hasil) {
+          const baris = serverKeKategori(hasil);
+          onKategoriChange(kategoriIuran.map((c) => (c.id === k.id ? baris : c)));
+          flash(
+            k.statusAktif
+              ? `Kategori "${k.nama}" dinonaktifkan — tidak lagi ditagihkan (tersimpan di server).`
+              : `Kategori "${k.nama}" diaktifkan kembali (tersimpan di server).`
+          );
+          return;
+        }
+      }
+      // OFFLINE / tanpa handler → toggle lokal, pesan jujur.
+      onKategoriChange(
+        kategoriIuran.map((c) => (c.id === k.id ? { ...c, statusAktif: !c.statusAktif } : c))
+      );
+      flash(`Mode demo (server tidak terjangkau) — status "${k.nama}" hanya berubah di tampilan lokal.`);
+    } catch (err) {
+      flash(err instanceof GalatApi ? err.message : "Gagal mengubah status kategori — coba lagi.");
+    }
   }
 
   return (
@@ -900,10 +983,10 @@ export function IuranRT({
             onChange={(e) => setFKategori(e.target.value)}
           >
             <option value="">Semua Kategori</option>
-            {kategoriServer.map((k) => (
+            {kategoriIuran.map((k) => (
               <option key={k.id} value={k.id}>
                 {k.nama}
-                {k.tipeTarif === "per_unit" ? " (per unit)" : ""}
+                {k.tipe === "per_unit" ? " (per unit)" : ""}
               </option>
             ))}
           </select>
@@ -1111,7 +1194,7 @@ export function IuranRT({
               {kategoriTujuanOpsi.map((k) => (
                 <option key={k.id} value={k.id}>
                   {k.nama}
-                  {k.tipeTarif === "per_unit" ? " (per unit)" : ""}
+                  {k.tipe === "per_unit" ? " (per unit)" : ""}
                 </option>
               ))}
             </select>
@@ -1563,12 +1646,17 @@ export function IuranRT({
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="submit"
-                  className="h-9 px-4 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors inline-flex items-center gap-1"
+                  disabled={kategoriSedang}
+                  className="h-9 px-4 rounded-lg bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors inline-flex items-center gap-1 disabled:opacity-60 disabled:cursor-wait"
                 >
                   <span className="material-symbols-outlined text-[14px]">
                     {editKategoriId ? "save" : "add"}
                   </span>
-                  {editKategoriId ? "Simpan Perubahan" : "Tambah Kategori"}
+                  {kategoriSedang
+                    ? "Menyimpan..."
+                    : editKategoriId
+                      ? "Simpan Perubahan"
+                      : "Tambah Kategori"}
                 </button>
               </div>
             </form>
@@ -1710,22 +1798,22 @@ export function IuranRT({
               <div className="text-[11px] text-on-surface-variant uppercase tracking-wider font-semibold">
                 Kategori ikut digenerate
               </div>
-              {kategoriServer.filter((k) => k.statusAktif).length === 0 ? (
+              {kategoriIuran.filter((k) => k.statusAktif).length === 0 ? (
                 <div className="text-xs text-on-surface-variant">
                   Belum ada kategori aktif dari server — muat ulang halaman bila ragu.
                 </div>
               ) : (
-                kategoriServer
+                kategoriIuran
                   .filter((k) => k.statusAktif)
                   .map((k) => (
                     <div key={k.id} className="flex items-center justify-between gap-3 text-xs">
                       <span className="text-on-surface font-semibold">{k.nama}</span>
                       <span className="text-on-surface-variant font-mono">
-                        {k.tipeTarif === "insidental"
+                        {k.tipe === "insidental"
                           ? "manual"
-                          : k.tipeTarif === "per_unit"
-                            ? `${formatRupiah(k.nominalDefault)} / unit`
-                            : formatRupiah(k.nominalDefault)}
+                          : k.tipe === "per_unit"
+                            ? `${formatRupiah(k.nominal)} / unit`
+                            : formatRupiah(k.nominal)}
                       </span>
                     </div>
                   ))

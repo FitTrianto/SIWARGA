@@ -6220,3 +6220,720 @@ describe("A10 · Migrasi Data — impor CSV/XLSX (/rt/warga/import · §9.1(6) �
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Data Hunian Portal RT (§5.4 · PRD §6.1) + perbaikan tautan rumah PATCH
+// /rt/warga/:id.
+//
+// Bug "input data hunian terputus" (Okt 2026): unit baru sebelumnya hanya
+// hidup di state demo FE — tak pernah masuk tabel `rumah`, hilang saat muat
+// ulang, tak muncul di dropdown alamat Data Warga, dan KK pada alamat itu
+// tetap `rumah_id = NULL` (Status Hunian kosong + undangan §6.3 terblokir).
+// Blok ini mengunci kontrak GET/POST /rt/hunian di atas PostgreSQL sungguhan:
+// guard sesi/CSRF, tulis DB + audit, unik blok/alamat per RT (409), tautan
+// balik KK/warga, isolasi lintas-RT, dan re-link saat alamat warga berubah.
+// ---------------------------------------------------------------------------
+describe("Data Hunian Portal RT (GET/POST /rt/hunian · §5.4/§6.1)", () => {
+  type BarisHunian = {
+    id: string;
+    kodeRumah: string;
+    alamat: string;
+    alamatPendek: string;
+    statusHuni: string;
+    unitKendaraanR4: number;
+    jumlahKk: number;
+    penghuni: string[];
+  };
+
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRt = "";
+  let csrfRt = "";
+  let sidRt05 = "";
+  let sidWarga = "";
+  /** Unit hunian buatan tes POST + KK uji tertaut (urut berjalan). */
+  let idHunian = "";
+  let idKkUji = "";
+
+  const sesiRt = () => ({ sid: sidRt, csrf_token: csrfRt });
+  const csrfRtHeader = () => ({ "x-csrf-token": csrfRt });
+
+  /** ID aman: "" bila tak ada baris (bukan exception) — pola B13. */
+  const ambilId = async (sql: string, params: unknown[]): Promise<string> => {
+    const r = await denganScope(PLATFORM, (c) => c.query(sql, params));
+    return r.rows[0] ? String((r.rows[0] as { id: string }).id) : "";
+  };
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+
+    const rt = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt04@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt.statusCode, "login RT04").toBe(200);
+    sidRt = cookieDari(rt, "sid")!;
+    csrfRt = cookieDari(rt, "csrf_token")!;
+
+    const rt05 = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt05@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt05.statusCode, "login RT05").toBe(200);
+    sidRt05 = cookieDari(rt05, "sid")!;
+
+    const w = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(w.statusCode, "login warga").toBe(200);
+    sidWarga = cookieDari(w, "sid")!;
+  }, 60_000);
+
+  afterAll(async () => {
+    await tutupAplikasiUji();
+  });
+
+  it("guard baca: tanpa sesi / sesi warga → 401; daftar terskop RT + turunan jumlah_kk & penghuni dari KK ter-link", async () => {
+    const tanpa = await app.inject({ method: "GET", url: `${api}/rt/hunian` });
+    expect(tanpa.statusCode).toBe(401);
+    expect(isi(tanpa).error?.code).toBe("UNAUTHORIZED");
+
+    const warga = await app.inject({ method: "GET", url: `${api}/rt/hunian`, cookies: { sid: sidWarga } });
+    expect(warga.statusCode, "sesi warga tidak boleh baca rute RT").toBe(401);
+
+    const ok = await app.inject({ method: "GET", url: `${api}/rt/hunian`, cookies: { sid: sidRt } });
+    expect(ok.statusCode).toBe(200);
+    const daftar = isi(ok).data as { hunian: BarisHunian[] };
+    expect(daftar.hunian.length, "minimal rumah seed B4-12 & A1-03").toBeGreaterThanOrEqual(2);
+
+    const b412 = daftar.hunian.find((h) => h.kodeRumah === "B4-12");
+    expect(b412, "rumah seed B4-12 terbaca lewat rute baru").toBeTruthy();
+    expect(b412!.alamat).toBe("Jl. Melati Blok B No. 12");
+    expect(b412!.alamatPendek).toBe("Blok B4 No. 12");
+    expect(b412!.statusHuni).toBe("milik");
+    expect(b412!.jumlahKk, "jumlah_kk = KK ter-link (≥ 2 KK seed di alamat itu)").toBeGreaterThanOrEqual(2);
+    expect(b412!.penghuni.length, "penghuni diturunkan dari kepala KK ter-link").toBe(b412!.jumlahKk);
+    expect(b412!.penghuni).toContain("Bambang Supriyanto");
+
+    // Skop lintas-RT: RT05 tidak melihat rumah RT04
+    const r05 = await app.inject({ method: "GET", url: `${api}/rt/hunian`, cookies: { sid: sidRt05 } });
+    expect(r05.statusCode).toBe(200);
+    const daftar05 = isi(r05).data as { hunian: BarisHunian[] };
+    expect(
+      daftar05.hunian.some((h) => h.alamat === "Jl. Melati Blok B No. 12" || h.kodeRumah === "B4-12"),
+      "rumah RT04 tidak bocor ke RT05",
+    ).toBe(false);
+  });
+
+  it("POST sukses: unit masuk tabel `rumah` + tautan balik KK/warga tanpa rumah + audit", async () => {
+    // 1. KK dulu pada alamat yang BELUM punya unit → rumah_id NULL (kondisi bug)
+    const kkBaru = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {
+        noKk: "3171050101050088",
+        alamat: "Blok Uji No. 77",
+        anggota: [
+          {
+            nama: "Uji Hunian Penghuni",
+            nik: "3171050101800088",
+            hubungan: "kepala",
+            jenisKelamin: "laki_laki",
+            agama: "Islam",
+            tanggalLahir: "1980-05-05",
+            pekerjaan: "Wiraswasta",
+            noHp: "081299000888",
+          },
+        ],
+      },
+    });
+    expect(kkBaru.statusCode, "POST /rt/warga (alamat baru tanpa rumah)").toBe(200);
+    idKkUji = isi(kkBaru).data.keluarga.kk.id as string;
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM kartu_keluarga WHERE id = $1 AND rumah_id IS NULL", [
+        idKkUji,
+      ]),
+      "kondisi awal: KK belum ter-link rumah",
+    ).toBe(1);
+
+    // 2. RT menambah hunian pada alamat itu — inilah perbaikan "terputus"
+    const tambah = await app.inject({
+      method: "POST",
+      url: `${api}/rt/hunian`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kodeRumah: "U77", alamat: "Blok Uji No. 77", statusHuni: "milik" },
+    });
+    expect(tambah.statusCode).toBe(200);
+    const balas = isi(tambah).data as { hunian: BarisHunian };
+    expect(balas.hunian).toMatchObject({
+      kodeRumah: "U77",
+      alamat: "Blok Uji No. 77",
+      alamatPendek: "Blok Uji No. 77",
+      statusHuni: "milik",
+      jumlahKk: 1,
+    });
+    expect(balas.hunian.penghuni, "turunan penghuni dari KK tertaut").toEqual(["Uji Hunian Penghuni"]);
+    idHunian = balas.hunian.id;
+
+    // 3. Benar-benar tersimpan di DB (bukan state demo FE)
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM rumah
+          WHERE id = $1 AND rt_id = $2 AND kode_rumah = 'U77' AND alamat_pendek = 'Blok Uji No. 77'`,
+        [idHunian, idRt04],
+      ),
+      "baris rumah masuk tabel",
+    ).toBe(1);
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM kartu_keluarga WHERE id = $1 AND rumah_id = $2",
+        [idKkUji, idHunian],
+      ),
+      "tautan balik: KK ikut menunjuk rumah baru",
+    ).toBe(1);
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE kk_id = $1 AND rumah_id = $2", [
+        idKkUji,
+        idHunian,
+      ]),
+      "tautan balik: seluruh anggota warga ikut",
+    ).toBe(1);
+
+    // 4. Tampil di daftar GET (sumber kebenaran Data Hunian & dropdown Data Warga)
+    const daftar = isi(
+      await app.inject({ method: "GET", url: `${api}/rt/hunian`, cookies: { sid: sidRt } }),
+    ).data as { hunian: BarisHunian[] };
+    expect(daftar.hunian.some((h) => h.id === idHunian && h.jumlahKk === 1)).toBe(true);
+
+    // 5. Audit modul data_hunian dengan ringkasan tautan
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        `SELECT count(*)::int AS n FROM audit_log
+          WHERE aksi = 'tambah_hunian' AND entitas = 'rumah' AND entitas_id = $1
+            AND ringkasan LIKE '%1 KK tertaut%'`,
+        [idHunian],
+      ),
+      "audit mencatat unit baru + tautan balik",
+    ).toBe(1);
+  });
+
+  it("guard & validasi POST: tanpa CSRF/sesi warga → 401; input tidak sah → 400; bentrok unik per RT → 409 tanpa jejak tulis", async () => {
+    const payload = { kodeRumah: "X1", alamat: "Blok X No. 1" };
+
+    const tanpaCsrf = await app.inject({ method: "POST", url: `${api}/rt/hunian`, cookies: sesiRt(), payload });
+    expect(tanpaCsrf.statusCode).toBe(401);
+    expect(isi(tanpaCsrf).error?.message).toMatch(/CSRF/);
+
+    const palsu = await app.inject({
+      method: "POST",
+      url: `${api}/rt/hunian`,
+      cookies: sesiRt(),
+      headers: { "x-csrf-token": "nonce.palsu" },
+      payload,
+    });
+    expect(palsu.statusCode).toBe(401);
+
+    const warga = await app.inject({
+      method: "POST",
+      url: `${api}/rt/hunian`,
+      cookies: { sid: sidWarga },
+      headers: { "x-csrf-token": "apa-saja" },
+      payload,
+    });
+    expect(warga.statusCode, "sesi warga tidak boleh menulis hunian").toBe(401);
+
+    const kosong = await app.inject({
+      method: "POST",
+      url: `${api}/rt/hunian`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kodeRumah: "  ", alamat: "" },
+    });
+    expect(kosong.statusCode).toBe(400);
+    expect(isi(kosong).error?.code).toBe("VALIDATION");
+
+    const pendekKepanjangan = await app.inject({
+      method: "POST",
+      url: `${api}/rt/hunian`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kodeRumah: "U78", alamat: `${"A".repeat(41)}, Gang Sempit` },
+    });
+    expect(pendekKepanjangan.statusCode, "alamat_pendek maksimal 40 (varchar(40))").toBe(400);
+    expect(isi(pendekKepanjangan).error?.message).toMatch(/40 karakter/);
+
+    const statusSah = await app.inject({
+      method: "POST",
+      url: `${api}/rt/hunian`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kodeRumah: "U78", alamat: "Blok Uji No. 78", statusHuni: "kosong" },
+    });
+    expect(statusSah.statusCode, "statusHuni di luar enum PRD → tolak").toBe(400);
+
+    const bentrokBlok = await app.inject({
+      method: "POST",
+      url: `${api}/rt/hunian`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kodeRumah: "b4-12", alamat: "Blok Baru No. 9" },
+    });
+    expect(bentrokBlok.statusCode, "blok unik per RT (case-insensitive) → 409").toBe(409);
+    expect(isi(bentrokBlok).error?.message).toMatch(/Blok "b4-12" sudah terdaftar/);
+
+    const bentrokAlamat = await app.inject({
+      method: "POST",
+      url: `${api}/rt/hunian`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kodeRumah: "U77X", alamat: "BLOK UJI NO. 77" },
+    });
+    expect(bentrokAlamat.statusCode, "alamat_pendek unik per RT → 409").toBe(409);
+    expect(isi(bentrokAlamat).error?.message, "pesan membimbing ke Data Warga").toMatch(/Data Warga/);
+
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM rumah
+          WHERE rt_id = $1 AND kode_rumah IN ('b4-12', 'U77X', 'U78', 'X1')`,
+        [idRt04],
+      ),
+      "tidak ada baris tersimpan dari percobaan yang ditolak",
+    ).toBe(0);
+  });
+
+  it("PATCH alamat /rt/warga/:id re-link rumah seluruh anggota KK (pindah → unit baru; tanpa hunian → null; pulih → semula)", async () => {
+    const idDimas = await ambilId("SELECT id FROM warga WHERE rt_id = $1 AND nama = 'Dimas Prasetyo'", [idRt04]);
+    expect(idDimas, "Dimas (seed) ada").not.toBe("");
+    const idKkBambang = await ambilId("SELECT kk_id AS id FROM warga WHERE id = $1", [idDimas]);
+    expect(idKkBambang, "KK Dimas teridentifikasi").not.toBe("");
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE id = $1 AND rumah_id IS NOT NULL", [
+        idDimas,
+      ]),
+      "sebelum: terkait rumah seed",
+    ).toBe(1);
+
+    // Pindah ke unit hunian yang baru dibuat → seluruh anggota KK ikut
+    const pindah = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/warga/${idDimas}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { alamat: "Blok Uji No. 77" },
+    });
+    expect(pindah.statusCode).toBe(200);
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM warga WHERE kk_id = $1 AND rumah_id = $2",
+        [idKkBambang, idHunian],
+      ),
+      "seluruh anggota KK menunjuk unit tujuan",
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM kartu_keluarga WHERE id = $1 AND rumah_id = $2",
+        [idKkBambang, idHunian],
+      ),
+      "KK ikut menunjuk unit tujuan",
+    ).toBe(1);
+
+    // Alamat tanpa unit hunian → tautan dilepas (undangan menunggu hunian dibuat)
+    const lepas = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/warga/${idDimas}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { alamat: "Gang Uji Tanpa Hunian No. 1" },
+    });
+    expect(lepas.statusCode).toBe(200);
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE kk_id = $1 AND rumah_id IS NULL", [
+        idKkBambang,
+      ]),
+      "alamat tanpa rumah → rumah_id null (prasyarat §6.3 terbaca jujur)",
+    ).toBeGreaterThanOrEqual(3);
+
+    // Kembali ke alamat semula → re-link rumah seed
+    const pulih = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/warga/${idDimas}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { alamat: "Jl. Melati Blok B No. 12" },
+    });
+    expect(pulih.statusCode).toBe(200);
+    const idB412 = await ambilId("SELECT id FROM rumah WHERE rt_id = $1 AND kode_rumah = 'B4-12'", [idRt04]);
+    expect(idB412, "rumah seed B4-12 teridentifikasi").not.toBe("");
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM warga WHERE kk_id = $1 AND rumah_id = $2",
+        [idKkBambang, idB412],
+      ),
+      "pulih: kembali terkait B4-12",
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM kartu_keluarga
+          WHERE id = $1 AND alamat = 'Jl. Melati Blok B No. 12' AND rumah_id = $2`,
+        [idKkBambang, idB412],
+      ),
+    ).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Master kategori iuran — POST/PATCH (kontrak §5.4 baris 617 · PRD §6.4.1).
+// Sebelumnya CRUD kategori hanya mengubah state demo FE: kategori baru tidak
+// pernah sampai ke server, hilang saat muat ulang, dan tidak ikut pembentukan
+// tagihan / dropdown alokasi yang dibaca dari server. Blok ini mengunci tulis
+// DB + audit, nama unik per RT, aturan nominal, toggle nonaktif (stempel
+// `dinonaktifkan_pada`), guard sesi/CSRF, dan isolasi lintas-RT.
+// ---------------------------------------------------------------------------
+describe("Master kategori iuran (POST/PATCH /rt/iuran/kategori · §5.4)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRt = "";
+  let csrfRt = "";
+  let sidRt05 = "";
+  let csrfRt05 = "";
+  let sidWarga = "";
+  /** Kategori buatan tes POST — dipatch lanjutan (urut berjalan). */
+  let idKat = "";
+
+  const sesiRt = () => ({ sid: sidRt, csrf_token: csrfRt });
+  const csrfRtHeader = () => ({ "x-csrf-token": csrfRt });
+  const sesiRt05 = () => ({ sid: sidRt05, csrf_token: csrfRt05 });
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+
+    const rt = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt04@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt.statusCode, "login RT04").toBe(200);
+    sidRt = cookieDari(rt, "sid")!;
+    csrfRt = cookieDari(rt, "csrf_token")!;
+
+    const rt05 = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt05@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt05.statusCode, "login RT05").toBe(200);
+    sidRt05 = cookieDari(rt05, "sid")!;
+    csrfRt05 = cookieDari(rt05, "csrf_token")!;
+
+    const w = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(w.statusCode, "login warga").toBe(200);
+    sidWarga = cookieDari(w, "sid")!;
+  }, 60_000);
+
+  afterAll(async () => {
+    await tutupAplikasiUji();
+  });
+
+  it("POST: kategori masuk DB + urutan terakhir + terbaca GET + audit; guard & aturan nominal", async () => {
+    const payload = { nama: "Kebersihan Khusus Uji", nominal: 30000, tipe: "flat", sifat: "wajib" };
+
+    const tanpa = await app.inject({ method: "POST", url: `${api}/rt/iuran/kategori`, payload });
+    expect(tanpa.statusCode).toBe(401);
+
+    const tanpaCsrf = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kategori`,
+      cookies: sesiRt(),
+      payload,
+    });
+    expect(tanpaCsrf.statusCode).toBe(401);
+    expect(isi(tanpaCsrf).error?.message).toMatch(/CSRF/);
+
+    const warga = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kategori`,
+      cookies: { sid: sidWarga },
+      headers: { "x-csrf-token": "apa-saja" },
+      payload,
+    });
+    expect(warga.statusCode, "sesi warga tidak boleh menulis kategori RT").toBe(401);
+
+    const tambah = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kategori`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload,
+    });
+    expect(tambah.statusCode).toBe(200);
+    const kategori = isi(tambah).data.kategori as {
+      id: string;
+      nama: string;
+      tipeTarif: string;
+      nominalDefault: number;
+      sifat: string;
+      statusAktif: boolean;
+      urutan: number;
+    };
+    idKat = kategori.id;
+    expect(kategori.nama).toBe("Kebersihan Khusus Uji");
+    expect(kategori.tipeTarif).toBe("flat");
+    expect(kategori.nominalDefault).toBe(30000);
+    expect(kategori.sifat).toBe("wajib");
+    expect(kategori.statusAktif, "status_aktif default true (skema)").toBe(true);
+    expect(kategori.urutan, "urutan = terakhir (setelah 4 kategori seed RT04)").toBeGreaterThanOrEqual(5);
+
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM kategori_iuran
+          WHERE id = $1 AND rt_id = $2 AND tipe_tarif = 'flat' AND nominal_default = 30000
+            AND wajib_opsional = 'wajib' AND status_aktif = true`,
+        [idKat, idRt04],
+      ),
+      "baris masuk tabel kategori_iuran",
+    ).toBe(1);
+
+    const daftar = isi(
+      await app.inject({ method: "GET", url: `${api}/rt/iuran/kategori`, cookies: { sid: sidRt } }),
+    ).data as { kategori: { id: string; nominalDefault: number }[] };
+    const baris = daftar.kategori.find((k) => k.id === idKat);
+    expect(baris, "kategori baru terbaca lewat GET").toBeTruthy();
+    expect(baris!.nominalDefault).toBe(30000);
+
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        `SELECT count(*)::int AS n FROM audit_log
+          WHERE aksi = 'tambah_kategori' AND entitas = 'kategori_iuran' AND entitas_id = $1
+            AND sesudah->>'nominalDefault' = '30000'`,
+        [idKat],
+      ),
+      "audit tambah kategori dengan nilai sesudah",
+    ).toBe(1);
+
+    // Nama unik per RT — case-insensitive → 409
+    const kembar = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kategori`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { ...payload, nama: "kebersihan khusus uji" },
+    });
+    expect(kembar.statusCode).toBe(409);
+    expect(isi(kembar).error?.message).toMatch(/sudah terdaftar/);
+
+    // Aturan nominal: selain `insidental` wajib > 0
+    const nol = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kategori`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { ...payload, nama: "Uji Nominal Nol", nominal: 0 },
+    });
+    expect(nol.statusCode).toBe(400);
+    expect(isi(nol).error?.message).toMatch(/lebih dari 0/);
+
+    const insidental = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kategori`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { nama: "Santunan Kematian Uji", nominal: 0, tipe: "insidental", sifat: "opsional" },
+    });
+    expect(insidental.statusCode, "tipe insidental boleh nominal 0").toBe(200);
+
+    // Field wajib hilang → 400 VALIDATION, tanpa jejak tulis
+    const kurang = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kategori`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { nama: "Uji Kurang Field", nominal: 5000 },
+    });
+    expect(kurang.statusCode).toBe(400);
+    expect(isi(kurang).error?.code).toBe("VALIDATION");
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM kategori_iuran
+          WHERE rt_id = $1 AND nama IN ('Uji Nominal Nol', 'Uji Kurang Field')`,
+        [idRt04],
+      ),
+      "tidak ada baris dari percobaan yang ditolak",
+    ).toBe(0);
+  });
+
+  it("PATCH: edit nama/nominal, toggle nonaktif (stempel waktu), bentrok 409, lintas-RT 404, idempoten 400", async () => {
+    const ubah = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/kategori/${idKat}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { nama: "Sumbangan Renovasi Uji", nominal: 55000 },
+    });
+    expect(ubah.statusCode).toBe(200);
+    expect(isi(ubah).data.kategori).toMatchObject({
+      nama: "Sumbangan Renovasi Uji",
+      nominalDefault: 55000,
+      statusAktif: true,
+    });
+
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM kategori_iuran
+          WHERE id = $1 AND nama = 'Sumbangan Renovasi Uji' AND nominal_default = 55000`,
+        [idKat],
+      ),
+    ).toBe(1);
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        `SELECT count(*)::int AS n FROM audit_log
+          WHERE aksi = 'ubah_kategori' AND entitas_id = $1
+            AND sebelum->>'nominalDefault' = '30000' AND sesudah->>'nominalDefault' = '55000'`,
+        [idKat],
+      ),
+      "audit diff sebelum & sesudah",
+    ).toBe(1);
+
+    // Nonaktif (PRD §6.4.1 "menonaktifkan, bukan hapus fisik") → stempel waktu
+    const nonaktif = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/kategori/${idKat}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { statusAktif: false },
+    });
+    expect(nonaktif.statusCode).toBe(200);
+    expect(isi(nonaktif).data.kategori.statusAktif).toBe(false);
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM kategori_iuran WHERE id = $1 AND dinonaktifkan_pada IS NOT NULL",
+        [idKat],
+      ),
+      "dinonaktifkan_pada diisi saat nonaktif",
+    ).toBe(1);
+
+    // Aktif kembali → stempel dibersihkan
+    const aktif = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/kategori/${idKat}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { statusAktif: true },
+    });
+    expect(aktif.statusCode).toBe(200);
+    expect(isi(aktif).data.kategori.statusAktif).toBe(true);
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM kategori_iuran WHERE id = $1 AND dinonaktifkan_pada IS NULL",
+        [idKat],
+      ),
+      "stempel dikosongkan saat aktif kembali",
+    ).toBe(1);
+
+    // Tanpa perubahan → 400 VALIDATION (bukan sukses kosong)
+    const kosong = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/kategori/${idKat}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {},
+    });
+    expect(kosong.statusCode).toBe(400);
+    expect(isi(kosong).error?.message).toMatch(/Tidak ada perubahan/);
+
+    const sama = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/kategori/${idKat}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { nama: "Sumbangan Renovasi Uji" },
+    });
+    expect(sama.statusCode, "nilai identik → ditolak, bukan sukses palsu").toBe(400);
+
+    // Nominal 0 pada tipe flat ditolak (aturan gabungan data lama + payload)
+    const nol = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/kategori/${idKat}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { nominal: 0 },
+    });
+    expect(nol.statusCode).toBe(400);
+    expect(isi(nol).error?.message).toMatch(/lebih dari 0/);
+
+    // Bentrok nama dengan kategori seed RT04 → 409, baris tak berubah
+    const bentrok = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/kategori/${idKat}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { nama: "Dana Sosial & Kematian" },
+    });
+    expect(bentrok.statusCode).toBe(409);
+    expect(isi(bentrok).error?.message).toMatch(/sudah terdaftar/);
+
+    // Lintas-RT → 404 tanpa membocorkan keberadaan baris
+    const lintas = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/kategori/${idKat}`,
+      cookies: sesiRt05(),
+      headers: { "x-csrf-token": csrfRt05 },
+      payload: { nominal: 1 },
+    });
+    expect(lintas.statusCode).toBe(404);
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM kategori_iuran
+          WHERE id = $1 AND rt_id = $2 AND nama = 'Sumbangan Renovasi Uji' AND nominal_default = 55000`,
+        [idKat, idRt04],
+      ),
+      "baris RT04 utuh setelah percobaan lintas-RT",
+    ).toBe(1);
+
+    // Unik nama = per RT: RT05 boleh membuat nama sama
+    const rt05Buat = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/kategori`,
+      cookies: sesiRt05(),
+      headers: { "x-csrf-token": csrfRt05 },
+      payload: { nama: "Sumbangan Renovasi Uji", nominal: 55000, tipe: "flat", sifat: "wajib" },
+    });
+    expect(rt05Buat.statusCode, "nama kategori unik PER RT").toBe(200);
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM kategori_iuran WHERE rt_id = $1 AND nama = 'Sumbangan Renovasi Uji'`,
+        [idRt04],
+      ),
+      "RT04 punya tepat 1 — bukan kembar lintas-RT",
+    ).toBe(1);
+  });
+});

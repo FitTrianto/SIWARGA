@@ -3,6 +3,7 @@ import { tenant } from "../../lib/tenant";
 import {
   KkData,
   WargaRt,
+  HunianRumah,
   DetailKk,
   digitsOnly,
   noKkNorm,
@@ -64,6 +65,13 @@ interface DataWargaRTProps {
   onNavigate?: (page: string) => void;
   kkList: KkData[];
   wargaRt: WargaRt[];
+  /**
+   * §6.1 · daftar hunian (Data Hunian, server) — alamat unit terdaftar ikut
+   * masuk dropdown "alamat terdaftar" walau belum ada KK di atasnya. Tanpa
+   * ini, alamat hasil Tambah Hunian tidak pernah muncul di sini (akar bug
+   * alamat hunian terblokir di form Tambah Data KK).
+   */
+  hunian?: HunianRumah[];
   onWargaRtChange: (next: WargaRt[]) => void;
   onKkUpdated: (kkId: string, patch: Partial<KkData>) => void;
   /** Tambah 1 KK baru (berisi beberapa NIK) dari form Tambah Data KK. */
@@ -107,6 +115,13 @@ interface DataWargaRTProps {
     nama: string;
     alamat: string;
     noWa: string;
+    /**
+     * UUID warga (bila baris berasal dari server) — dipakai sebagai kunci
+     * `POST /rt/warga/:id/undangan`. Tanpa ini, warga TANPA no. HP menghasilkan
+     * path kosong (`/rt/warga//undangan` → 404) dan undangan tak pernah terbit.
+     * Server tetap yang memvalidasi no. HP (pesan VALIDATION jujur).
+     */
+    idWarga?: string;
   }) => Promise<Undangan>;
   /**
    * F-5 · B11: antrean ajuan perubahan data warga (dari App lewat
@@ -178,7 +193,7 @@ function denganNilai(opsi: string[], nilai: string): string[] {
   return v && !opsi.includes(v) ? [v, ...opsi] : opsi;
 }
 
-export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onHapusWarga, onImporWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
+export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onHapusWarga, onImporWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<PortalStatus>("all");
   const [showInputModal, setShowInputModal] = useState(false);
@@ -291,7 +306,13 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKk
   const rows: WargaRt[] = gabungDaftarWarga(kkList, wargaRt).sort(pengurutDataWarga);
 
   const alamatOptions = Array.from(
-    new Set([...rows.map((r) => r.alamat.trim()).filter(Boolean), ...kkList.map((k) => shortAlamat(k.alamat))])
+    new Set([
+      ...rows.map((r) => r.alamat.trim()).filter(Boolean),
+      ...kkList.map((k) => shortAlamat(k.alamat)),
+      // §6.1 · alamat unit dari daftar hunian server ikut muncul walau belum
+      // ada KK — inilah perbaikan "alamat hasil Tambah Hunian tak terlihat".
+      ...hunian.map((h) => shortAlamat(h.alamat)),
+    ])
   ).sort();
 
   /** Validasi form Tambah Data KK (No. KK + alamat + daftar anggota). */
@@ -719,7 +740,7 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKk
     try {
       // API-first: server menerbitkan token `<id>.<kode>` (mencabut token lama);
       // offline → daftar lokal mode demo. Galat API non-OFFLINE ditampilkan via flash.
-      const u = await onUndanganWarga({ nama: w.nama, alamat: w.alamat, noWa: w.noWa });
+      const u = await onUndanganWarga({ nama: w.nama, alamat: w.alamat, noWa: w.noWa, idWarga: w.idWarga });
       markUndangan([w.id]);
       setKartuUndangan(u);
       flash(`Kartu undangan ${w.nama} siap — bagikan link atau QR-nya.`);
@@ -2348,18 +2369,22 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKk
                 onClick={async () => {
                   if (kirimSedang) return;
                   setKirimSedang(true);
-                  // Satu panggilan per no. HP unik — API-first per warga; baris
+                  // Satu panggilan per penerima unik — API-first per warga; baris
                   // yang sukses diberi status "Undangan Dikirim", yang gagal
                   // (mis. CONFLICT warga sudah aktif) dilaporkan via flash.
+                  // Kunci dedup: no. HP (bila ada) → satu token per nomor; baris
+                  // TANPA no. HP jangan sampai saling meniadakan (key "" sama).
                   const sudah: string[] = [];
                   const idBerhasil: string[] = [];
                   const gagal: { nama: string; pesan: string }[] = [];
                   for (const id of selectedWarga) {
                     const r = rows.find((x) => x.id === id);
-                    if (!r || sudah.includes(digitsOnly(r.noWa))) continue;
-                    sudah.push(digitsOnly(r.noWa));
+                    if (!r) continue;
+                    const kunci = digitsOnly(r.noWa) ? `wa:${digitsOnly(r.noWa)}` : `baris:${r.id}`;
+                    if (sudah.includes(kunci)) continue;
+                    sudah.push(kunci);
                     try {
-                      await onUndanganWarga({ nama: r.nama, alamat: r.alamat, noWa: r.noWa });
+                      await onUndanganWarga({ nama: r.nama, alamat: r.alamat, noWa: r.noWa, idWarga: r.idWarga });
                       idBerhasil.push(r.id);
                     } catch (err) {
                       gagal.push({ nama: r.nama, pesan: pesanGalatUndangan(err) });
@@ -2413,7 +2438,9 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, onWargaRtChange, onKk
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
-            <div className="overflow-y-auto p-4 flex flex-col gap-4">
+            {/* `flex-1 min-h-0` + `overflow-y-auto`: badan modal dikunci pada
+                tinggi maksimal (92vh) lalu MENSCROLL — bukan memotong kartu. */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 flex flex-col gap-4">
               <KartuUndangan u={kartuUndangan} />
               <div className="p-3 rounded-xl bg-surface-container-low text-[11px] text-on-surface-variant leading-relaxed flex items-start gap-2">
                 <span className="material-symbols-outlined text-[15px] text-primary mt-0.5 shrink-0">info</span>
