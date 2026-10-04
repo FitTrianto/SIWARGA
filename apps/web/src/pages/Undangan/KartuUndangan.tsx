@@ -15,12 +15,41 @@ export function KartuUndangan({ u }: { u: Undangan }): JSX.Element {
   const link = linkUndangan(u.token);
 
   async function salin() {
+    // Rantai fallback (perbaikan Okt 2026 — "tombol salin tidak berfungsi"):
+    // Clipboard API (butuh HTTPS + gestur) → textarea + execCommand("copy")
+    // (konteks lama/insecure) → bila keduanya ditolak, pesan jujur + pilihan
+    // salin manual dari kolom link yang selalu tampil.
+    let berhasil = false;
     try {
-      await navigator.clipboard.writeText(link);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+        berhasil = true;
+      }
+    } catch {
+      /* ditolak (izin/konteks) → coba execCommand */
+    }
+    if (!berhasil) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = link;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.top = "-9999px";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, link.length);
+        berhasil = document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        berhasil = false;
+      }
+    }
+    if (berhasil) {
       setCopied(true);
       setGagalSalin(false);
       setTimeout(() => setCopied(false), 2200);
-    } catch {
+    } else {
       setGagalSalin(true);
       setTimeout(() => setGagalSalin(false), 3200);
     }

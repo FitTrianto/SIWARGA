@@ -2152,7 +2152,7 @@ describe("B3/B5/B6 · akses & keamanan akun warga", () => {
     for (const id of id05) expect(setRt04.has(id), `token ${id} bukan milik RT05`).toBe(false);
   });
 
-  it("B5 ubah akses: cabut sesi saat Nonaktifkan, idempoten, 409 panduan, 404 lintas RT, 400 skema", async () => {
+  it("B5 ubah akses: cabut sesi saat Nonaktifkan, idempoten, 400 'aktif' ditolak, 404 lintas RT, 400 skema", async () => {
     // --- 400: nilai di luar enum & body kosong (kedua tulisan skema sama)
     const salah = await ubahAkses(idSiti, { status_akses: "hancur" });
     expect(salah.statusCode).toBe(400);
@@ -2205,10 +2205,12 @@ describe("B3/B5/B6 · akses & keamanan akun warga", () => {
       ),
     ).toBe(0);
 
-    // …lalu Aktifkan DITOLAK: kata sandi harus dibuat pemilik akun (409 + panduan)
+    // …lalu Aktifkan DITOLAK (keputusan produk Okt 2026): pengurus RT hanya
+    // dapat mengubah status portal MENJADI nonaktif → 400 VALIDATION.
     const aktifTanpaKred = await ubahAkses(idSiti, { status_akses: "aktif" });
-    expect(aktifTanpaKred.statusCode).toBe(409);
-    expect(isi(aktifTanpaKred).error?.message).toMatch(/kredensial/);
+    expect(aktifTanpaKred.statusCode).toBe(400);
+    expect(isi(aktifTanpaKred).error?.code).toBe("VALIDATION");
+    expect(isi(aktifTanpaKred).error?.message).toMatch(/nonaktif/i);
     expect(await statusWarga(idSiti)).toBe("dinonaktifkan");
 
     // idempoten: status sudah sama → {ubah:false} tanpa audit ganda
@@ -2245,13 +2247,106 @@ describe("B3/B5/B6 · akses & keamanan akun warga", () => {
     expect(isi(ulangBambang).data).toMatchObject({ ubah: false, sesiDicabut: 0 });
     expect(await auditRt("nonaktifkan_akses")).toBe(sebelumNonaktif + 1);
 
-    // Aktifkan kembali: Bambang punya kredensial → 200 + audit tersendiri
+    // Aktifkan DITOLAK: status & audit tak berubah (tanpa cabut/imbal-balik)
     const sebelumAktif = await auditRt("aktifkan_akses");
     const aktifkan = await ubahAkses(idBambang, { status_akses: "aktif" });
-    expect(aktifkan.statusCode).toBe(200);
-    expect(isi(aktifkan).data).toMatchObject({ statusAkses: "aktif", ubah: true, sesiDicabut: 0 });
+    expect(aktifkan.statusCode).toBe(400);
+    expect(isi(aktifkan).error?.code).toBe("VALIDATION");
+    expect(await statusWarga(idBambang)).toBe("dinonaktifkan");
+    expect(await auditRt("aktifkan_akses")).toBe(sebelumAktif);
+
+    // pemulihan sendiri: tes riwayat-login berikut butuh Bambang bisa login
+    await dalamScopePlat((c) =>
+      c.query("UPDATE warga SET status_akses = 'aktif' WHERE id = $1", [idBambang]),
+    );
     expect(await statusWarga(idBambang)).toBe("aktif");
-    expect(await auditRt("aktifkan_akses")).toBe(sebelumAktif + 1);
+  });
+
+  it("Okt 2026 · pintu tunggal status: PATCH /rt/warga/:id umum menolak statusAkses", async () => {
+    // Guard keamanan: edit data umum tak boleh mengubah status portal —
+    // cabut sesi + token undangan hanya dijalankan lewat /akses (satu pintu).
+    const tolak = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/warga/${idSiti}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { statusAkses: "aktif" },
+    });
+    expect(tolak.statusCode).toBe(400);
+    expect(isi(tolak).error?.code).toBe("VALIDATION");
+    expect(isi(tolak).error?.message).toMatch(/status portal/i);
+    expect(await statusWarga(idSiti), "status Siti tak berubah").toBe("dinonaktifkan");
+
+    // edit data biasa lewat rute yang sama tetap jalan
+    const boleh = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/warga/${idSiti}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { pekerjaan: "Pedagang" },
+    });
+    expect(boleh.statusCode).toBe(200);
+  });
+
+  it("Okt 2026 · GET /rt/undangan: status efektif kedaluwarsa, kode tak ikut, guard warga", async () => {
+    // guard: sesi warga ditolak rute pengurus
+    const loginWarga = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: NOHP_BAMBANG, password: SANDI_WARGA_UJI },
+    });
+    expect(loginWarga.statusCode, "login warga untuk uji guard daftar").toBe(200);
+    const tolak = await app.inject({
+      method: "GET",
+      url: `${api}/rt/undangan`,
+      cookies: { sid: cookieDari(loginWarga, "sid")! },
+    });
+    expect(tolak.statusCode).toBe(401);
+
+    // terbitkan token segar untuk Hendra (masih menunggu_aktivasi → 200)
+    const segar = await terbitkan(idHendra);
+    expect(segar.statusCode, "undangan Hendra diterbitkan").toBe(200);
+    const idToken = isi(segar).data.id as string;
+    expect(idToken).toMatch(/^[0-9a-f-]{36}$/i);
+
+    const res = await app.inject({ method: "GET", url: `${api}/rt/undangan`, cookies: sesiRt() });
+    expect(res.statusCode).toBe(200);
+    const daftar = isi(res).data.undangan as Array<{
+      id: string;
+      wargaId: string;
+      nama: string;
+      status: string;
+      dibuatPada: string;
+      kedaluwarsaPada: string;
+      dikirimOleh: string;
+    }>;
+    expect(daftar.length).toBeGreaterThan(0);
+    const baris = daftar.find((u) => u.id === idToken);
+    expect(baris, "token segar ikut daftar").toBeTruthy();
+    expect(baris!.status).toBe("menunggu");
+    expect(baris!.nama).toBeTruthy();
+    expect(baris!.dikirimOleh).toBeTruthy();
+    for (const u of daftar) {
+      expect(["menunggu", "aktif_dipakai", "kedaluwarsa"], `status ${u.id}`).toContain(u.status);
+      // kode token TIDAK pernah disimpan (§5.1) → daftar tak mungkin membocorkan
+      expect(u, "kode token tak ikut daftar").not.toHaveProperty("token");
+    }
+
+    // lewat 24 jam (§4.2) → status efektif "kedaluwarsa" walau kolom masih menunggu
+    await dalamScopePlat((c) =>
+      c.query("UPDATE token_undangan SET kedaluwarsa_pada = now() - interval '1 hour' WHERE id = $1", [idToken]),
+    );
+    const kedaluwarsa = await app.inject({ method: "GET", url: `${api}/rt/undangan`, cookies: sesiRt() });
+    const barisKedaluwarsa = (isi(kedaluwarsa).data.undangan as Array<{ id: string; status: string }>).find(
+      (u) => u.id === idToken,
+    );
+    expect(barisKedaluwarsa?.status, "token lewat masa berlaku tampil Kedaluwarsa").toBe("kedaluwarsa");
+
+    // pulihkan masa berlaku (Hendra kembali punya undangan menunggu, seperti
+    // sebelum tes ini — penerbitan menggantikan token lamanya, bukan menumpuk)
+    await dalamScopePlat((c) =>
+      c.query("UPDATE token_undangan SET kedaluwarsa_pada = now() + interval '23 hours' WHERE id = $1", [idToken]),
+    );
   });
 
   it("B3 riwayat-login: terbaru dulu, sesi ini ditandai, cap 20, tanpa bocoran token, guard warga", async () => {
@@ -6664,6 +6759,163 @@ describe("Data Hunian Portal RT (GET/POST /rt/hunian · §5.4/§6.1)", () => {
         [idKkBambang, idB412],
       ),
     ).toBe(1);
+  });
+
+  it("Okt 2026 · PATCH/DELETE /rt/hunian/:id + DELETE massal: edit per unit, berpenghuni ditolak, hasil parsial jujur", async () => {
+    // ---- guard: tanpa sesi / sesi warga / mutasi tanpa CSRF → ditolak semua
+    const tanpa = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/hunian/${idHunian}`,
+      payload: { statusHuni: "sewa" },
+    });
+    expect(tanpa.statusCode).toBe(401);
+    const warga = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/hunian/${idHunian}`,
+      cookies: { sid: sidWarga },
+      payload: { statusHuni: "sewa" },
+    });
+    expect(warga.statusCode, "sesi warga ditolak rute RT").toBe(401);
+    const tanpaCsrf = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/hunian/${idHunian}`,
+      cookies: sesiRt(),
+      payload: { statusHuni: "sewa" },
+    });
+    expect(tanpaCsrf.statusCode).toBe(401);
+    expect(isi(tanpaCsrf).error?.message).toMatch(/CSRF/);
+
+    // ---- PATCH sukses: status & kode blok berubah, UUID + tautan KK utuh
+    const ubah = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/hunian/${idHunian}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kodeRumah: "U77B", statusHuni: "sewa" },
+    });
+    expect(ubah.statusCode).toBe(200);
+    expect(isi(ubah).data.hunian).toMatchObject({
+      id: idHunian,
+      kodeRumah: "U77B",
+      statusHuni: "sewa",
+      jumlahKk: 1,
+    });
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM kartu_keluarga WHERE rumah_id = $1", [idHunian]),
+      "tautan KK utuh setelah edit",
+    ).toBe(1);
+
+    // ---- bentrok unik per RT (kode milik unit lain) → 409 tanpa jejak tulis
+    const kembar = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/hunian/${idHunian}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { kodeRumah: "B4-12" },
+    });
+    expect(kembar.statusCode).toBe(409);
+    expect(isi(kembar).error?.code).toBe("CONFLICT");
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM rumah WHERE id = $1 AND kode_rumah = 'U77B'", [
+        idHunian,
+      ]),
+      "kode tak berubah oleh percobaan bentrok",
+    ).toBe(1);
+
+    // ---- ID asing → 404 (tak bocorkan keberadaan); body kosong → 400
+    const asing = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/hunian/00000000-0000-4000-8000-000000000000`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { statusHuni: "kos" },
+    });
+    expect(asing.statusCode).toBe(404);
+    const kosong = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/hunian/${idHunian}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {},
+    });
+    expect(kosong.statusCode).toBe(400);
+
+    // ---- DELETE unit BERPENGHUNI (idHunian menampung 1 KK uji) → 409 + utuh
+    const penuh = await app.inject({
+      method: "DELETE",
+      url: `${api}/rt/hunian/${idHunian}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+    });
+    expect(penuh.statusCode).toBe(409);
+    expect(isi(penuh).error?.message).toMatch(/menampung/);
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM rumah WHERE id = $1", [idHunian]),
+      "unit berpenghuni tidak terhapus",
+    ).toBe(1);
+
+    // ---- dua unit kosong lewat API (uji hapus satuan + massal)
+    const buatUnit = (kode: string) =>
+      app.inject({
+        method: "POST",
+        url: `${api}/rt/hunian`,
+        cookies: sesiRt(),
+        headers: csrfRtHeader(),
+        payload: { kodeRumah: kode, alamat: `Gang Hapus ${kode} No. 1`, statusHuni: "milik" },
+      });
+    const u1 = await buatUnit("HAP1");
+    const u2 = await buatUnit("HAP2");
+    expect(u1.statusCode, "unit uji 1 dibuat").toBe(200);
+    expect(u2.statusCode, "unit uji 2 dibuat").toBe(200);
+    const idU1 = isi(u1).data.hunian.id as string;
+    const idU2 = isi(u2).data.hunian.id as string;
+
+    // ---- DELETE 1 unit kosong → 200, hilang dari daftar
+    const hapus1 = await app.inject({
+      method: "DELETE",
+      url: `${api}/rt/hunian/${idU1}`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+    });
+    expect(hapus1.statusCode).toBe(200);
+    expect(isi(hapus1).data).toEqual({ id: idU1 });
+    expect(await hitung(PLATFORM, "SELECT count(*)::int AS n FROM rumah WHERE id = $1", [idU1])).toBe(0);
+
+    // ---- DELETE massal { ids }: sukses PARSIAL — kosong masuk, berpenghuni
+    //      ditolak per baris dengan alasan (satu gagal tak membatalkan batch)
+    const massal = await app.inject({
+      method: "DELETE",
+      url: `${api}/rt/hunian`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { ids: [idU2, idHunian] },
+    });
+    expect(massal.statusCode).toBe(200);
+    const hasil = isi(massal).data as { terhapus: string[]; tertolak: Array<{ id: string; alasan: string }> };
+    expect(hasil.terhapus).toEqual([idU2]);
+    expect(hasil.tertolak).toHaveLength(1);
+    expect(hasil.tertolak[0].id).toBe(idHunian);
+    expect(hasil.tertolak[0].alasan).toMatch(/menampung/);
+    expect(await hitung(PLATFORM, "SELECT count(*)::int AS n FROM rumah WHERE id = $1", [idU2])).toBe(0);
+    expect(await hitung(PLATFORM, "SELECT count(*)::int AS n FROM rumah WHERE id = $1", [idHunian])).toBe(1);
+
+    // ---- batch kosong → 400 (Zod min 1)
+    const batchKosong = await app.inject({
+      method: "DELETE",
+      url: `${api}/rt/hunian`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { ids: [] },
+    });
+    expect(batchKosong.statusCode).toBe(400);
+
+    // ---- audit modul data_hunian: ubah ≥1, hapus ≥2 (satuan + massal)
+    expect(
+      await hitung({ level: "rt", id: idRt04 }, "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'ubah_hunian'", []),
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      await hitung({ level: "rt", id: idRt04 }, "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'hapus_hunian'", []),
+    ).toBeGreaterThanOrEqual(2);
   });
 });
 

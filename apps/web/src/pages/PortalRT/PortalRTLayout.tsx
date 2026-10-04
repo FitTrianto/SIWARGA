@@ -1,11 +1,14 @@
 import { ReactNode, useState, useRef, useEffect } from "react";
 import { tenant } from "../../lib/tenant";
 import { useFlash } from "../../lib/useFlash";
+import { jabatanKeLabel, type ProfilLogin } from "../../lib/api";
 
 interface PortalRTLayoutProps {
   currentPage: string;
   onNavigate?: (page: string) => void;
   onLogout?: () => void;
+  /** Profil login sesi (Okt 2026) — nama/jabatan di header = data login, bukan nama hardcode. */
+  profil?: ProfilLogin | null;
   children: ReactNode;
 }
 
@@ -21,13 +24,19 @@ const navItems = [
   { key: "pengaturan-rt", label: "Pengaturan", icon: "settings" },
 ];
 
-export function PortalRTLayout({ currentPage, onNavigate, onLogout, children }: PortalRTLayoutProps) {
+export function PortalRTLayout({ currentPage, onNavigate, onLogout, profil, children }: PortalRTLayoutProps) {
   const [showProfile, setShowProfile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showGantiPassword, setShowGantiPassword] = useState(false);
   const [formPassword, setFormPassword] = useState({ baru: "", konfirmasi: "" });
   const { flash, toast } = useFlash();
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Nama & jabatan dari DATA LOGIN (respons login kini membawa `nama`/`jabatan`;
+  // bila `nama` kosong → surel sebagai identitas jujur; tanpa profil → tampilan
+  // lama). Okt 2026: "Profile login harus sesuai dengan data login."
+  const namaSesi = profil?.nama?.trim() || profil?.email?.trim() || "Bpk. Joko Santoso";
+  const jabatanSesi = jabatanKeLabel(profil?.jabatan); // "Ketua" | "Sekretaris" | "Bendahara"
 
 
   function handleGantiPassword(e: React.FormEvent) {
@@ -186,9 +195,9 @@ export function PortalRTLayout({ currentPage, onNavigate, onLogout, children }: 
               onClick={() => setShowProfile(!showProfile)}
             >
               <div className="hidden sm:flex flex-col text-right">
-                <span className="text-sm font-semibold text-on-surface leading-tight">Bpk. Joko Santoso</span>
+                <span className="text-sm font-semibold text-on-surface leading-tight">{namaSesi}</span>
                 <span className="text-[11px] font-bold text-on-primary bg-primary/90 px-2 py-0.5 rounded-full inline-block mt-0.5 self-end">
-                  Ketua RT • Aktif Bertugas
+                  {jabatanSesi} RT • Aktif Bertugas
                 </span>
               </div>
               <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center shrink-0">
@@ -205,8 +214,8 @@ export function PortalRTLayout({ currentPage, onNavigate, onLogout, children }: 
                       <span className="material-symbols-outlined text-on-primary text-[20px]">person</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-bold text-on-surface">Bpk. Joko Santoso</span>
-                      <span className="text-[11px] text-on-surface-variant">Ketua {tenant.rtFull}</span>
+                      <span className="text-sm font-bold text-on-surface">{namaSesi}</span>
+                      <span className="text-[11px] text-on-surface-variant">{jabatanSesi} {tenant.rtFull}</span>
                     </div>
                   </div>
                 </div>

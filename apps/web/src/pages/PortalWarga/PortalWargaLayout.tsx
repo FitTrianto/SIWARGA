@@ -1,11 +1,14 @@
 import { ReactNode, useState, useRef, useEffect } from "react";
 import { tenant } from "../../lib/tenant";
+import { type ProfilLogin } from "../../lib/api";
 
 interface PortalWargaLayoutProps {
   children: ReactNode;
   currentPage: string;
   onNavigate?: (page: string) => void;
   onLogout?: () => void;
+  /** Profil login sesi (Okt 2026) — nama di header = nama akun yang login, bukan hardcode. */
+  profil?: ProfilLogin | null;
 }
 
 const navItems = [
@@ -16,7 +19,7 @@ const navItems = [
   { key: "riwayat-aktivitas", label: "Riwayat Aktivitas" },
 ];
 
-export function PortalWargaLayout({ children, currentPage, onNavigate, onLogout }: PortalWargaLayoutProps) {
+export function PortalWargaLayout({ children, currentPage, onNavigate, onLogout, profil }: PortalWargaLayoutProps) {
   const [showProfile, setShowProfile] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -27,6 +30,11 @@ export function PortalWargaLayout({ children, currentPage, onNavigate, onLogout 
   const [pwError, setPwError] = useState("");
   const [pwSuccess, setPwSuccess] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Nama dari DATA LOGIN (respons login warga selalu membawa `nama`) — nama
+  // hardcode "Bambang Supriyanto" dihapus: dua nomor login salah nama (Okt 2026).
+  const namaSesi = profil?.nama?.trim() || profil?.email?.trim() || "Akun Warga";
+  const adaProfil = !!profil?.nama?.trim();
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -108,8 +116,8 @@ export function PortalWargaLayout({ children, currentPage, onNavigate, onLogout 
               onClick={() => setShowProfile(!showProfile)}
             >
               <div className="hidden sm:flex flex-col text-right">
-                <span className="text-sm font-semibold text-on-surface leading-tight">Bambang Supriyanto</span>
-                <span className="text-[11px] font-bold text-on-primary-fixed-variant bg-primary-fixed px-2 py-0.5 rounded-full inline-block mt-0.5 self-end">Kepala Keluarga</span>
+                <span className="text-sm font-semibold text-on-surface leading-tight">{namaSesi}</span>
+                <span className="text-[11px] font-bold text-on-primary-fixed-variant bg-primary-fixed px-2 py-0.5 rounded-full inline-block mt-0.5 self-end">{adaProfil ? `Warga ${tenant.rtFull}` : "Kepala Keluarga"}</span>
               </div>
               <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center shrink-0">
                 <span className="material-symbols-outlined text-on-primary text-[18px]">person</span>
@@ -126,18 +134,25 @@ export function PortalWargaLayout({ children, currentPage, onNavigate, onLogout 
                       <span className="material-symbols-outlined text-on-primary text-[20px]">person</span>
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-bold text-on-surface">Bambang Supriyanto</span>
-                      <span className="text-[11px] text-on-surface-variant">Kepala Keluarga • Blok B4 No. 12</span>
+                      <span className="text-sm font-bold text-on-surface">{namaSesi}</span>
+                      <span className="text-[11px] text-on-surface-variant">{adaProfil ? "Akun Portal Warga" : "Kepala Keluarga • Blok B4 No. 12"}</span>
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center gap-2 text-xs text-on-surface-variant">
-                    <span className="material-symbols-outlined text-[14px] text-secondary">check_circle</span>
-                    <span>Aktif sejak <strong className="text-on-surface font-semibold">1 Januari 2024</strong></span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-on-surface-variant">
-                    <span className="material-symbols-outlined text-[14px] text-secondary">shield_person</span>
-                    <span>NIK: <strong className="text-on-surface font-mono font-semibold">3171-xxxx-xxxx-0004</strong></span>
-                  </div>
+                  {/* Detail KK (blok/NIK/aktif-sejak) adalah data demo per-orang —
+                      disembunyikan bila ada profil login, karena angkanya tidak
+                      dijamin cocok dengan akun yang masuk (kejujuran tampilan). */}
+                  {!adaProfil && (
+                    <div className="mt-3 flex items-center gap-2 text-xs text-on-surface-variant">
+                      <span className="material-symbols-outlined text-[14px] text-secondary">check_circle</span>
+                      <span>Aktif sejak <strong className="text-on-surface font-semibold">1 Januari 2024</strong></span>
+                    </div>
+                  )}
+                  {!adaProfil && (
+                    <div className="mt-1 flex items-center gap-2 text-xs text-on-surface-variant">
+                      <span className="material-symbols-outlined text-[14px] text-secondary">shield_person</span>
+                      <span>NIK: <strong className="text-on-surface font-mono font-semibold">3171-xxxx-xxxx-0004</strong></span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Menu Items */}

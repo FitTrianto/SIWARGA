@@ -44,7 +44,6 @@ import {
   hubunganKeServer,
   jenisKelaminKeServer,
   keluargaKeKkData,
-  portalKeStatusAkses,
   statusAksesKePortal,
   statusKawinKeServer,
   wargaNegaraKeServer,
@@ -144,21 +143,18 @@ interface DataWargaRTProps {
   onKirimUlangUndangan?: (tokenId: string, noHpBaru?: string) => Promise<Undangan | null>;
   /** DELETE `/rt/undangan/:id` — cabut undangan (idempoten di server). */
   onCabutUndangan?: (tokenId: string) => Promise<boolean | null>;
-  /** PATCH `/rt/warga/:id/akses` — nonaktifkan/aktifkan kembali; sesi warga ikut dicabut. */
+  /** PATCH `/rt/warga/:id/akses` — HANYA `"dinonaktifkan"` (Okt 2026: pengurus RT hanya dapat merubah status portal MENJADI nonaktif; server menolak `aktif` 400); sesi warga ikut dicabut. */
   onUbahAksesWarga?: (
     idWarga: string,
-    tujuan: "dinonaktifkan" | "aktif",
+    tujuan: "dinonaktifkan",
   ) => Promise<StatusAksesServer | null>;
   // --- B6 · kotak masuk keamanan --------------------------------------------
   /** GET `/rt/undangan/inspeksi` — token yang disentuh >1 perangkat; OFFLINE → `null` (chip disembunyikan). */
   onInspeksiUndangan?: () => Promise<TemuanInspeksiUndangan[] | null>;
 }
 
-/** Aksi B5 yang butuh konfirmasi (kirim ulang / cabut / nonaktifkan / aktifkan). */
-type AksiAkses = "kirim-ulang" | "cabut" | "nonaktifkan" | "aktifkan";
-
-/** Semua label Status Portal (kamus `statusAksesKePortal`, §6.3) — B4: 5 opsi penuh. */
-const STATUS_PORTAL_OPSI = ["Aktif", "Belum Aktif", "Undangan Dikirim", "Kedaluwarsa", "Dinonaktifkan"];
+/** Aksi B5 yang butuh konfirmasi (kirim ulang / cabut / nonaktifkan) — "aktifkan" DIHAPUS: pengurus RT tak punya kewenangan itu (Okt 2026). */
+type AksiAkses = "kirim-ulang" | "cabut" | "nonaktifkan";
 
 type PortalStatus = "all" | "aktif" | "belum-aktif" | "undangan" | "kedaluwarsa" | "dinonaktifkan";
 
@@ -170,7 +166,6 @@ const AKSES_KELAS: Record<AksiAkses, string> = {
   "kirim-ulang": "bg-tertiary-container/40 text-on-tertiary-container hover:bg-tertiary-container",
   cabut: "bg-error-container/30 text-error hover:bg-error-container hover:text-on-error-container",
   nonaktifkan: "bg-error-container/30 text-error hover:bg-error-container hover:text-on-error-container",
-  aktifkan: "bg-secondary-container/50 text-on-secondary-container hover:bg-secondary-container",
 };
 
 // Opsi form Edit Data Warga (14 kolom data KK) — daftarnya sama dengan yang
@@ -559,14 +554,20 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
     if (/^\d{16}$/.test(formEdit.nik) && formEdit.nik !== editing.nik) patch.nikBaru = formEdit.nik;
     const noKkBaru = digitsOnly(formEdit.noKk);
     if (noKkBaru.length === 16 && noKkBaru !== digitsOnly(editing.noKk)) patch.noKk = noKkBaru;
-    // Alamat hanya bila beda dari KK sumbernya; status portal hanya bila berubah
-    // (nilai tak dikenal → `belum_diundang` oleh `portalKeStatusAkses`).
+    // Alamat hanya bila beda dari KK sumbernya.
     const linkAwal = linkFor(editing, kkList);
     const kkAwal = linkAwal ? kkList.find((k) => k.id === linkAwal.kkId) : undefined;
     if (formEdit.alamat.trim() !== (kkAwal ? kkAwal.alamat : editing.alamat))
       patch.alamat = formEdit.alamat.trim();
-    if (formEdit.statusPortal !== editing.statusPortal)
-      patch.statusAkses = portalKeStatusAkses(formEdit.statusPortal);
+    // Status portal TIDAK ikut PATCH umum (server menolak `statusAkses` di rute
+    // itu — pintu tunggal `/akses`, Okt 2026). Form hanya menawarkan status saat
+    // ini + "Dinonaktifkan"; nilai lain → batalkan dengan pesan jujur.
+    const pindahStatus =
+      formEdit.statusPortal !== editing.statusPortal ? formEdit.statusPortal : null;
+    if (pindahStatus && pindahStatus !== "Dinonaktifkan") {
+      flash("Status portal hanya dapat diubah menjadi Dinonaktifkan — perubahan dibatalkan.");
+      return;
+    }
 
     // B13 · API-first: baris ber-ID server → respons server jadi rujukan
     // (baris + KK). OFFLINE (`null`) → lanjut jalur lokal mode demo di bawah;
@@ -586,7 +587,28 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
           // KK (alamat/kepala/anggota) ikut diperbarui dari respons server.
           onKkUpdated(hasil.keluarga.kk.id, keluargaKeKkData(hasil.keluarga));
           setEditing(null);
-          flash("Data warga diperbarui — tersinkron di kedua portal.");
+          // Perubahan status portal → pintu `/akses` TERPISAH (kejujuran parsial):
+          // bila langkah ini gagal, data tetap tersimpan DAN pesannya mengatakan
+          // apa adanya — tidak pernah "semua berhasil" untuk kegagalan sebagian.
+          if (pindahStatus === "Dinonaktifkan" && onUbahAksesWarga) {
+            try {
+              const st = await onUbahAksesWarga(editing.idWarga, "dinonaktifkan");
+              if (st) {
+                tandaiStatusPortal(baris, statusAksesKePortal(st));
+                flash("Data warga diperbarui & akses portal dinonaktifkan — sesi login warga ikut dicabut.");
+              } else {
+                flash("Data warga tersimpan; status portal hanya berubah di daftar lokal (server tidak terjangkau).");
+              }
+            } catch (errAkses) {
+              flash(
+                `Data warga tersimpan, tetapi status portal GAGAL diubah: ${
+                  errAkses instanceof GalatApi ? errAkses.message : "kesalahan tak terduga"
+                } — ulangi lewat tombol Nonaktifkan.`,
+              );
+            }
+          } else {
+            flash("Data warga diperbarui — tersinkron di kedua portal.");
+          }
           return;
         }
       } catch (err) {
@@ -649,7 +671,13 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
     }
 
     setEditing(null);
-    flash("Data warga diperbarui — tersinkron di kedua portal.");
+    // Jalur lokal (mode demo / baris tanpa id server): perubahan hanya ada di
+    // memori — pesan jujur, tidak mengaku "tersinkron di kedua portal".
+    flash(
+      pindahStatus
+        ? `Data warga diperbarui di daftar lokal — status portal menjadi ${pindahStatus} (mode demo, TIDAK tersimpan di server).`
+        : "Data warga diperbarui di daftar lokal (mode demo — server tidak terjangkau).",
+    );
   }
 
   /* ---------- Hapus data warga yang sudah tidak dipakai ---------- */
@@ -757,7 +785,7 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
   const tokenUntuk = (w: WargaRt): Undangan | undefined =>
     undangan.find((u) => digitsOnly(u.noWa) === digitsOnly(w.noWa) && u.status !== "Dipakai");
 
-  /** Aksi B5 yang sah untuk Status Portal baris ini (B4: kelima label). */
+  /** Aksi B5 yang sah untuk Status Portal baris ini (B4: empat label; "Dinonaktifkan" tanpa aksi — pengaktifan ulang tak tersedia di Portal RT, Okt 2026). */
   function aksiAkses(w: WargaRt): Array<{ jenis: AksiAkses; label: string; ikon: string }> {
     switch (w.statusPortal) {
       case "Undangan Dikirim":
@@ -768,10 +796,8 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
         ];
       case "Aktif":
         return [{ jenis: "nonaktifkan", label: "Nonaktifkan", ikon: "person_off" }];
-      case "Dinonaktifkan":
-        return [{ jenis: "aktifkan", label: "Aktifkan", ikon: "person_check" }];
       default:
-        return []; // "Belum Aktif" → tombol Undangan (penerbitan baru, tanpa konfirmasi)
+        return []; // "Belum Aktif"/"Dinonaktifkan" → tombol Undangan (penerbitan baru) / tanpa aksi
     }
   }
 
@@ -797,18 +823,20 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
       case "nonaktifkan":
         return {
           judul: "Nonaktifkan Akses Portal?",
-          pesan: `${w.nama} tidak dapat masuk Portal Warga sampai akses diaktifkan kembali; sesi login yang sedang berjalan ikut dicabut. Data warga TIDAK dihapus.`,
+          pesan: `${w.nama} tidak dapat masuk Portal Warga lagi — sesi login yang sedang berjalan ikut dicabut. Data warga TIDAK dihapus. Pengaktifan ulang tidak tersedia di Portal RT (aturan Okt 2026).`,
           ikon: "person_off",
           aksen: "error" as const,
           labelYa: "Nonaktifkan",
         };
       default:
+        // Tak terjangkau (semua anggota `AksiAkses` punya case sendiri) —
+        // teks netral sebagai jaring pengaman bila tipe aksi berkembang.
         return {
-          judul: "Aktifkan Kembali Akses?",
-          pesan: `Akses portal ${w.nama} dibuka kembali — kredensial login yang sudah ada tetap dipakai.`,
-          ikon: "person_check",
-          aksen: "primary" as const,
-          labelYa: "Aktifkan",
+          judul: "Ubah Akses Portal?",
+          pesan: `Ubah status akses portal ${w.nama}.`,
+          ikon: "person_off",
+          aksen: "error" as const,
+          labelYa: "Lanjutkan",
         };
     }
   }
@@ -876,22 +904,18 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
         return;
       }
 
-      // nonaktifkan / aktifkan — status server jadi rujukan label FE (B4).
-      const tujuan = jenis === "nonaktifkan" ? "dinonaktifkan" : "aktif";
+      // nonaktifkan — satu-satunya tujuan yang diizinkan (Okt 2026: pengurus RT
+      // hanya dapat mengubah status portal MENJADI nonaktif; `aktif` ditolak
+      // server 400 VALIDATION).
       const hasil =
-        w.idWarga && onUbahAksesWarga ? await onUbahAksesWarga(w.idWarga, tujuan) : null;
+        w.idWarga && onUbahAksesWarga ? await onUbahAksesWarga(w.idWarga, "dinonaktifkan") : null;
       setKonfirmasiAksi(null);
       // `null` (OFFLINE / baris demo) → status diubah lokal seperti mode demo.
-      const label = hasil
-        ? statusAksesKePortal(hasil)
-        : tujuan === "dinonaktifkan"
-          ? "Dinonaktifkan"
-          : "Aktif";
-      tandaiStatusPortal(w, label);
+      tandaiStatusPortal(w, hasil ? statusAksesKePortal(hasil) : "Dinonaktifkan");
       flash(
-        tujuan === "dinonaktifkan"
-          ? `Akses portal ${w.nama} dinonaktifkan${hasil ? " — sesi login warga ikut dicabut" : ""}.`
-          : `Akses portal ${w.nama} diaktifkan kembali.`,
+        hasil
+          ? `Akses portal ${w.nama} dinonaktifkan — sesi login warga ikut dicabut.`
+          : `Akses portal ${w.nama} dinonaktifkan di daftar lokal (mode demo — server tidak terjangkau).`,
       );
     } catch (err) {
       flash(err instanceof GalatApi ? err.message : "Permintaan gagal diproses — coba lagi.");
@@ -1955,16 +1979,22 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
                   value={formEdit.statusPortal}
                   onChange={(e) => setFormEdit({ ...formEdit, statusPortal: e.target.value })}
                 >
-                  {/* B4 · kelima label status (kamus `statusAksesKePortal`) —
-                      `denganNilai` hanya menyiapkan nilai asing di luar kamus. */}
-                  {denganNilai(STATUS_PORTAL_OPSI, formEdit.statusPortal).map(
-                    (o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ),
-                  )}
+                  {/* Okt 2026 · pengurus RT HANYA dapat mengubah status MENJADI
+                      "Dinonaktifkan" — opsi Aktif/dkk. tidak lagi ditawarkan;
+                      status saat ini selalu ikut agar baris tetap terbaca. */}
+                  {denganNilai(
+                    [formEdit.statusPortal, "Dinonaktifkan"].filter((v, i, a) => a.indexOf(v) === i),
+                    formEdit.statusPortal,
+                  ).map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
                 </select>
+                <span className="text-[11px] text-on-surface-variant leading-snug">
+                  Perubahan status portal hanya dapat menjadi <strong>Dinonaktifkan</strong> —
+                  pengaktifan ulang tidak tersedia di Portal RT.
+                </span>
               </div>
 
               <div className="p-3 rounded-xl bg-primary-container/25 border border-primary/15 flex items-start gap-2">

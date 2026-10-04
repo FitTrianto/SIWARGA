@@ -34,8 +34,10 @@
  * = milik|sewa|kontrak|kos tanpa nilai "kosong").
  *
  * Deviasi terdokumentasi (dicatat juga di dokumen desain §5.4): baris kontrak
- * menyebut `/rt/hunian/:id`; FE tak punya UI edit/hapus → `PATCH`/`DELETE`
- * `/:id` belum diimplementasikan.
+ * menyebut `/rt/hunian/:id` — kini `PATCH`/`DELETE /:id` (edit per unit, hapus
+ * satuan) SUDAH diimplementasikan (Okt 2026, permintaan Edit + Hapus Data
+ * Hunian), ditambah `DELETE /rt/hunian` (hapus massal `{ ids }` untuk UI
+ * seleksi ganda — tambahan di luar baris kontrak lama).
  */
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
@@ -44,7 +46,8 @@ import { verifikasiCsrf } from "../plugins/csrf.js";
 import { GalatTolak, wajibRt } from "../plugins/guard.js";
 import { denganScopeRequest } from "../plugins/scope.js";
 import type { Prisma } from "../generated/prisma/client.js";
-import { pengurusAktif } from "./iuranUmum.js";
+import type { DbTransaksi } from "../services/db.js";
+import { pengurusAktif, skemaId } from "./iuranUmum.js";
 
 /** Baris hunian + turunannya (KK ter-link → jumlah_kk & nama penghuni). */
 const PilihRumah = {
@@ -83,6 +86,34 @@ const skemaTambah = z.object({
   alamat: z.string().trim().min(1, "Alamat wajib diisi.").max(160, "Alamat maksimal 160 karakter."),
   statusHuni: z.enum(["milik", "sewa", "kontrak", "kos"]).default("milik"),
 });
+
+/** Patch sebagian `PATCH /rt/hunian/:id` — `undefined` = tidak diubah. */
+const skemaUbah = z
+  .object({
+    kodeRumah: z.string().trim().min(1, "Blok wajib diisi.").max(20, "Blok maksimal 20 karakter.").optional(),
+    alamat: z.string().trim().min(1, "Alamat wajib diisi.").max(160, "Alamat maksimal 160 karakter.").optional(),
+    statusHuni: z.enum(["milik", "sewa", "kontrak", "kos"]).optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: "Tidak ada perubahan yang dikirim.",
+  });
+
+/**
+ * Guard hapus: unit yang masih menampung KK/warga TIDAK boleh dihapus —
+ * data demografis tak boleh kehilangan rujukan rumahnya diam-diam (§6.1).
+ */
+async function wajibKosong(tx: DbTransaksi, rumahId: string, alamat: string): Promise<void> {
+  const [kk, warga] = await Promise.all([
+    tx.kartuKeluarga.count({ where: { rumahId } }),
+    tx.warga.count({ where: { rumahId } }),
+  ]);
+  if (kk > 0 || warga > 0) {
+    throw new GalatTolak(
+      "CONFLICT",
+      `Hunian "${alamat}" masih menampung ${kk} KK (${warga} warga) — kosongkan dulu lewat Data Warga sebelum unit dihapus.`,
+    );
+  }
+}
 
 export const ruteRtHunian: FastifyPluginAsync = async (app) => {
   /** Daftar hunian milik RT sesi (sumber kebenaran Data Hunian Portal RT). */
@@ -205,6 +236,262 @@ export const ruteRtHunian: FastifyPluginAsync = async (app) => {
       );
 
       return { hunian: jsonHunian(baris) };
+    });
+
+    return reply.ok(hasil);
+  });
+
+  // -------------------------------------------------------------------------
+  // Edit 1 unit (Okt 2026 — permintaan "Edit hanya per hunian") · PRD §6.1:
+  // `kode_rumah` & alamat boleh berubah (UUID abadi §6.1 — relasi tak putus);
+  // sifat unik ganda tetap ditegak lewat pre-check KECUALI baris sendiri.
+  // -------------------------------------------------------------------------
+  app.patch("/rt/hunian/:id", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+    const { id } = z.object({ id: skemaId }).parse(req.params);
+    const body = skemaUbah.parse(req.body ?? {});
+
+    const alamatPendekBaru = body.alamat !== undefined ? pendekDari(body.alamat) : null;
+    if (body.alamat !== undefined) {
+      if (!alamatPendekBaru) {
+        throw new GalatTolak("VALIDATION", "Alamat minimal berisi teks sebelum tanda koma.");
+      }
+      if (alamatPendekBaru.length > 40) {
+        throw new GalatTolak(
+          "VALIDATION",
+          "Bagian alamat sebelum tanda koma maksimal 40 karakter — persingkat alamat unit.",
+        );
+      }
+    }
+
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const lama = await tx.rumah.findFirst({ where: { id, rtId }, select: PilihRumah });
+      // ID asing / lintas RT → 404: keberadaan baris tidak bocor.
+      if (!lama) throw new GalatTolak("NOT_FOUND", "Hunian tidak ditemukan.");
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+
+      if (body.kodeRumah !== undefined || body.alamat !== undefined) {
+        const OR: NonNullable<Prisma.RumahWhereInput["OR"]> = [];
+        if (body.kodeRumah !== undefined) {
+          OR.push({ kodeRumah: { equals: body.kodeRumah, mode: "insensitive" } });
+        }
+        if (alamatPendekBaru !== null) {
+          OR.push({ alamatPendek: { equals: alamatPendekBaru, mode: "insensitive" } });
+        }
+        const kembar = await tx.rumah.findFirst({
+          where: { rtId, id: { not: id }, OR },
+          select: { kodeRumah: true, alamatPendek: true },
+        });
+        if (kembar) {
+          if (
+            body.kodeRumah !== undefined &&
+            kembar.kodeRumah.toLowerCase() === body.kodeRumah.toLowerCase()
+          ) {
+            throw new GalatTolak("CONFLICT", `Blok "${body.kodeRumah}" sudah terdaftar sebagai unit hunian.`);
+          }
+          throw new GalatTolak(
+            "CONFLICT",
+            `Alamat "${alamatPendekBaru ?? lama.alamatPendek}" sudah terdaftar sebagai unit hunian (blok "${kembar.kodeRumah}"). Satu alamat menampung banyak KK — daftarkan KK lewat menu Data Warga.`,
+          );
+        }
+      }
+
+      const data: Prisma.RumahUpdateInput = {
+        ...(body.kodeRumah !== undefined ? { kodeRumah: body.kodeRumah } : {}),
+        // `alamatPendekBaru` non-null selalu — sudah divalidasi di atas saat
+        // `body.alamat` terisi.
+        ...(body.alamat !== undefined
+          ? { alamat: body.alamat, alamatPendek: alamatPendekBaru as string }
+          : {}),
+        ...(body.statusHuni !== undefined ? { statusHuni: body.statusHuni } : {}),
+      };
+      await tx.rumah.update({ where: { id }, data });
+
+      // Tautan balik bila alamat berubah — aturan SAMA dengan POST /rt/hunian:
+      // KK terdaftar pada alamat baru yang belum punya rumah ikut tertaut
+      // (Status Hunian + prasyarat undangan §6.3 langsung terbuka).
+      let kkTertaut = 0;
+      if (body.alamat !== undefined) {
+        const kkBaru = await tx.kartuKeluarga.findMany({
+          where: {
+            rtId,
+            rumahId: null,
+            OR: [
+              { alamat: { equals: body.alamat, mode: "insensitive" } },
+              { alamat: { equals: alamatPendekBaru as string, mode: "insensitive" } },
+            ],
+          },
+          select: { id: true },
+        });
+        if (kkBaru.length > 0) {
+          const ids = kkBaru.map((k) => k.id);
+          await tx.kartuKeluarga.updateMany({ where: { id: { in: ids } }, data: { rumahId: id } });
+          await tx.warga.updateMany({
+            where: { rtId, kkId: { in: ids }, rumahId: null },
+            data: { rumahId: id },
+          });
+          kkTertaut = kkBaru.length;
+        }
+      }
+
+      const baris = await tx.rumah.findUnique({ where: { id }, select: PilihRumah });
+      if (!baris) throw new GalatTolak("NOT_FOUND", "Hunian tidak ditemukan setelah diubah.");
+
+      const sebelum: Record<string, string> = {};
+      const sesudah: Record<string, string> = {};
+      if (body.kodeRumah !== undefined) {
+        sebelum.kodeRumah = lama.kodeRumah;
+        sesudah.kodeRumah = body.kodeRumah;
+      }
+      if (body.alamat !== undefined) {
+        sebelum.alamat = lama.alamat;
+        sesudah.alamat = body.alamat;
+      }
+      if (body.statusHuni !== undefined) {
+        sebelum.statusHuni = lama.statusHuni;
+        sesudah.statusHuni = body.statusHuni;
+      }
+
+      await catatAudit(
+        {
+          scopeLevel: "rt",
+          scopeId: rtId,
+          actorId: oleh,
+          actorRole: "rt_admin",
+          portal: "rt",
+          modul: "data_hunian",
+          aksi: "ubah_hunian",
+          aksiBadge: "Data Hunian",
+          entitas: "rumah",
+          entitasId: id,
+          sebelum,
+          sesudah,
+          ringkasan:
+            `Ubah hunian ${baris.kodeRumah} — ${baris.alamat}` +
+            (kkTertaut > 0 ? ` (${kkTertaut} KK tertaut)` : ""),
+          ip: req.ipAsli,
+        },
+        tx,
+      );
+
+      return { hunian: jsonHunian(baris), ...(kkTertaut > 0 ? { kkTertaut } : {}) };
+    });
+
+    return reply.ok(hasil);
+  });
+
+  // -------------------------------------------------------------------------
+  // Hapus 1 unit (Okt 2026 — permintaan Edit & Hapus Data Hunian) · §6.1:
+  // unit berpenghuni → 409 CONFLICT dengan jumlah KK/warga (tak pernah hapus
+  // diam-diam); tanpa penghuni → baris dihapus + audit `hapus_hunian`.
+  // -------------------------------------------------------------------------
+  app.delete("/rt/hunian/:id", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+    const { id } = z.object({ id: skemaId }).parse(req.params);
+
+    await denganScopeRequest(req, async (tx) => {
+      const lama = await tx.rumah.findFirst({ where: { id, rtId }, select: PilihRumah });
+      if (!lama) throw new GalatTolak("NOT_FOUND", "Hunian tidak ditemukan.");
+      const alamat = `${lama.kodeRumah} — ${lama.alamat}`;
+      await wajibKosong(tx, id, alamat);
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+
+      await tx.rumah.delete({ where: { id } });
+      await catatAudit(
+        {
+          scopeLevel: "rt",
+          scopeId: rtId,
+          actorId: oleh,
+          actorRole: "rt_admin",
+          portal: "rt",
+          modul: "data_hunian",
+          aksi: "hapus_hunian",
+          aksiBadge: "Data Hunian",
+          entitas: "rumah",
+          entitasId: id,
+          sebelum: {
+            kodeRumah: lama.kodeRumah,
+            alamat: lama.alamat,
+            statusHuni: lama.statusHuni,
+          },
+          ringkasan: `Hapus hunian ${alamat}`,
+          ip: req.ipAsli,
+        },
+        tx,
+      );
+    });
+
+    return reply.ok({ id });
+  });
+
+  // -------------------------------------------------------------------------
+  // Hapus MASSAL (Okt 2026 — "hapus lebih dari 1 data hunian dengan selected
+  // data"): `{ ids: [...] }` → jawaban sukses PARSIAL `{ terhapus, tertolak }`.
+  // Unit berpenghuni/tak ditemukan dilaporkan per baris — satu unit gagal tidak
+  // membatalkan seluruh batch, dan FE menampilkan ringkasan jujur hasilnya.
+  // -------------------------------------------------------------------------
+  app.delete("/rt/hunian", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+    const body = z
+      .object({
+        ids: z
+          .array(skemaId)
+          .min(1, "Pilih minimal satu unit hunian.")
+          .max(100, "Satu kali hapus maksimal 100 unit."),
+      })
+      .parse(req.body ?? {});
+
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+      const terhapus: string[] = [];
+      const tertolak: Array<{ id: string; alamat: string; alasan: string }> = [];
+      const daftarHapus: Array<{ id: string; kodeRumah: string; alamat: string }> = [];
+
+      for (const id of [...new Set(body.ids)]) {
+        const lama = await tx.rumah.findFirst({ where: { id, rtId }, select: PilihRumah });
+        if (!lama) {
+          tertolak.push({ id, alamat: "-", alasan: "Hunian tidak ditemukan." });
+          continue;
+        }
+        try {
+          await wajibKosong(tx, id, `${lama.kodeRumah} — ${lama.alamat}`);
+        } catch (e) {
+          tertolak.push({
+            id,
+            alamat: lama.alamat,
+            alasan: e instanceof GalatTolak ? e.message : "Gagal memeriksa unit.",
+          });
+          continue;
+        }
+        await tx.rumah.delete({ where: { id } });
+        terhapus.push(id);
+        daftarHapus.push({ id, kodeRumah: lama.kodeRumah, alamat: lama.alamat });
+      }
+
+      if (daftarHapus.length > 0) {
+        await catatAudit(
+          {
+            scopeLevel: "rt",
+            scopeId: rtId,
+            actorId: oleh,
+            actorRole: "rt_admin",
+            portal: "rt",
+            modul: "data_hunian",
+            aksi: "hapus_hunian",
+            aksiBadge: "Data Hunian",
+            entitas: "rumah",
+            entitasId: daftarHapus[0].id,
+            sebelum: { daftar: daftarHapus },
+            ringkasan:
+              `Hapus ${daftarHapus.length} unit hunian (massal) — ` +
+              daftarHapus.map((h) => h.kodeRumah).join(", "),
+            ip: req.ipAsli,
+          },
+          tx,
+        );
+      }
+
+      return { terhapus, tertolak };
     });
 
     return reply.ok(hasil);

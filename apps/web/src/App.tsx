@@ -20,10 +20,13 @@ import {
   daftarKasRt,
   daftarKondisionalRt,
   daftarSuratRt,
+  daftarUndanganRt,
   daftarWargaRt,
   entriKeKasRt,
   GalatApi,
   generateTagihanRt,
+  hapusBanyakHunianRt,
+  hapusHunianRt,
   hapusWargaRt,
   hunianServerKeHunian,
   imporWargaRt,
@@ -61,8 +64,10 @@ import {
   tagihanRtServer,
   tolakPembayaranRt,
   ubahAksesWargaRt,
+  ubahHunianRt,
   ubahKategoriRt,
   ubahWargaRt,
+  undanganServerKeUndangan,
   verifikasiAjuanPerubahanRt,
   type AksiSuratRt,
   type BarisProfilIuran,
@@ -70,6 +75,7 @@ import {
   type BarisWargaRtServer,
   type EntriRiwayatLogin,
   type HasilGenerateTagihan,
+  type HasilHapusHunian,
   type HasilImporWarga,
   type HunianServer,
   type KeluargaRingkasServer,
@@ -78,6 +84,7 @@ import {
   type PatchWargaRt,
   type PengaturanIuranRt,
   type PengaturanSuratRt,
+  type ProfilLogin,
   type RingkasTagihanServer,
   type StatusAksesServer,
   type TambahHunianRtPayload,
@@ -334,6 +341,10 @@ export default function App() {
   const [halamanSebelumnya, setHalamanSebelumnya] = useState<Page>("landing");
   // Peran yang sedang masuk — dipilih endpoint sesi mana yang dicabut saat logout.
   const [peranMasuk, setPeranMasuk] = useState<"warga" | "rt" | "rw" | null>(null);
+  // Profil login sesi berjalan (nama/jabatan dari respons login, `modeDemo`
+  // saat masuk offline) — header & sapaan portal SELALU sama dengan data
+  // login (Okt 2026: "Profile login harus sesuai dengan data login").
+  const [profilSesi, setProfilSesi] = useState<ProfilLogin | null>(null);
   // Keterangan untuk halaman masuk (mis. sesi habis terdeteksi saat memuat data).
   const [pesanSesi, setPesanSesi] = useState<string | null>(null);
   // B3 · konfirmasi keluar — `logout()` hanya MEMBUKA dialog ini, sehingga
@@ -447,6 +458,7 @@ export default function App() {
     if (!(e instanceof GalatApi && e.code === "UNAUTHORIZED")) return false;
     setPesanSesi("Sesi Anda telah berakhir — silakan masuk kembali.");
     setPeranMasuk(null);
+    setProfilSesi(null);
     setPage("login");
     return true;
   };
@@ -466,6 +478,7 @@ export default function App() {
       "Sesi Anda berakhir karena tidak ada aktivitas selama 30 menit — silakan masuk kembali.",
     );
     setPeranMasuk(null);
+    setProfilSesi(null);
     setPeringatanSesi(false);
     setPage("login");
   };
@@ -584,6 +597,9 @@ export default function App() {
     // Kartu iuran kondisional daftar sesi sebelumnya juga tidak boleh bocor
     // (pola sama: identity-guard ke data demo).
     setTagihanTambahanList((prev) => (prev === tagihanTambahanDefault ? prev : tagihanTambahanDefault));
+    // Daftar undangan server (GET /rt/undangan sesi RT) tidak boleh bocor ke
+    // sesi berikutnya — kembalikan ke seed demo (identity-guard sama).
+    setUndanganList((prev) => (prev === undanganDefault ? prev : undanganDefault));
     if (peranMasuk === "rt") {
       let batal = false;
       void (async () => {
@@ -609,6 +625,18 @@ export default function App() {
         } catch (e) {
           if (tanganiSesiHabis(e)) return;
           console.info("[hunian] memakai data demo:", e instanceof GalatApi ? e.code : e);
+        }
+        // Okt 2026 · daftar undangan dari server: status token SEBENARNYA
+        // (termasuk "Kedaluwarsa" lewat 24 jam §4.2) + UUID token sehingga
+        // tombol Cabut/Kirim Ulang tetap berdaya setelah F5. OFFLINE → daftar
+        // demo dipertahankan (jalur mode demo).
+        try {
+          const u = await daftarUndanganRt();
+          if (batal) return;
+          setUndanganList(u.undangan.map(undanganServerKeUndangan));
+        } catch (e) {
+          if (tanganiSesiHabis(e)) return;
+          console.info("[undangan] memakai data demo:", e instanceof GalatApi ? e.code : e);
         }
         try {
           const r = await pembayaranRt();
@@ -947,6 +975,46 @@ export default function App() {
     try {
       const h = await tambahHunianRt(payload);
       return h.hunian;
+    } catch (e) {
+      if (e instanceof GalatApi && e.code === "OFFLINE") return null;
+      tanganiSesiHabis(e);
+      throw e;
+    }
+  };
+
+  // Okt 2026 · Edit & Hapus Data Hunian — API-first pola sama dengan tambah:
+  // `null` = OFFLINE (halaman lanjut jalur demo lokal dengan pesan jujur);
+  // galat lain (409 kembar/berpenghuni, 404, validasi) DITERUSKAN supaya pesan
+  // server tampil — tidak pernah "berhasil" untuk kegagalan. State baris
+  // diperbarui HALAMAN lewat `onHunianChange` (penulis tunggal, seperti tambah).
+  const ubahHunianSesi = async (
+    id: string,
+    patch: Partial<TambahHunianRtPayload>,
+  ): Promise<{ hunian: HunianServer; kkTertaut?: number } | null> => {
+    try {
+      return await ubahHunianRt(id, patch);
+    } catch (e) {
+      if (e instanceof GalatApi && e.code === "OFFLINE") return null;
+      tanganiSesiHabis(e);
+      throw e;
+    }
+  };
+
+  const hapusHunianSesi = async (id: string): Promise<boolean | null> => {
+    try {
+      await hapusHunianRt(id);
+      return true;
+    } catch (e) {
+      if (e instanceof GalatApi && e.code === "OFFLINE") return null;
+      tanganiSesiHabis(e);
+      throw e;
+    }
+  };
+
+  /** Sukses parsial: `terhapus` masuk, `tertolak` (mis. berpenghuni) dilaporkan per baris. */
+  const hapusBanyakHunianSesi = async (ids: string[]): Promise<HasilHapusHunian | null> => {
+    try {
+      return await hapusBanyakHunianRt(ids);
     } catch (e) {
       if (e instanceof GalatApi && e.code === "OFFLINE") return null;
       tanganiSesiHabis(e);
@@ -1614,12 +1682,14 @@ export default function App() {
   };
 
   /**
-   * Nonaktifkan / aktifkan kembali akses portal. Server mencabut sesi warga
-   * yang sedang login saat dinonaktifkan; `null` = OFFLINE (mode demo).
+   * Nonaktifkan akses portal (satu-satunya arah yang diizinkan — Okt 2026:
+   * pengurus RT hanya dapat mengubah status portal MENJADI nonaktif; server
+   * menolak `aktif`). Server mencabut sesi warga yang sedang login;
+   * `null` = OFFLINE (mode demo).
    */
   const ubahAksesWarga = async (
     idWarga: string,
-    tujuan: "dinonaktifkan" | "aktif",
+    tujuan: "dinonaktifkan",
   ): Promise<StatusAksesServer | null> => {
     try {
       const hasil = await ubahAksesWargaRt(idWarga, tujuan);
@@ -1688,6 +1758,7 @@ export default function App() {
     if (peranMasuk === "warga") void logoutWarga();
     else if (peranMasuk) void logoutPengurus();
     setPeranMasuk(null);
+    setProfilSesi(null);
     setPeringatanSesi(false);
     // Keluar dari konsol admin juga menghapus path /admin dari URL.
     if (pathAdmin() && typeof window !== "undefined") {
@@ -1748,6 +1819,20 @@ export default function App() {
                 ipAddress: "192.168.1.77",
               });
             }
+            // Profil menjadi rujukan nama di Portal Warga. Mode demo (aktivasi
+            // saat server mati): nama warga diambil dari daftar undangan lokal
+            // via token aktif + ditandai `modeDemo` (banner jujur); mode
+            // produksi: nama dari hasil/detail aktivasi server.
+            const namaDemo = tokenUndangan
+              ? undanganList.find((u) => u.token === tokenUndangan)?.nama
+              : undefined;
+            setProfilSesi(
+              aktif
+                ? { peran: "warga", nama: aktif.nama }
+                : namaDemo
+                  ? { peran: "warga", nama: namaDemo, modeDemo: true }
+                  : null,
+            );
             setPeranMasuk("warga");
             if (typeof window !== "undefined") window.history.pushState({}, "", dasarDeploy());
             setPage("portal-warga");
@@ -1763,7 +1848,7 @@ export default function App() {
 
     if (page === "portal-warga") {
       return (
-        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout}>
+        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout} profil={profilSesi}>
           <PortalWarga
             onNavigate={navigate}
             kkList={kkList}
@@ -1781,7 +1866,7 @@ export default function App() {
 
     if (page === "data-keluarga") {
       return (
-        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout}>
+        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout} profil={profilSesi}>
           <DataKeluarga
             onNavigate={navigate}
             kkList={kkList}
@@ -1801,7 +1886,7 @@ export default function App() {
 
     if (page === "iuran-tagihan") {
       return (
-        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout}>
+        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout} profil={profilSesi}>
           <IuranTagihan
             onNavigate={navigate}
             kendaraanR4Count={kendaraanR4Count}
@@ -1851,7 +1936,7 @@ export default function App() {
 
     if (page === "pengajuan-surat") {
       return (
-        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout}>
+        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout} profil={profilSesi}>
           <PengajuanSurat
             onNavigate={navigate}
             surat={suratList}
@@ -1871,7 +1956,7 @@ export default function App() {
 
     if (page === "riwayat-aktivitas") {
       return (
-        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout}>
+        <PortalWargaLayout currentPage={page} onNavigate={navigate} onLogout={logout} profil={profilSesi}>
           <RiwayatAktivitas
             onNavigate={navigate}
             pembayaran={pembayaran}
@@ -1888,6 +1973,7 @@ export default function App() {
     const rtPages: Record<string, React.ReactNode> = {
       "dashboard-rt": <DashboardRT
         onNavigate={navigate}
+        profil={profilSesi}
         kkList={kkList}
         wargaRt={wargaRtList}
         hunian={hunianList}
@@ -1903,6 +1989,9 @@ export default function App() {
         hunian={hunianList}
         onHunianChange={setHunianList}
         onTambahHunian={tambahHunianSesi}
+        onUbahHunian={ubahHunianSesi}
+        onHapusHunian={hapusHunianSesi}
+        onHapusBanyak={hapusBanyakHunianSesi}
       />,
       "data-warga-rt": <DataWargaRT
         onNavigate={navigate}
@@ -2017,7 +2106,7 @@ export default function App() {
 
     if (page in rtPages) {
       return (
-        <PortalRTLayout currentPage={page} onNavigate={navigate} onLogout={logout}>
+        <PortalRTLayout currentPage={page} onNavigate={navigate} onLogout={logout} profil={profilSesi}>
           {rtPages[page]}
         </PortalRTLayout>
       );
@@ -2112,9 +2201,13 @@ export default function App() {
           pesanAwal={pesanSesi}
           onBack={() => setPage("landing")}
           onNavigate={navigate}
-          onLogin={(role) => {
+          onLogin={(role, profil) => {
             setPesanSesi(null);
             setPeranMasuk(role);
+            // Profil login = rujukan nama/jabatan di header portal + tanda
+            // "MODE DEMO" bila masuk saat server tidak terjangkau (Okt 2026:
+            // "Profile login harus sesuai dengan data login").
+            setProfilSesi(profil ?? null);
             if (role === "warga") setPage("portal-warga");
             if (role === "rt") setPage("dashboard-rt");
             if (role === "rw") setPage("dashboard-rw");
@@ -2138,6 +2231,17 @@ export default function App() {
   return (
     <>
       {renderHalaman()}
+
+      {/* Okt 2026 · kejujuran mode demo: banner global selama sesi OFFLINE —
+          data di layar adalah contoh di memori, bukan data RT sungguhan. */}
+      {profilSesi?.modeDemo && (
+        <div
+          role="status"
+          className="fixed inset-x-0 top-0 z-[60] bg-amber-400/95 text-amber-950 text-center text-[11px] sm:text-xs font-extrabold tracking-wide py-1.5 px-4 shadow-md"
+        >
+          MODE DEMO — server tidak terjangkau; data contoh di memori, bukan data RT sungguhan.
+        </div>
+      )}
 
       {konfirmasiKeluar && (
         <KonfirmasiDialog

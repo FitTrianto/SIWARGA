@@ -19,9 +19,12 @@ import {
 } from "../../lib/shared";
 import { EmptyState } from "../../components/EmptyState";
 import { useFlash } from "../../lib/useFlash";
+import { type ProfilLogin } from "../../lib/api";
 
 interface DashboardRTProps {
   onNavigate?: (page: string) => void;
+  /** Profil login sesi (Okt 2026) — sapaan hero = nama dari data login. */
+  profil?: ProfilLogin | null;
   kkList: KkData[];
   wargaRt: WargaRt[];
   hunian: HunianRumah[];
@@ -34,6 +37,7 @@ interface DashboardRTProps {
 
 export function DashboardRT({
   onNavigate,
+  profil,
   kkList,
   wargaRt,
   hunian,
@@ -44,6 +48,9 @@ export function DashboardRT({
 }: DashboardRTProps) {
   const { flash, toast } = useFlash();
 
+  // Sapaan hero mengikuti PROFIL LOGIN (nama pengurus dari respons login) —
+  // fallback = tampilan lama bila profil tak tersedia.
+  const namaSesi = profil?.nama?.trim() || profil?.email?.trim() || "Bpk. Joko Santoso";
 
   const today = new Date();
   const dayNames = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
@@ -132,7 +139,7 @@ export function DashboardRT({
             Wilayah Hukum {tenant.perumahan}
           </span>
           <h1 className="text-2xl lg:text-3xl font-extrabold tracking-tight leading-tight">
-            Selamat Bertugas, Bpk. Joko Santoso
+            Selamat Bertugas, {namaSesi}
           </h1>
           <p className="text-sm text-on-primary/80 max-w-2xl">
             Hari ini {dayName}, {dateStr}. Seluruh rekapitulasi kependudukan, buku kas {tenant.rtFull}, dan layanan

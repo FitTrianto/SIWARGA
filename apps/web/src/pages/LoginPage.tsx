@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { GalatApi, loginPengurus, loginWarga, type ProfilLogin } from "../lib/api";
 import { KONSOL_ADMIN_AKTIF } from "../lib/deploy";
+import { profilDemoPengurus, profilDemoWarga } from "../lib/shared";
 
 const PHONE_MIN = 10;
 const PHONE_MAX = 13;
@@ -79,7 +80,7 @@ const featureHighlights = [
 
 interface LoginPageProps {
   onBack?: () => void;
-  onLogin?: (role: PortalRole) => void;
+  onLogin?: (role: PortalRole, profil?: ProfilLogin) => void;
   /** Navigasi ke halaman dokumen hukum (Kebijakan Privasi di footer). */
   onNavigate?: (page: string) => void;
   /** Keterangan sesi (mis. "Sesi berakhir…") yang tampil sekali saat dibuka. */
@@ -120,12 +121,14 @@ export function LoginPage({ onBack, onLogin, onNavigate, pesanAwal }: LoginPageP
 
   const hint = handlePasswordHint();
 
-  /** Seberjaya navigasi — dipakai sukses API maupun fallback mode demo. */
-  function masuk(target: PortalRole) {
+  /** Seberjaya navigasi — dipakai sukses API maupun fallback mode demo.
+   *  `profil` diteruskan ke App: nama/jabatan di header portal selalu sama
+   *  dengan data login (bukan nama hardcode — permintaan Okt 2026). */
+  function masuk(target: PortalRole, profil?: ProfilLogin) {
     setSubmitted(true);
     setTimeout(() => {
       setSubmitted(false);
-      onLogin?.(target);
+      onLogin?.(target, profil);
     }, 700);
   }
 
@@ -152,14 +155,27 @@ export function LoginPage({ onBack, onLogin, onNavigate, pesanAwal }: LoginPageP
         );
         return;
       }
-      masuk(portalHasil);
+      masuk(portalHasil, profil);
     } catch (err) {
       setSubmitting(false);
       if (err instanceof GalatApi && err.code === "OFFLINE") {
-        // Backend tidak sedang menyala → portal dibuka mode demo (data seed di
-        // memori). Keputusan sengaja transparan di konsol, bukan menyamar sukses.
-        console.info("[SIWARGA] backend OFFLINE — masuk mode demo");
-        masuk(role);
+        // Backend tidak terjangkau → HANYA identitas demo yang dikenal yang
+        // boleh masuk mode demo, dan dengan persona ASLINYA (bukan nama acak)
+        // + ditandai `modeDemo` sehingga App memasang banner "MODE DEMO".
+        // Identitas asing DITOLAK: sukses login atas nama siapa pun saat
+        // server mati adalah kebohongan (permintaan Okt 2026 — dua nomor
+        // salah nama karena cabang ini dulu menerima kredensial apa pun).
+        const profilDemo =
+          role === "warga" ? profilDemoWarga(phone) : profilDemoPengurus(email);
+        if (!profilDemo) {
+          console.info("[SIWARGA] backend OFFLINE — identitas tak dikenal mode demo, ditolak");
+          setGalat(
+            "Server tidak terjangkau, dan akun ini tidak termasuk akun demo. Mode demo hanya membuka akun demo yang terdaftar.",
+          );
+          return;
+        }
+        console.info("[SIWARGA] backend OFFLINE — masuk mode demo sebagai", profilDemo.nama);
+        masuk(role, { ...profilDemo, modeDemo: true });
         return;
       }
       setGalat(

@@ -420,6 +420,17 @@ export const ruteRtDataWarga: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: skemaId }).parse(req.params);
     const body = skemaUbah.parse(req.body ?? {});
 
+    // Pintu tunggal perubahan status portal = `PATCH /rt/warga/:id/akses`
+    // (di sana sesi login dicabut + token undangan dicabut). Edit data umum
+    // TIDAK boleh menyentuh `statusAkses` — kewenangan pengurus RT (Okt 2026):
+    // status portal hanya boleh diubah MENJADI nonaktif, lewat satu pintu itu.
+    if (body.statusAkses !== undefined) {
+      throw new GalatTolak(
+        "VALIDATION",
+        "Status portal tidak diubah lewat edit data — gunakan pintu akses (PATCH /rt/warga/:id/akses) yang hanya menerima 'dinonaktifkan'.",
+      );
+    }
+
     const hasil = await denganScopeRequest(req, async (tx) => {
       const lama = await tx.warga.findFirst({ where: { id, rtId }, select: PilihBaris });
       // ID asing / lintas RT → NOT_FOUND (404): jangan bocorkan keberadaan baris.
@@ -602,17 +613,18 @@ export const ruteRtDataWarga: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * Ubah AKSES portal 1 warga (task B5 · §5.4) — `dinonaktifkan` | `aktif`.
+   * Ubah AKSES portal 1 warga (task B5 · §5.4) — HANYA `dinonaktifkan`.
    *
    * Dipisah dari `PATCH /rt/warga/:id` karena dampaknya KEAMANAN, bukan data:
    *   • `dinonaktifkan` — mencabut seluruh sesi login warga (`cabutSesiSubjek`)
    *     DAN token undangan yang masih `menunggu`; tanpa itu, aktivasi dari
    *     tautan lama bisa menghidupkan kembali portal yang baru dinonaktifkan.
    *     SATU pun data demografis TIDAK dihapus/disembunyikan (§6.2).
-   *   • `aktif` — hanya dari `dinonaktifkan` DAN hanya bila kredensial login
-   *     sudah ada; selain itu → 409 dengan panduan menerbitkan undangan
-   *     (`POST /rt/warga/:id/undangan`) — akses portal tidak pernah "ditembak"
-   *     langsung karena kata sandinya harus dibuat pemilik akun.
+   *
+   * `aktif` DITOLAK (keputusan produk Okt 2026 — deviasi kontrak §5.4 baris 568
+   * yang dulu menerima `dinonaktifkan|aktif`): pengurus RT hanya dapat merubah
+   * status portal MENJADI nonaktif. Pengaktifan kembali tidak tersedia di
+   * Portal RT (pemulihan = jalur admin/manajemen data).
    *
    * Idempoten: status sudah sama → `{ ubah: false }` tanpa audit ganda.
    * Scope SELALU dari sesi (§4.6); lintas RT → 404.
@@ -623,7 +635,13 @@ export const ruteRtDataWarga: FastifyPluginAsync = async (app) => {
     const body = skemaAkses.parse(req.body ?? {});
     const tujuan = body.statusAkses ?? body.status_akses;
     if (!tujuan) {
-      throw new GalatTolak("VALIDATION", "status_akses wajib diisi ('dinonaktifkan' | 'aktif').");
+      throw new GalatTolak("VALIDATION", "status_akses wajib diisi (hanya 'dinonaktifkan').");
+    }
+    if (tujuan === "aktif") {
+      throw new GalatTolak(
+        "VALIDATION",
+        "Pengurus RT hanya dapat mengubah status portal menjadi nonaktif — pengaktifan kembali tidak tersedia di Portal RT.",
+      );
     }
 
     const hasil = await denganScopeRequest(req, async (tx) => {
@@ -680,44 +698,11 @@ export const ruteRtDataWarga: FastifyPluginAsync = async (app) => {
         return { id: warga.id, statusAkses: "dinonaktifkan", ubah: true, perluCabutSesi: true };
       }
 
-      // tujuan === 'aktif'
-      if (warga.statusAkses !== "dinonaktifkan") {
-        throw new GalatTolak(
-          "CONFLICT",
-          `${warga.nama} bukan berstatus Dinonaktifkan — portal diaktifkan lewat undangan, bukan lewat rute ini.`,
-        );
-      }
-      const kredensial = await tx.kredensialWarga.findUnique({
-        where: { wargaId: warga.id },
-        select: { wargaId: true },
-      });
-      if (!kredensial) {
-        throw new GalatTolak(
-          "CONFLICT",
-          `${warga.nama} belum punya kredensial login — terbitkan undangan dulu agar kata sandi dibuat pemilik akun.`,
-        );
-      }
-      await tx.warga.update({ where: { id: warga.id }, data: { statusAkses: "aktif" } });
-      await catatAudit(
-        {
-          scopeLevel: "rt",
-          scopeId: rtId,
-          actorId: sesi.subjekId,
-          actorRole: "rt_admin",
-          portal: "rt",
-          modul: "data_warga",
-          aksi: "aktifkan_akses",
-          aksiBadge: "Akses",
-          entitas: "warga",
-          entitasId: warga.id,
-          sebelum: { statusAkses: warga.statusAkses },
-          sesudah: { statusAkses: "aktif" },
-          ringkasan: `Aktifkan kembali akses portal ${warga.nama}`,
-          ip: req.ipAsli,
-        },
-        tx,
+      // `aktif` ditolak di pintu masuk — tak ada jalur pengaktifan di rute ini.
+      throw new GalatTolak(
+        "VALIDATION",
+        "Pengurus RT hanya dapat mengubah status portal menjadi nonaktif.",
       );
-      return { id: warga.id, statusAkses: "aktif", ubah: true, perluCabutSesi: false };
     });
 
     // Di luar transaksi scope: `sesi_login` tanpa RLS dan memakai klien induk.

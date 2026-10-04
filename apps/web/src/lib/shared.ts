@@ -1003,6 +1003,38 @@ export const wargaRtDefault: WargaRt[] = [
   { id: "w10", nama: "Gunawan Prasetyo", nik: "3171051112820017", noKk: "3171050101050009", alamat: "Blok D2 No. 11", statusPortal: "Belum Aktif", statusBadge: "bg-surface-container-high text-on-surface-variant", noWa: "0812-2233-4455", status: "Warga", statusColor: "text-on-surface-variant" },
 ];
 
+// ---------------------------------------------------------------------------
+// Mode demo OFFLINE (Okt 2026 — "login jujur saat server tak terjangkau"):
+// hanya IDENTITAS DEMO yang dikenal yang boleh masuk tanpa server, dan nama
+// yang tampil adalah persona ASLINYA (bukan nama acak). Identitas asing →
+// ditolak oleh LoginPage dengan pesan jujur "server tidak terjangkau":
+// sukses login atas nama siapa pun adalah kebohongan.
+// ---------------------------------------------------------------------------
+
+/** Profil demo warga: no. HP → persona `wargaRtDefault`; tak dikenal → null. */
+export function profilDemoWarga(noHp: string): { peran: "warga"; nama: string } | null {
+  const t = digitsOnly(noHp);
+  const w = wargaRtDefault.find((x) => digitsOnly(x.noWa) === t);
+  return w ? { peran: "warga", nama: w.nama } : null;
+}
+
+/** Profil demo pengurus: surel akun seed → persona (tanpa fallback nama lain). */
+export function profilDemoPengurus(email: string): {
+  peran: "rt_admin" | "rw_admin";
+  nama: string;
+  jabatan: string;
+  email: string;
+} | null {
+  const e = email.trim().toLowerCase();
+  const peta: Record<string, { peran: "rt_admin" | "rw_admin"; nama: string; jabatan: string }> = {
+    "rt04@siwarga.id": { peran: "rt_admin", nama: "Joko Santoso", jabatan: "Ketua RT" },
+    "rt05@siwarga.id": { peran: "rt_admin", nama: "Budi Hartono", jabatan: "Ketua RT" },
+    "rw012@siwarga.id": { peran: "rw_admin", nama: "H. Subaidi", jabatan: "Ketua RW" },
+  };
+  const d = peta[e];
+  return d ? { ...d, email: e } : null;
+}
+
 /** Pasangkan baris warga dengan KK di kkList: cocokkan NIK anggota dulu, lalu No. KK. */
 export interface KkLink {
   kkId: string;
@@ -1454,6 +1486,8 @@ export type TagihanTambahanBaru = Omit<TagihanTambahan, "id" | "icon" | "ref" | 
 };
 
 export const tagihanTambahanDefault: TagihanTambahan[] = [
-  { id: "k1", icon: "pest_control", nama: "Fogging Nyamuk Demam Berdarah", ref: "INV-2026-10-FG01", nominal: 20000, tenggat: "25 Okt 2026", status: "Belum", target: "semua" },
+  // Baris "Iuran Fogging" DIHAPUS (permintaan Okt 2026): fogging tidak lagi
+  // tampil di dashboard Portal Warga — termasuk tak ada sisa tagihan residu
+  // di DB dev (dibersihkan pada batch yang sama).
   { id: "k2", icon: "gavel", nama: "Iuran Perbaikan Pagar RT", ref: "INV-2026-10-PG01", nominal: 35000, tenggat: "30 Okt 2026", status: "Belum", target: "semua" },
 ];

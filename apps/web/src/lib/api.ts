@@ -42,6 +42,7 @@ import {
   labelStatusSurat,
 } from "./shared";
 import { BACKEND_DIMATIKAN } from "./deploy";
+import { Undangan, tanggalPendek } from "./undangan";
 
 export const PREFIX_API = "/api/v1";
 
@@ -144,6 +145,26 @@ export async function minta<T>(path: string, opsi: Opsi = {}): Promise<T> {
 export interface ProfilLogin {
   peran: "warga" | "rt_admin" | "rw_admin" | "super_admin";
   nama: string;
+  /** Jabatan pengurus (`pengurus_rt/rw`) — kosong bila akun tak tercatat di sana. */
+  jabatan?: string;
+  /** Surel akun pengurus — jatuh-tampilan identitas bila `nama` kosong. */
+  email?: string;
+  /**
+   * Bukan dari server: ditandai FE saat login OFFLINE masuk mode demo
+   * (identitas demo yang dikenal saja) — dipakai banner "MODE DEMO" jujur.
+   */
+  modeDemo?: boolean;
+}
+
+/**
+ * Label jabatan pengurus (enum DB → tampilan). Tanpa jabatan → "Ketua"
+ * (tampilan lama sebelum nama/jabatan ikut respons login) — bila `nama`
+ * kosong, caller menampilkan surel sebagai identitas jujur, bukan nama palsu.
+ */
+export function jabatanKeLabel(jabatan?: string): string {
+  if (jabatan === "sekretaris") return "Sekretaris";
+  if (jabatan === "bendahara") return "Bendahara";
+  return "Ketua"; // enum `ketua` / nilai tak dikenal / kosong
 }
 
 /**
@@ -274,10 +295,12 @@ export function buatUndanganRt(idWarga: string): Promise<HasilUndanganRt> {
 
 /**
  * POST `/rt/undangan/:id/kirim-ulang` (B5) — mencabut token `menunggu` lama
- * (milik warga yang sama) lalu menerbitkan token BARU dengan kode segar.
- * `noHpBaru` opsional (10–13 digit) mengganti no. HP warga sekaligus.
- * Galat: `NOT_FOUND` (404 lintas RT) / `CONFLICT` (sudah dipakai / warga
- * aktif / non-aktif) / `VALIDATION` (no. HP atau data rumah-KK belum lengkap).
+ * (milik warga yang sama; termasuk yang SUDAH kedaluwarsa — §4.2 "lewat 24
+ * jam → kedaluwarsa, boleh dibuat token baru") lalu menerbitkan token BARU
+ * dengan kode segar. `noHpBaru` opsional (10–13 digit) mengganti no. HP warga
+ * sekaligus. Galat: `NOT_FOUND` (404 lintas RT) / `CONFLICT` (sudah dipakai /
+ * warga aktif / dinonaktifkan / non-aktif) / `VALIDATION` (no. HP atau data
+ * rumah-KK belum lengkap).
  */
 export function kirimUlangUndanganRt(
   id: string,
@@ -298,10 +321,57 @@ export function cabutUndanganRt(id: string): Promise<{ id: string; ulang: boolea
   return minta(`/rt/undangan/${encodeURIComponent(id)}`, { method: "DELETE", csrf: true });
 }
 
-/** PATCH `/rt/warga/:id/akses` (B5) — nonaktifkan / aktifkan kembali akses portal. */
+/**
+ * Okt 2026 · GET `/rt/undangan` — daftar undangan NON-dicabut milik RT sesi
+ * dengan status EFEKTIF (`kedaluwarsa` dihitung dari waktu server §4.2, bukan
+ * hanya kolom status). Kode token TIDAK pernah ikut (argon2id, §5.1); inilah
+ * sumber tombol Cabut/Kirim Ulang + label "Kedaluwarsa" yang tetap akurat
+ * setelah F5 (sebelumnya daftar hilang → aksi tak berdaya).
+ */
+export interface UndanganServer {
+  id: string;
+  wargaId: string;
+  nama: string;
+  alamat: string;
+  noWa: string;
+  status: "menunggu" | "aktif_dipakai" | "kedaluwarsa";
+  dibuatPada: string;
+  kedaluwarsaPada: string;
+  dikirimOleh: string;
+}
+
+export function daftarUndanganRt(): Promise<{ undangan: UndanganServer[] }> {
+  return minta("/rt/undangan");
+}
+
+/**
+ * `UndanganServer` → baris FE. `token` = string kosong — kode asli tak pernah
+ * disimpan server, sehingga entri daftar tak pernah menghasilkan link/QR palsu
+ * (halaman publik mode produksi memuat token dari URL, bukan dari daftar ini).
+ */
+export function undanganServerKeUndangan(u: UndanganServer): Undangan {
+  return {
+    id: u.id,
+    token: "",
+    nama: u.nama,
+    alamat: u.alamat,
+    noWa: u.noWa,
+    dibuat: tanggalPendek(u.dibuatPada),
+    berlakuSampai: tanggalPendek(u.kedaluwarsaPada),
+    status:
+      u.status === "aktif_dipakai" ? "Dipakai" : u.status === "kedaluwarsa" ? "Kedaluwarsa" : "Terkirim",
+    dikirimOleh: u.dikirimOleh,
+  };
+}
+
+/**
+ * PATCH `/rt/warga/:id/akses` (B5) — HANYA `dinonaktifkan` (keputusan produk
+ * Okt 2026: pengurus RT hanya dapat mengubah status portal menjadi nonaktif —
+ * `aktif` ditolak server 400 VALIDATION).
+ */
 export function ubahAksesWargaRt(
   id: string,
-  statusAkses: "dinonaktifkan" | "aktif",
+  statusAkses: "dinonaktifkan",
 ): Promise<{ id: string; statusAkses: StatusAksesServer; ubah: boolean; sesiDicabut: number }> {
   return minta(`/rt/warga/${encodeURIComponent(id)}/akses`, {
     method: "PATCH",
@@ -1248,6 +1318,9 @@ export interface TambahWargaRtPayload {
  * `PATCH /rt/warga/:id` — SEMUA field opsional (Zod `.partial()` + refine
  * minimal 1 field). Field bernilai `null` = bersihkan; field `undefined`
  * (tidak dikirim) = tidak diubah. `nikBaru`/`noKk` hanya nilai 16 digit mentah.
+ * `statusAkses` TIDAK ada di sini: perubahan status portal hanya lewat
+ * `PATCH /rt/warga/:id/akses` (server menolaknya di edit umum — cabut sesi +
+ * token undangan dijalankan di satu pintu itu).
  */
 export interface PatchWargaRt {
   nama?: string;
@@ -1256,7 +1329,6 @@ export interface PatchWargaRt {
   noHp?: string;
   alamat?: string;
   noKk?: string;
-  statusAkses?: StatusAksesServer;
   hubungan?: HubunganServer;
   tempatLahir?: string | null;
   tanggalLahir?: string | null;
@@ -1374,6 +1446,45 @@ export function tambahHunianRt(
   payload: TambahHunianRtPayload,
 ): Promise<{ hunian: HunianServer }> {
   return minta("/rt/hunian", { method: "POST", body: payload, csrf: true });
+}
+
+/**
+ * PATCH /rt/hunian/:id — edit SATU unit (Okt 2026 — "Edit hanya per hunian").
+ * `undefined` = tidak diubah; galat `CONFLICT` bila blok/alamat kembar (di luar
+ * baris sendiri). Opsi `kkTertaut` dijawab bila alamat baru menautkan KK lama.
+ */
+export function ubahHunianRt(
+  id: string,
+  patch: Partial<TambahHunianRtPayload>,
+): Promise<{ hunian: HunianServer; kkTertaut?: number }> {
+  return minta(`/rt/hunian/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: patch,
+    csrf: true,
+  });
+}
+
+/**
+ * DELETE /rt/hunian/:id — hapus SATU unit. Galat `CONFLICT` (409) bila unit
+ * masih menampung KK/warga — kosongkan dulu lewat Data Warga.
+ */
+export function hapusHunianRt(id: string): Promise<{ id: string }> {
+  return minta(`/rt/hunian/${encodeURIComponent(id)}`, { method: "DELETE", csrf: true });
+}
+
+/** Hasil hapus massal: sukses parsial — per baris dilaporkan jujur. */
+export interface HasilHapusHunian {
+  terhapus: string[];
+  tertolak: Array<{ id: string; alamat: string; alasan: string }>;
+}
+
+/**
+ * DELETE /rt/hunian — hapus MASSAL `{ ids }` (Okt 2026 — "hapus >1 data
+ * hunian dengan selected data"). Sukses 200 dengan hasil parsial:
+ * `tertolak` berisi unit yang ditolak (mis. masih berpenghuni) beserta alasan.
+ */
+export function hapusBanyakHunianRt(ids: string[]): Promise<HasilHapusHunian> {
+  return minta("/rt/hunian", { method: "DELETE", body: { ids }, csrf: true });
 }
 
 /**

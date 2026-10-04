@@ -411,6 +411,15 @@ export const ruteAktivasiWarga: FastifyPluginAsync = async (app) => {
       if (warga.statusAkses === "aktif") {
         return reply.gagal("CONFLICT", `${warga.nama} sudah aktif portalnya — tidak perlu undangan baru.`);
       }
+      if (warga.statusAkses === "dinonaktifkan") {
+        // Kewenangan pengurus RT (Okt 2026): status portal hanya boleh diubah
+        // MENJADI nonaktif — menerbitkan undangan justru mengubahnya kembali
+        // ke `menunggu_aktivasi` (jalan memutar mengaktifkan portal).
+        return reply.gagal(
+          "CONFLICT",
+          `${warga.nama} berstatus Dinonaktifkan — Portal RT hanya dapat mengubah status portal menjadi nonaktif.`,
+        );
+      }
       if (!warga.noHp) {
         return reply.gagal(
           "VALIDATION",
@@ -554,6 +563,15 @@ export const ruteAktivasiWarga: FastifyPluginAsync = async (app) => {
         }
         if (warga.statusAkses === "aktif") {
           throw new GalatTolak("CONFLICT", `${warga.nama} sudah aktif portalnya — tidak perlu undangan ulang.`);
+        }
+        if (warga.statusAkses === "dinonaktifkan") {
+          // Kewenangan pengurus RT (Okt 2026) — lihat catatan di
+          // `POST /rt/warga/:id/undangan`: undangan tak dipakai memutar
+          // mengaktifkan portal yang sudah dinonaktifkan.
+          throw new GalatTolak(
+            "CONFLICT",
+            `${warga.nama} berstatus Dinonaktifkan — Portal RT hanya dapat mengubah status portal menjadi nonaktif.`,
+          );
         }
         if (!warga.isActive) {
           throw new GalatTolak("CONFLICT", `${warga.nama} berstatus non-aktif — aktifkan dulu datanya.`);
@@ -730,6 +748,81 @@ export const ruteAktivasiWarga: FastifyPluginAsync = async (app) => {
       return reply.ok(hasil);
     },
   );
+
+  // -------------------------------------------------------------------------
+  // RT — daftar undangan (tambahan Okt 2026; kontrak §5.4 kini memuat endpoint
+  // ini di samping terbit/kirim-ulang/cabut/inspeksi)
+  //
+  // FE butuh sumber status token SEBENARNYA setelah muat ulang halaman: baris
+  // "Undangan Dikirim" yang tokennya lewat 24 jam harus tampil "Kedaluwarsa"
+  // (§4.2 — kedaluwarsa boleh dibuat token baru), dan aksi Cabut/Kirim Ulang
+  // harus menemukan token UUID server. Sebelumnya FE memasangkan token lewat
+  // daftar lokal yang kosong setelah F5 → Cabut tidak berdaya dan kedaluwarsa
+  // tak pernah terlihat. Kode asli TIDAK pernah disimpan (§5.1) sehingga
+  // daftar ini tidak mengembalikan tautan lama — hanya metadata + status.
+  // -------------------------------------------------------------------------
+  app.get("/rt/undangan", async (req, reply) => {
+    const { rtId } = wajibRt(req);
+
+    const daftar = await denganScopeRequest(req, async (tx) => {
+      const baris = await tx.tokenUndangan.findMany({
+        where: { rtId, status: { not: "dicabut" } },
+        orderBy: { dibuatPada: "desc" },
+        take: 500,
+        select: {
+          id: true,
+          status: true,
+          dibuatPada: true,
+          kedaluwarsaPada: true,
+          dibuatOleh: true,
+          kirimKeNomor: true,
+          warga: {
+            select: {
+              id: true,
+              nama: true,
+              noHp: true,
+              isActive: true,
+              rumah: { select: { alamatPendek: true } },
+            },
+          },
+        },
+      });
+
+      const pengurusIds = [...new Set(baris.map((b) => b.dibuatOleh))];
+      const pengurus = pengurusIds.length
+        ? await tx.pengurusRt.findMany({
+            where: { id: { in: pengurusIds } },
+            select: { id: true, nama: true },
+          })
+        : [];
+      const namaOleh = new Map(pengurus.map((p) => [p.id, p.nama]));
+
+      const kini = Date.now();
+      return baris
+        .filter((b) => b.warga.isActive)
+        .map((b) => {
+          // Status efektif: kedaluwarsa dihitung dari waktu (§4.2), bukan hanya
+          // nilai tersimpan — token boleh saja masih berlabel `menunggu`.
+          const kedaluwarsa =
+            b.status === "kedaluwarsa" ||
+            (b.status === "menunggu" && b.kedaluwarsaPada.getTime() <= kini);
+          return {
+            id: b.id,
+            wargaId: b.warga.id,
+            nama: b.warga.nama,
+            noWa: b.warga.noHp ?? b.kirimKeNomor ?? "",
+            alamat: b.warga.rumah?.alamatPendek ?? "-",
+            status:
+              b.status === "aktif_dipakai" ? "aktif_dipakai" : kedaluwarsa ? "kedaluwarsa" : "menunggu",
+            dibuatPada: b.dibuatPada.toISOString(),
+            kedaluwarsaPada: b.kedaluwarsaPada.toISOString(),
+            dikirimOleh: namaOleh.get(b.dibuatOleh) ?? "Pengurus RT",
+          };
+        });
+    });
+
+    return reply.ok({ undangan: daftar });
+  });
 
   // -------------------------------------------------------------------------
   // RT — inspeksi undangan (task B6, §5.4)

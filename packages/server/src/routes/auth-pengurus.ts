@@ -16,7 +16,7 @@ import { catatAudit, type PortalAudit } from "../plugins/audit.js";
 import { NAMA_COOKIE_CSRF, NAMA_COOKIE_SESI, buatTokenAcak, opsiCookieSesi } from "../plugins/auth.js";
 import { tanamCookieCsrf, verifikasiCsrf } from "../plugins/csrf.js";
 import { batasAuth } from "../plugins/ratelimit.js";
-import { db, denganScope } from "../services/db.js";
+import { db, denganScope, type DbTransaksi } from "../services/db.js";
 import { hashKataSandi, verifikasiKataSandi } from "../services/kredensial.js";
 import { buatSesi, cabutSesi, sisaWaktuSesi } from "../services/sesi.js";
 import type { LevelScope } from "../services/scopeCheck.js";
@@ -37,6 +37,32 @@ async function ambilHashPembungkus(): Promise<string> {
 function perangkat(req: FastifyRequest): string | null {
   const ua = req.headers["user-agent"];
   return (Array.isArray(ua) ? ua[0] : ua) ?? null;
+}
+
+/**
+ * Profil tampilan pengurus — `pengguna_pengurus` TIDAK punya kolom nama, jadi
+ * dicocokkan lewat email pada `pengurus_rt`/`pengurus_rw` milik scope yang sama
+ * (pola sama `pengurusAktif`, tetapi TANPA fallback ke ketua: nama orang lain
+ * tidak boleh dipakai atas akun yang tidak cocok). Tak ketemu → `nama` kosong
+ * dan FE jatuh ke surel — identitas tampil jujur, bukan nama karangan.
+ */
+async function cariProfilPengurus(
+  tx: DbTransaksi,
+  level: "rt" | "rw",
+  scopeId: string,
+  email: string,
+): Promise<{ nama: string; jabatan: string }> {
+  const baris =
+    level === "rt"
+      ? await tx.pengurusRt.findFirst({
+          where: { rtId: scopeId, email },
+          select: { nama: true, jabatan: true },
+        })
+      : await tx.pengurusRw.findFirst({
+          where: { rwId: scopeId, email },
+          select: { nama: true, jabatan: true },
+        });
+  return { nama: baris?.nama ?? "", jabatan: baris?.jabatan ?? "" };
 }
 
 export const ruteAuthPengurus: FastifyPluginAsync = async (app) => {
@@ -77,8 +103,13 @@ export const ruteAuthPengurus: FastifyPluginAsync = async (app) => {
     tanamCookieCsrf(reply, sesi.sid, sesi.maxAgeDetik);
 
     const portal: PortalAudit = level === "platform" ? "admin" : level === "rw" ? "rw" : "rt";
-    await denganScope(level, scopeId, (tx) =>
-      catatAudit(
+    // Satu panggilan scope: profil tampilan (nama/jabatan) + audit login.
+    const profil = await denganScope(level, scopeId, async (tx) => {
+      const p =
+        level === "platform" || !scopeId
+          ? { nama: "", jabatan: "" }
+          : await cariProfilPengurus(tx, level, scopeId, pengguna.email);
+      await catatAudit(
         {
           scopeLevel: level,
           scopeId,
@@ -93,10 +124,13 @@ export const ruteAuthPengurus: FastifyPluginAsync = async (app) => {
           userAgent: perangkat(req),
         },
         tx,
-      ),
-    );
+      );
+      return p;
+    });
 
-    return reply.ok({ peran: pengguna.peran, email: pengguna.email });
+    // `nama` = "Profile login harus sesuai data login" (Okt 2026): header portal
+    // kini menampilkan identitas akun ini, bukan nama hardcoded di FE.
+    return reply.ok({ peran: pengguna.peran, email: pengguna.email, ...profil });
   });
 
   // §5.6 — mutasi pengurus wajib cookie `csrf_token` + header `x-csrf-token`
@@ -133,8 +167,26 @@ export const ruteAuthPengurus: FastifyPluginAsync = async (app) => {
     if (!req.sesi || req.sesi.peran === "warga") {
       return reply.gagal("UNAUTHORIZED", "Sesi tidak valid.");
     }
+    // Profil tampilan konsisten dengan login (nama dari `pengurus_rt/rw`);
+    // `pengguna_pengurus` tanpa RLS aman dibaca tanpa scope, pencarian nama
+    // tetap dibatasi scope pemohon (§4.6).
+    const level = req.pemohon?.level ?? null;
+    const scopeId = req.pemohon?.id ?? null;
+    let profil = { nama: "", jabatan: "" };
+    if (level && level !== "platform" && scopeId) {
+      const akun = await db().penggunaPengurus.findUnique({
+        where: { id: req.sesi.subjekId },
+        select: { email: true },
+      });
+      if (akun) {
+        profil = await denganScope(level, scopeId, (tx) =>
+          cariProfilPengurus(tx, level, scopeId, akun.email),
+        );
+      }
+    }
     return reply.ok({
       peran: req.sesi.peran,
+      ...profil,
       sisaDetik: sisaWaktuSesi(req.sesi),
       kedaluwarsaPada: req.sesi.kedaluwarsaPada.toISOString(),
     });
