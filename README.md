@@ -23,7 +23,27 @@ siwarga-monorepo/
 
 ## Menyalankan aplikasi (pengaktifan)
 
-Buka **dua terminal** di folder `siwarga-monorepo`:
+**Cara termudah (Windows) — satu perintah:** klik ganda `Jalankan-Siwarga.cmd`,
+atau dari PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\jalankan-siwarga.ps1
+```
+
+Script itu menyalakan database + backend + frontend sekaligus (idempoten —
+proses yang sudah hidup tidak diulang), menunggu sampai sehat, lalu mencetak
+ringkasan + akun demo. Log tiap proses ada di folder `logs\` (di-ignore git).
+Pilihan lain:
+
+```powershell
+.\jalankan-siwarga.ps1 -Status         # cek saja, tanpa mengubah apa pun
+.\jalankan-siwarga.ps1 -Stop           # matikan backend + frontend (database tetap)
+.\jalankan-siwarga.ps1 -Stop -StopDb   # matikan semuanya (data tetap tersimpan)
+```
+
+`Hentikan-Siwarga.cmd` = versi klik ganda untuk `-Stop`.
+
+**Cara manual — buka dua terminal** di folder `siwarga-monorepo`:
 
 ```bash
 pnpm install            # sekali saja — memasang dependensi
