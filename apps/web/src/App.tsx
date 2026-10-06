@@ -57,6 +57,7 @@ import {
   simpanPengaturanSuratRt,
   simpanProfilIuranRt,
   suratWarga,
+  tambahAnggotaKk,
   tambahHunianRt,
   tambahKategoriRt,
   tambahWargaRt,
@@ -70,6 +71,7 @@ import {
   undanganServerKeUndangan,
   verifikasiAjuanPerubahanRt,
   type AksiSuratRt,
+  type AnggotaBaruServer,
   type BarisProfilIuran,
   type BarisSuratServer,
   type BarisWargaRtServer,
@@ -1093,6 +1095,24 @@ export default function App() {
   ): Promise<{ warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer } | null> => {
     try {
       return await tambahWargaRt(payload);
+    } catch (e) {
+      if (e instanceof GalatApi && e.code === "OFFLINE") return null;
+      tanganiSesiHabis(e);
+      throw e;
+    }
+  };
+
+  // Okt 2026 · Tambah anggota ke KK yang sudah ada (POST /rt/warga/:kkId/anggota)
+  // — pola API-first yang sama: sukses → baris + keluarga server; OFFLINE →
+  // `null` (halaman lanjut jalur demo lokal dengan pesan jujur); galat lain
+  // (404 lintas-RT, 409 no. HP bentrok, 400 batas 50) DITERUSKAN agar pesan
+  // server tampil — tidak pernah "berhasil" untuk kegagalan.
+  const tambahAnggotaKkSesi = async (
+    kkId: string,
+    anggota: AnggotaBaruServer[],
+  ): Promise<{ warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer } | null> => {
+    try {
+      return await tambahAnggotaKk(kkId, anggota);
     } catch (e) {
       if (e instanceof GalatApi && e.code === "OFFLINE") return null;
       tanganiSesiHabis(e);
@@ -2161,6 +2181,7 @@ export default function App() {
         onKkAdded={(kk) => setKkList((prev) => [...prev, kk])}
         onSimpanWarga={simpanWargaRt}
         onTambahWarga={tambahDataWargaRt}
+        onTambahAnggotaKk={tambahAnggotaKkSesi}
         onHapusWarga={hapusDataWargaRt}
         onImporWarga={imporDataWargaRt}
         undangan={undanganList}

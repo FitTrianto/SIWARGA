@@ -47,6 +47,7 @@ import {
   statusAksesKePortal,
   statusKawinKeServer,
   wargaNegaraKeServer,
+  type AnggotaBaruServer,
   type BarisWargaRtServer,
   type HasilImporWarga,
   type KeluargaRingkasServer,
@@ -101,6 +102,16 @@ interface DataWargaRTProps {
   /** POST /rt/warga — KK baru (N anggota) dalam satu transaksi server. */
   onTambahWarga?: (
     payload: TambahWargaRtPayload,
+  ) => Promise<{ warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer } | null>;
+  /**
+   * POST /rt/warga/:kkId/anggota (Okt 2026) — tambah anggota ke KK YANG SUDAH
+   * ADA. Tujuan dipegang UUID `kkId` dari `kkList` (No. KK & alamat form
+   * dikunci); OFFLINE → `null` (jalur demo lokal dengan pesan jujur); galat
+   * non-OFFLINE DILEMPAR agar pesan server tampil — tidak pernah sukses palsu.
+   */
+  onTambahAnggotaKk?: (
+    kkId: string,
+    anggota: AnggotaBaruServer[],
   ) => Promise<{ warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer } | null>;
   /** DELETE /rt/warga/:id — `keluarga` = KK sisa (tetap ada walau kosong). */
   onHapusWarga?: (
@@ -201,7 +212,7 @@ function denganNilai(opsi: string[], nilai: string): string[] {
   return v && !opsi.includes(v) ? [v, ...opsi] : opsi;
 }
 
-export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hunian = [], onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onHapusWarga, onImporWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
+export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hunian = [], onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onTambahAnggotaKk, onHapusWarga, onImporWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<PortalStatus>("all");
   const [showInputModal, setShowInputModal] = useState(false);
@@ -232,6 +243,13 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
   const [anggotaBaru, setAnggotaBaru] = useState<AnggotaBaru[]>([
     { ...anggotaKosong(), hubungan: "Kepala Keluarga" },
   ]);
+  /**
+   * Mode "Tambah Anggota" (Okt 2026): `null` = form KK baru; terisi = form
+   * menambah anggota ke KK INI (No. KK & alamat dikunci, tujuan dipegang
+   * `kkTujuan.id`). Membuka form KK baru selalu mengembalikan `null` — kedua
+   * mode tidak pernah bercampur dalam satu submit.
+   */
+  const [kkTujuan, setKkTujuan] = useState<KkData | null>(null);
 
   const [formEdit, setFormEdit] = useState({
     nama: "",
@@ -326,8 +344,13 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
   /** Validasi form Tambah Data KK (No. KK + alamat + daftar anggota). */
   function validateTambahKk(): boolean {
     const errors: Record<string, string> = {};
-    if (digitsOnly(formKk.noKk).length !== 16) errors.noKk = "No. KK harus 16 digit angka";
-    if (!formKk.alamat.trim()) errors.alamat = "Alamat wajib diisi";
+    const modeAnggota = kkTujuan !== null;
+    // Mode Tambah Anggota: No. KK & alamat terkunci dari KK tujuan (sudah
+    // valid di server) — validasi 16 digit/alamat hanya untuk KK BARU.
+    if (!modeAnggota) {
+      if (digitsOnly(formKk.noKk).length !== 16) errors.noKk = "No. KK harus 16 digit angka";
+      if (!formKk.alamat.trim()) errors.alamat = "Alamat wajib diisi";
+    }
 
     // NIK tidak boleh ganda di seluruh sistem. No. KK & alamat BOLEH sama:
     // 1 KK memuat banyak NIK, dan 1 alamat boleh dipakai lebih dari 1 KK.
@@ -358,10 +381,32 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
     });
 
     if (!anggotaBaru.some(anggotaTerisi)) errors.anggota = "Isi minimal satu anggota keluarga";
-    else if (!adaKepala) errors.anggota = "Pilih minimal satu anggota berstatus Kepala Keluarga";
+    // Syarat "minimal satu Kepala" hanya untuk KK BARU; KK tujuan mode
+    // Tambah Anggota sudah punya kepala keluarga.
+    else if (!adaKepala && kkTujuan === null)
+      errors.anggota = "Pilih minimal satu anggota berstatus Kepala Keluarga";
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
+  }
+
+  /**
+   * Baris form anggota → payload `AnggotaBaruServer` (label FE dikonversi ke
+   * enum server). Dipakai kedua mode: KK BARU (`POST /rt/warga`) dan TAMBAH
+   * ANGGOTA ke KK ada (`POST /rt/warga/:kkId/anggota`) — pemetaan identik,
+   * sekali didefinisikan agar jalur tidak pernah berbeda diam-diam.
+   */
+  function anggotaServerDariForm(): AnggotaBaruServer[] {
+    return anggotaBaru.filter(anggotaTerisi).map((a) => ({
+      nama: a.nama.trim(),
+      nik: a.nik,
+      hubungan: hubunganKeServer(a.hubungan),
+      jenisKelamin: jenisKelaminKeServer(a.jenisKelamin),
+      agama: a.agama.trim() || null,
+      tanggalLahir: a.tglLahir || null,
+      pekerjaan: a.pekerjaan.trim() || null,
+      noHp: digitsOnly(a.waDigits) || null,
+    }));
   }
 
   async function handleSubmitKk(e: React.FormEvent) {
@@ -371,6 +416,45 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
 
     setSimpanSedang(true);
     try {
+      // ===== Mode Tambah Anggota: rujuk ke KK yang sudah ada (Okt 2026) =====
+      // Tujuan dipegang `kkTujuan.id` (UUID dari kkList) — No. KK & alamat
+      // form dikunci, sehingga baris baru mustahil masuk ke KK lain.
+      if (kkTujuan) {
+        const tujuan = kkTujuan;
+        let hasil: { warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer } | null = null;
+        if (onTambahAnggotaKk) {
+          hasil = await onTambahAnggotaKk(tujuan.id, anggotaServerDariForm());
+        }
+        if (hasil) {
+          const baris = hasil.warga.map(barisServerKeWargaRt);
+          onWargaRtChange([...wargaRt, ...baris]);
+          onKkUpdated(hasil.keluarga.kk.id, keluargaKeKkData(hasil.keluarga));
+          flash(
+            `${hasil.warga.length} anggota baru (${hasil.warga.map((b) => b.nama).join(", ")}) ditambahkan ke KK ${hasil.keluarga.kk.noKk} — tersimpan di server.`,
+          );
+          tutupInput();
+          return;
+        }
+        // Sesi DARING (bukan mode demo) tetapi mutasi gagal terkirim →
+        // kegagalan NYATA (pola batch 10): form tetap terbuka & pesan
+        // menyatakan data TIDAK masuk database — tanpa sukses palsu.
+        if (!modeDemo) {
+          flash(
+            "Server tidak terjangkau saat menyimpan — anggota TIDAK masuk database. Form tetap terbuka; perbaiki koneksi lalu tekan Simpan kembali.",
+          );
+          return;
+        }
+        // MODE DEMO (sah): tambah lokal ke KK ini — pesan wajib menyebut
+        // TIDAK tersimpan di server.
+        const baru = anggotaBaru.filter(anggotaTerisi).map(buildMemberBaru);
+        onKkUpdated(tujuan.id, { ...tujuan, anggota: [...tujuan.anggota, ...baru] });
+        flash(
+          `${baru.length} anggota (${baru.map((m) => m.name).join(", ")}) ditambahkan ke KK ${maskedNoKk(tujuan.noKk)} di daftar sesi ini (mode demo — TIDAK tersimpan di server).`,
+        );
+        tutupInput();
+        return;
+      }
+
       // B13 · API-first: server membuat KK + seluruh N anggota dalam SATU
       // transaksi (KK kosong/parsial tidak mungkin tersisa, §5.4). OFFLINE →
       // `null` → jalur demo lokal di bawah; galat lain → flash + batal.
@@ -378,16 +462,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
         const payload: TambahWargaRtPayload = {
           noKk: digitsOnly(formKk.noKk),
           alamat: formKk.alamat.trim(),
-          anggota: anggotaBaru.filter(anggotaTerisi).map((a) => ({
-            nama: a.nama.trim(),
-            nik: a.nik,
-            hubungan: hubunganKeServer(a.hubungan),
-            jenisKelamin: jenisKelaminKeServer(a.jenisKelamin),
-            agama: a.agama.trim() || null,
-            tanggalLahir: a.tglLahir || null,
-            pekerjaan: a.pekerjaan.trim() || null,
-            noHp: digitsOnly(a.waDigits) || null,
-          })),
+          anggota: anggotaServerDariForm(),
         };
         const hasil = await onTambahWarga(payload);
         if (hasil) {
@@ -431,7 +506,13 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
       );
       tutupInput();
     } catch (err) {
-      flash(err instanceof GalatApi ? err.message : "Gagal menyimpan Data KK.");
+      flash(
+        err instanceof GalatApi
+          ? err.message
+          : kkTujuan
+            ? "Gagal menyimpan anggota keluarga — data tidak ditambahkan."
+            : "Gagal menyimpan Data KK.",
+      );
     } finally {
       setSimpanSedang(false);
     }
@@ -457,12 +538,28 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
     setFormKk({ noKk: "", alamat: "" });
     setAnggotaBaru([{ ...anggotaKosong(), hubungan: "Kepala Keluarga" }]);
     setFormErrors({});
+    setKkTujuan(null); // form KK BARU — bukan mode tambah anggota
+    setShowInputModal(true);
+  }
+
+  /**
+   * Buka form Tambah Anggota untuk 1 KK yang sudah ada (Okt 2026). No. KK &
+   * alamat dikunci dari KK tujuan — anggota baru mustahil dirujuk ke KK lain;
+   * baris pertama sengaja TANPA hubungan bawaan "Kepala" (KK sudah punya
+   * kepala keluarga).
+   */
+  function bukaTambahAnggota(kk: KkData) {
+    setFormKk({ noKk: kk.noKk, alamat: kk.alamat });
+    setAnggotaBaru([anggotaKosong()]);
+    setFormErrors({});
+    setKkTujuan(kk);
     setShowInputModal(true);
   }
 
   function tutupInput() {
     setShowInputModal(false);
     setFormErrors({});
+    setKkTujuan(null);
   }
 
   /** Hapus error per-anggota saja (error No. KK/Alamat tetap disimpan). */
@@ -493,6 +590,32 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
   function hapusAnggotaBaris(i: number) {
     bersihkanErrorAnggota();
     setAnggotaBaru((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  /** KK tujuan "Tambah Anggota" untuk 1 baris — `null` bila baris tak terpasang di KK mana pun. */
+  function kkUntukBaris(w: WargaRt): KkData | null {
+    const link = linkFor(w, kkList);
+    return (link ? kkList.find((k) => k.id === link.kkId) : undefined) ?? null;
+  }
+
+  /**
+   * Tombol "Tambah Anggota" pada baris tabel (Okt 2026) — hanya muncul bila
+   * baris tergabung dalam 1 KK; tujuan dirujuk lewat UUID KK-nya sehingga
+   * anggota baru pasti berada di No. KK yang sama dengan baris ini.
+   */
+  function tombolTambahAnggota(w: WargaRt) {
+    const kk = kkUntukBaris(w);
+    if (!kk) return null;
+    return (
+      <button
+        className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+        title={`Tambah anggota ke KK ${maskedNoKk(kk.noKk)} (Kepala: ${kk.kepala})`}
+        onClick={() => bukaTambahAnggota(kk)}
+      >
+        <span className="material-symbols-outlined text-[14px]">person_add</span>
+        Tambah Anggota
+      </button>
+    );
   }
 
   /* ---------- Edit data warga (sinkron 2 arah bila terpasang dengan kkList) ---------- */
@@ -1439,6 +1562,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                   </td>
                   <td className="py-4 px-6 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      {tombolTambahAnggota(warga)}
                       <button
                         className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
                         onClick={() => openEdit(warga)}
@@ -1515,8 +1639,14 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                   <span className="material-symbols-outlined text-[22px]">group_add</span>
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-on-surface">Tambah Data KK</h3>
-                  <p className="text-xs text-on-surface-variant">1 Kartu Keluarga — beberapa NIK (Kepala, Istri, Anak, …)</p>
+                  <h3 className="text-base font-bold text-on-surface">
+                    {kkTujuan ? "Tambah Anggota Keluarga" : "Tambah Data KK"}
+                  </h3>
+                  <p className="text-xs text-on-surface-variant">
+                    {kkTujuan
+                      ? `Dirujuk ke KK ${maskedNoKk(kkTujuan.noKk)} — Kepala: ${kkTujuan.kepala}`
+                      : "1 Kartu Keluarga — beberapa NIK (Kepala, Istri, Anak, …)"}
+                  </p>
                 </div>
               </div>
               <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={tutupInput}>
@@ -1535,55 +1665,76 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                     No. KK (16 Digit)
                   </label>
                   <input
-                    className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface font-mono focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.noKk ? "ring-2 ring-error" : ""}`}
+                    className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface font-mono focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.noKk ? "ring-2 ring-error" : ""} ${kkTujuan ? "bg-surface-container-high/60 text-on-surface-variant cursor-not-allowed focus:ring-0" : ""}`}
                     type="text"
                     inputMode="numeric"
                     maxLength={16}
                     placeholder="317105..."
                     value={formKk.noKk}
+                    readOnly={kkTujuan !== null}
                     onChange={(e) => ubahFormKk("noKk", e.target.value.replace(/\D/g, "").slice(0, 16))}
                   />
                   {formErrors.noKk && <span className="text-xs text-error font-semibold">{formErrors.noKk}</span>}
+                  {kkTujuan && (
+                    <span className="text-[11px] text-on-surface-variant flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px] text-tertiary">lock</span>
+                      No. KK &amp; alamat dikunci — anggota baru otomatis tercatat pada KK ini.
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* Alamat: pilih yang sudah ada (1 alamat > 1 KK) atau alamat baru */}
+              {/* Alamat: pilih yang sudah ada (1 alamat > 1 KK) atau alamat baru.
+                  Mode Tambah Anggota: alamat ikut terkunci bersama No. KK. */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-[16px] text-on-surface-variant">home</span>
                   Alamat
                 </label>
-                <select
-                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) ubahFormKk("alamat", e.target.value);
-                  }}
-                >
-                  <option value="">— Pilih alamat terdaftar (opsional) —</option>
-                  {alamatOptions.map((a) => (
-                    <option key={a} value={a}>{a}</option>
-                  ))}
-                </select>
-                <input
-                  className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.alamat ? "ring-2 ring-error" : ""}`}
-                  type="text"
-                  placeholder="Blok XX No. YY (alamat baru) atau hasil pilihan di atas"
-                  value={formKk.alamat}
-                  onChange={(e) => ubahFormKk("alamat", e.target.value)}
-                />
-                {formErrors.alamat && <span className="text-xs text-error font-semibold">{formErrors.alamat}</span>}
-                <span className="text-[11px] text-on-surface-variant flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[14px] text-tertiary">groups</span>
-                  Satu alamat dapat menampung lebih dari satu KK (Multi-KK).
-                </span>
+                {kkTujuan && (
+                  <input
+                    className="w-full h-11 px-4 rounded-xl bg-surface-container-high/60 text-sm text-on-surface-variant cursor-not-allowed"
+                    type="text"
+                    value={formKk.alamat}
+                    readOnly
+                    aria-readonly
+                  />
+                )}
+                {!kkTujuan && (
+                  <>
+                    <select
+                      className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) ubahFormKk("alamat", e.target.value);
+                      }}
+                    >
+                      <option value="">— Pilih alamat terdaftar (opsional) —</option>
+                      {alamatOptions.map((a) => (
+                        <option key={a} value={a}>{a}</option>
+                      ))}
+                    </select>
+                    <input
+                      className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.alamat ? "ring-2 ring-error" : ""}`}
+                      type="text"
+                      placeholder="Blok XX No. YY (alamat baru) atau hasil pilihan di atas"
+                      value={formKk.alamat}
+                      onChange={(e) => ubahFormKk("alamat", e.target.value)}
+                    />
+                    {formErrors.alamat && <span className="text-xs text-error font-semibold">{formErrors.alamat}</span>}
+                    <span className="text-[11px] text-on-surface-variant flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px] text-tertiary">groups</span>
+                      Satu alamat dapat menampung lebih dari satu KK (Multi-KK).
+                    </span>
+                  </>
+                )}
               </div>
 
               {/* ===== Anggota Keluarga (1 KK — beberapa NIK) ===== */}
               <div className="flex flex-col gap-3 border-t border-surface-container-high pt-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-primary">
-                    Anggota Keluarga — {anggotaBaru.length} NIK
+                    {kkTujuan ? "Anggota Baru" : "Anggota Keluarga"} — {anggotaBaru.length} NIK
                   </p>
                   <span className="text-[11px] text-on-surface-variant">Kepala &bull; Istri &bull; Anak &bull; lainnya</span>
                 </div>
@@ -1772,7 +1923,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                   className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60"
                 >
                   <span className="material-symbols-outlined text-[18px]">save</span>
-                  Simpan Data KK
+                  {kkTujuan ? "Simpan Anggota" : "Simpan Data KK"}
                 </button>
               </div>
             </form>

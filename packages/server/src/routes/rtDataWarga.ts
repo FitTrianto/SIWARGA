@@ -3,6 +3,9 @@
  *
  *   GET    /rt/warga        → `{ warga[], keluarga[] }` — baris tabel + daftar KK
  *   POST   /rt/warga        → buat 1 KK BESERTA seluruh anggotanya (1 request)
+ *   POST   /rt/warga/:kkId/anggota → tambah anggota ke KK YANG SUDAH ADA
+ *                            (Okt 2026 — tujuan dipegang UUID, bukan No. KK
+ *                            ketik manual; No. KK/alamat tidak ikut payload)
  *   PATCH  /rt/warga/:id    → ubah data 1 warga (+ No.KK/alamat/kelala KK bila berubah)
  *   DELETE /rt/warga/:id    → hapus 1 warga (guard riwayat → CONFLICT)
  *
@@ -208,6 +211,17 @@ const skemaTambah = z.object({
 });
 
 /**
+ * Tambah anggota ke KK YANG SUDAH ADA (fitur "Tambah Anggota", Okt 2026) —
+ * payload HANYA berisi `anggota[]`. No. KK & alamat sengaja tidak diterima:
+ * tujuan diambil dari path `:kkId`, sehingga anggota tidak mungkin dirujuk ke
+ * KK lain (tugas "menambah anggota harus berada di No. KK tersebut" dipegang
+ * oleh UUID, bukan ketik manual yang bisa salah).
+ */
+const skemaTambahAnggota = z.object({
+  anggota: skemaTambah.shape.anggota,
+});
+
+/**
  * Patch sebagian `PATCH /rt/warga/:id`. Field `undefined` = tidak diubah;
  * `null` = bersihkan (khusus kolom nullable). NIK & No.KK HANYA dikirim bila
  * FE mengetik nilai 16-digit baru (`nikBaru`/`noKk`) — nilai ter-mask yang
@@ -398,6 +412,160 @@ export const ruteRtDataWarga: FastifyPluginAsync = async (app) => {
             jumlahAnggota: body.anggota.length,
           },
           ringkasan: `Tambah KK ${maskNoKk(body.noKk)} — ${body.anggota.length} anggota (Kepala: ${kepala}, ${body.alamat})`,
+          ip: req.ipAsli,
+        },
+        tx,
+      );
+
+      return { warga: baris.map(jsonBaris), keluarga: jsonKeluarga(keluarga) };
+    });
+
+    return reply.ok(hasil);
+  });
+
+  /**
+   * Tambah anggota ke KK yang sudah ada — pintu "Tambah Anggota" pada menu
+   * Data Warga (Okt 2026). Berbeda dengan `POST /rt/warga` (membuat KK baru),
+   * rute ini MENAMBAH baris `warga` ke `kartu_keluarga` yang sudah terdaftar:
+   *
+   *   • Tujuan KK dari path `:kkId` (UUID dari `kkList` FE) — No. KK & alamat
+   *     TIDAK ikut payload, jadi anggota mustahil masuk ke KK lain.
+   *   • Lintas-RT / ID asing → NOT_FOUND (404), keberadaan KK tidak bocor.
+   *   • Aturan payload sama dengan POST: NIK/No. HP ganda dalam form → 400;
+   *     bentrok no. HP dengan warga RT → P2002 → CONFLICT (409).
+   *   • `jumlah_anggota` dihitung ulang; kepala keluarga mengikuti anggota
+   *     baru ber-hubungan "kepala" (semangat sama dengan PATCH umum); total
+   *     >50 anggota → VALIDATION (400) — batas yang sama dengan KK baru.
+   *   • `rumah_id` diwarisi dari KK; KK lama tanpa hunian dicocokkan
+   *     best-effort by alamat dengan aturan yang sama seperti POST.
+   *   • Audit `tambah_warga` (entitas `kartu_keluarga`), No. KK ter-mask.
+   *   • Respons berbentuk IDENTIK `POST /rt/warga` (`{ warga[], keluarga }`)
+   *     agar FE memakai jalur state yang sama (`onWargaRtChange` +
+   *     `onKkUpdated`) — baris baru + KK terkini dari sumber kebenaran.
+   */
+  app.post("/rt/warga/:kkId/anggota", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+    const { kkId } = z.object({ kkId: skemaId }).parse(req.params);
+    const body = skemaTambahAnggota.parse(req.body ?? {});
+
+    // NIK/No. HP ganda DI DALAM form → 400 sebelum menyentuh DB (aturan yang
+    // sama dengan POST /rt/warga); bentrok dengan data terdaftar → P2002 → 409.
+    const nikDipakai = new Set<string>();
+    const hpDipakai = new Set<string>();
+    for (const a of body.anggota) {
+      if (nikDipakai.has(a.nik)) {
+        throw new GalatTolak("VALIDATION", "NIK sama dipakai lebih dari satu anggota.");
+      }
+      nikDipakai.add(a.nik);
+      const hp = a.noHp ? normalisasiNoHp(a.noHp) : null;
+      if (hp) {
+        if (hpDipakai.has(hp)) {
+          throw new GalatTolak("VALIDATION", "No. HP sama dipakai lebih dari satu anggota.");
+        }
+        hpDipakai.add(hp);
+      }
+    }
+
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+
+      const kk = await tx.kartuKeluarga.findFirst({
+        where: { id: kkId, rtId },
+        select: { id: true, noKk: true, alamat: true, kepalaKeluarga: true, rumahId: true },
+      });
+      // ID asing / lintas RT → NOT_FOUND (404): jangan bocorkan keberadaan KK.
+      if (!kk) throw new GalatTolak("NOT_FOUND", "Data KK tidak ditemukan.");
+
+      const jumlahKini = await tx.warga.count({ where: { kkId: kk.id } });
+      if (jumlahKini + body.anggota.length > 50) {
+        throw new GalatTolak(
+          "VALIDATION",
+          `Satu KK maksimal 50 anggota — KK ini sudah berisi ${jumlahKini} anggota.`,
+        );
+      }
+
+      // `rumah_id` diwarisi dari KK (prasyarat undangan §6.3); KK lama bisa
+      // belum punya hunian → dicocokkan ulang by alamat, aturan sama POST.
+      let rumahId = kk.rumahId;
+      if (!rumahId) {
+        const rumah = await tx.rumah.findFirst({
+          where: {
+            rtId,
+            OR: [
+              { alamat: { equals: kk.alamat, mode: "insensitive" } },
+              { alamatPendek: { equals: kk.alamat, mode: "insensitive" } },
+            ],
+          },
+          select: { id: true },
+        });
+        rumahId = rumah?.id ?? null;
+      }
+
+      const idBaru: string[] = [];
+      for (const a of body.anggota) {
+        const { nikEncrypted, nikMasked } = sembunyikanNik(a.nik, config.nikKey);
+        const baris = await tx.warga.create({
+          data: {
+            rtId,
+            kkId: kk.id,
+            rumahId,
+            nama: a.nama,
+            hubungan: a.hubungan,
+            nikEncrypted,
+            nikMasked,
+            noHp: a.noHp ? normalisasiNoHp(a.noHp) : null,
+            tanggalLahir: tanggalDariIso(a.tanggalLahir) ?? null,
+            jenisKelamin: a.jenisKelamin,
+            agama: a.agama || null,
+            pekerjaan: a.pekerjaan || null,
+            statusAkses: "belum_diundang",
+            statusDemografis: "aktif",
+          },
+          select: { id: true },
+        });
+        idBaru.push(baris.id);
+      }
+
+      const kepalaList = body.anggota.filter((a) => a.hubungan === "kepala");
+      const kepalaBaru = kepalaList.length > 0 ? kepalaList[kepalaList.length - 1].nama : undefined;
+      const jumlahAkhir = jumlahKini + body.anggota.length;
+      await tx.kartuKeluarga.update({
+        where: { id: kk.id },
+        data: {
+          jumlahAnggota: jumlahAkhir,
+          ...(kepalaBaru ? { kepalaKeluarga: kepalaBaru } : {}),
+          ...(rumahId && !kk.rumahId ? { rumahId } : {}),
+        },
+      });
+
+      const [baris, keluarga] = await Promise.all([
+        tx.warga.findMany({ where: { id: { in: idBaru } }, orderBy: [{ nama: "asc" }], select: PilihBaris }),
+        tx.kartuKeluarga.findUnique({ where: { id: kk.id }, select: PilihKeluarga }),
+      ]);
+      if (!keluarga) throw new Error("KK tidak ditemukan setelah menambah anggota — transaksi dibatalkan.");
+
+      await catatAudit(
+        {
+          scopeLevel: "rt",
+          scopeId: rtId,
+          actorId: oleh,
+          actorRole: "rt_admin",
+          portal: "rt",
+          modul: "data_warga",
+          aksi: "tambah_warga",
+          aksiBadge: "Data Warga",
+          entitas: "kartu_keluarga",
+          entitasId: kk.id,
+          sesudah: {
+            noKk: maskNoKk(kk.noKk),
+            alamat: kk.alamat,
+            kepalaKeluarga: kepalaBaru ?? kk.kepalaKeluarga,
+            jumlahAnggota: jumlahAkhir,
+            anggotaBaru: body.anggota.length,
+          },
+          ringkasan: `Tambah anggota KK ${maskNoKk(kk.noKk)} — ${body.anggota.length} anggota baru (${body.anggota
+            .map((a) => a.nama)
+            .join(", ")})`,
           ip: req.ipAsli,
         },
         tx,

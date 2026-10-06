@@ -4303,6 +4303,375 @@ describe("B13 · CRUD Data Warga Portal RT (/rt/warga · §5.4)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// B13b — Tambah anggota ke KK YANG SUDAH ADA (POST /rt/warga/:kkId/anggota).
+//
+// Fitur Okt 2026: menu Data Warga sebelumnya hanya bisa membuat KK BARU lewat
+// form "Tambah Data KK" — tidak ada pintu menambah anggota pada No. KK yang
+// sudah ada (permintaan Pengurus RT: anggota baru wajib dirujuk ke KK
+// terdaftar, contoh No. KK 3175111222333444). Pintu baru ini mengunci tujuan
+// lewat UUID `:kkId` — No. KK & alamat TIDAK ikut payload sama sekali.
+//
+// Semua baris uji dibersihkan di afterAll (DELETE resmi + fallback SQL +
+// hitung ulang agregat KK) sehingga ground truth seed kembali utuh sebelum
+// blok B7/B9/B10 berjalan.
+// ---------------------------------------------------------------------------
+describe("B13b · Tambah anggota ke KK yang sudah ada (POST /rt/warga/:kkId/anggota)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRt = "";
+  let csrfRt = "";
+  let sidRt05 = "";
+  let csrfRt05 = "";
+  let sidWarga = "";
+  let idKK = "";
+  let kepalaSebelum = "";
+  /** ID baris uji — dihapus lagi di afterAll (demi ground truth seed). */
+  const idBaru: string[] = [];
+  const namaUji = [
+    "Uji Tambah Anggota",
+    "Uji Adik Anggota",
+    "Uji Kepala Baru",
+    "Uji HP Bentrok",
+    "Uji Bocor",
+    "Uji Kembar",
+  ];
+
+  const sesiRt = () => ({ sid: sidRt, csrf_token: csrfRt });
+  const csrfRtHeader = () => ({ "x-csrf-token": csrfRt });
+
+  const anggotaUji = (lebih: Record<string, unknown> = {}) => ({
+    nama: "Uji Tambah Anggota",
+    nik: "3171050101990009",
+    hubungan: "anak",
+    jenisKelamin: "laki_laki",
+    agama: "Islam",
+    tanggalLahir: "1999-03-03",
+    pekerjaan: "Mahasiswa",
+    noHp: "081299000999",
+    ...lebih,
+  });
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+
+    const rt = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt04@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt.statusCode, "login RT04").toBe(200);
+    sidRt = cookieDari(rt, "sid")!;
+    csrfRt = cookieDari(rt, "csrf_token")!;
+
+    const rt05 = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt05@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt05.statusCode, "login RT05").toBe(200);
+    sidRt05 = cookieDari(rt05, "sid")!;
+    csrfRt05 = cookieDari(rt05, "csrf_token")!;
+
+    const w = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(w.statusCode, "login warga").toBe(200);
+    sidWarga = cookieDari(w, "sid")!;
+
+    const g = await app.inject({ method: "GET", url: `${api}/rt/warga`, cookies: { sid: sidRt } });
+    expect(g.statusCode, "GET /rt/warga untuk kumpul id KK").toBe(200);
+    const data = isi(g).data as { keluarga: { kk: { id: string; noKk: string; kepala: string } }[] };
+    const kkBambang = data.keluarga.find((k) => k.kk.noKk === "3171-xxxx-xxxx-0002");
+    expect(kkBambang, "KK Bambang (seed) jadi tujuan uji").toBeTruthy();
+    idKK = kkBambang!.kk.id;
+    kepalaSebelum = kkBambang!.kk.kepala;
+    expect(idKK, "KK tujuan terbaca").not.toBe("");
+  }, 60_000);
+
+  afterAll(async () => {
+    if (app) {
+      // 1) Jalur resmi: DELETE /rt/warga/:id (menghitung ulang jumlah & kepala).
+      for (const id of idBaru) {
+        await app.inject({
+          method: "DELETE",
+          url: `${api}/rt/warga/${id}`,
+          cookies: sesiRt(),
+          headers: csrfRtHeader(),
+        });
+      }
+      // 2) Fallback SQL: baris uji mana pun yang tersisa (salah satu tes gagal
+      //    di tengah jalan) ikut terhapus — seed kembali utuh untuk B7/B9/B10.
+      await denganScope(PLATFORM, (c) =>
+        c.query(
+          `DELETE FROM warga
+            WHERE rt_id = $1 AND (nama = ANY($2::text[]) OR nama LIKE 'Uji Batas %')`,
+          [idRt04, namaUji],
+        ),
+      );
+      // 3) Hitung ulang agregat KK tujuan (jumlah & kepala keluarga).
+      if (idKK) {
+        await denganScope(PLATFORM, (c) =>
+          c.query(
+            `UPDATE kartu_keluarga k SET
+               jumlah_anggota = (SELECT count(*)::int FROM warga w WHERE w.kk_id = k.id),
+               kepala_keluarga = coalesce(
+                 (SELECT w.nama FROM warga w WHERE w.kk_id = k.id AND w.hubungan = 'kepala' ORDER BY w.nama LIMIT 1),
+                 k.kepala_keluarga)
+             WHERE k.id = $1`,
+            [idKK],
+          ),
+        );
+      }
+    }
+    await tutupAplikasiUji();
+  });
+
+  it("sukses: anggota masuk KK tujuan — jumlah_anggota naik, NIK ter-enkripsi, respons tanpa plaintext, audit tercatat", async () => {
+    const sebelum = await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE kk_id = $1", [idKK]);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/${idKK}/anggota`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {
+        anggota: [
+          anggotaUji(),
+          anggotaUji({
+            nama: "Uji Adik Anggota",
+            nik: "3171050101010008",
+            jenisKelamin: "perempuan",
+            tanggalLahir: "2001-05-05",
+            pekerjaan: "Pelajar",
+            noHp: null,
+          }),
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const balas = isi(res).data as {
+      warga: { id: string; nama: string; statusAkses: string; kk: { id: string } }[];
+      keluarga: {
+        kk: { id: string; noKk: string; kepala: string; jumlahAnggota: number };
+        anggota: { nama: string }[];
+      };
+    };
+
+    // Semua baris baru menunjuk KK tujuan — inilah inti "refer No. KK".
+    expect(balas.warga.length).toBe(2);
+    expect(balas.warga.every((b) => b.kk.id === idKK), "baris baru terikat KK tujuan").toBe(true);
+    expect(balas.warga.every((b) => b.statusAkses === "belum_diundang")).toBe(true);
+    expect(balas.keluarga.kk.jumlahAnggota).toBe(sebelum + 2);
+    expect(balas.keluarga.anggota.some((a) => a.nama === "Uji Tambah Anggota")).toBe(true);
+    expect(balas.keluarga.kk.kepala, "tambah anak tidak mengubah kepala").toBe(kepalaSebelum);
+    // §14/B17: nol nilai 16-digit plaintext di seluruh payload
+    expect(JSON.stringify(balas)).not.toMatch(/\b\d{16}\b/);
+
+    // DB benar-benar menulis: baris masuk + NIK ter-enkripsi (bukan plaintext).
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM warga
+          WHERE kk_id = $1 AND nama IN ('Uji Tambah Anggota', 'Uji Adik Anggota')
+            AND status_akses = 'belum_diundang' AND status_demografis = 'aktif'`,
+        [idKK],
+      ),
+    ).toBe(2);
+    const r = await denganScope(PLATFORM, (c) =>
+      c.query(`SELECT nik_masked, nik_encrypted FROM warga WHERE kk_id = $1 AND nama = 'Uji Tambah Anggota'`, [idKK]),
+    );
+    const baris = r.rows[0] as { nik_masked: string; nik_encrypted: string };
+    expect(baris.nik_masked).toMatch(/x{4}/);
+    expect(baris.nik_masked).not.toContain("3171050101990009");
+    expect(baris.nik_encrypted).not.toContain("3171050101990009");
+
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM kartu_keluarga WHERE id = $1 AND jumlah_anggota = $2",
+        [idKK, sebelum + 2],
+      ),
+      "jumlah_anggota KK diperbarui",
+    ).toBe(1);
+
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        `SELECT count(*)::int AS n FROM audit_log
+          WHERE aksi = 'tambah_warga' AND entitas = 'kartu_keluarga' AND entitas_id = $1
+            AND ringkasan LIKE '%Tambah anggota KK%'`,
+        [idKK],
+      ),
+      "audit tambah anggota tercatat",
+    ).toBeGreaterThanOrEqual(1);
+
+    idBaru.push(...balas.warga.map((b) => b.id));
+  });
+
+  it("guard: tanpa CSRF / sesi warga → 401; lintas-RT & ID asing → 404; param rusak / kosong / NIK ganda → 400", async () => {
+    const anggotaBocor = anggotaUji({ nama: "Uji Bocor", nik: "3171050101990099", noHp: null });
+
+    const tanpaCsrf = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/${idKK}/anggota`,
+      cookies: { sid: sidRt },
+      payload: { anggota: [anggotaBocor] },
+    });
+    expect(tanpaCsrf.statusCode).toBe(401);
+    expect(isi(tanpaCsrf).error?.message).toMatch(/CSRF/);
+
+    const sesiWarga = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/${idKK}/anggota`,
+      cookies: { sid: sidWarga },
+      payload: { anggota: [anggotaBocor] },
+    });
+    expect(sesiWarga.statusCode, "sesi warga tak boleh menulis rute RT").toBe(401);
+
+    const lintas = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/${idKK}/anggota`,
+      cookies: { sid: sidRt05, csrf_token: csrfRt05 },
+      headers: { "x-csrf-token": csrfRt05 },
+      payload: { anggota: [anggotaBocor] },
+    });
+    expect(lintas.statusCode, "RT05 tak bisa menambah anggota ke KK RT04").toBe(404);
+    expect(isi(lintas).error?.code).toBe("NOT_FOUND");
+
+    const asing = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/00000000-0000-4000-8000-000000000000/anggota`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { anggota: [anggotaBocor] },
+    });
+    expect(asing.statusCode, "ID asing → 404 tanpa membocorkan keberadaan").toBe(404);
+
+    const rusak = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/bukan-uuid/anggota`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { anggota: [anggotaBocor] },
+    });
+    expect(rusak.statusCode).toBe(400);
+    expect(isi(rusak).error?.code).toBe("VALIDATION");
+
+    const kosong = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/${idKK}/anggota`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { anggota: [] },
+    });
+    expect(kosong.statusCode).toBe(400);
+
+    const nikGanda = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/${idKK}/anggota`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {
+        anggota: [
+          anggotaBocor,
+          anggotaUji({ nama: "Uji Kembar", nik: "3171050101990099", noHp: null }),
+        ],
+      },
+    });
+    expect(nikGanda.statusCode).toBe(400);
+    expect(isi(nikGanda).error?.message).toMatch(/NIK sama/);
+
+    expect(
+      await hitung(
+        PLATFORM,
+        `SELECT count(*)::int AS n FROM warga
+          WHERE kk_id = $1 AND nama IN ('Uji Bocor', 'Uji Kembar')`,
+        [idKK],
+      ),
+      "tidak ada baris uji lolos dari percobaan di atas",
+    ).toBe(0);
+  });
+
+  it("batas & bentrok: total >50 anggota → 400 tanpa baris parsial; no. HP terdaftar di RT → 409", async () => {
+    const jumlahKini = await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE kk_id = $1", [idKK]);
+    const kelebihan = Array.from({ length: 50 - jumlahKini + 1 }, (_, i) => ({
+      nama: `Uji Batas ${i + 1}`,
+      nik: `31710501${String(10000000 + i)}`,
+      hubungan: "anak",
+      jenisKelamin: null,
+      agama: null,
+      tanggalLahir: null,
+      pekerjaan: null,
+      noHp: null,
+    }));
+    expect(kelebihan.length, "payload lolos zod (maks 50/req) tetapi melewati batas total").toBeLessThanOrEqual(50);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/${idKK}/anggota`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { anggota: kelebihan },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(isi(res).error?.code).toBe("VALIDATION");
+    expect(isi(res).error?.message).toMatch(/maksimal 50/);
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE kk_id = $1 AND nama LIKE 'Uji Batas %'", [idKK]),
+      "tidak ada baris parsial tertinggal",
+    ).toBe(0);
+
+    // No. HP Bambang ('081234567890') sudah terdaftar di RT04 → P2002 → 409;
+    // transaksi di-rollback, tak ada warga setengah jadi.
+    const bentrok = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/${idKK}/anggota`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {
+        anggota: [anggotaUji({ nama: "Uji HP Bentrok", nik: "3171050101990077", noHp: "081234567890" })],
+      },
+    });
+    expect(bentrok.statusCode).toBe(409);
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE kk_id = $1 AND nama = 'Uji HP Bentrok'", [idKK]),
+    ).toBe(0);
+  });
+
+  it("kepala keluarga: anggota baru ber-hubungan 'kepala' mengganti nama kepala KK (semangat PATCH umum)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `${api}/rt/warga/${idKK}/anggota`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {
+        anggota: [anggotaUji({ nama: "Uji Kepala Baru", nik: "3171050101990011", hubungan: "kepala", noHp: null })],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const balas = isi(res).data as {
+      warga: { id: string; hubungan: string }[];
+      keluarga: { kk: { kepala: string } };
+    };
+    expect(balas.warga[0].hubungan).toBe("kepala");
+    expect(balas.keluarga.kk.kepala).toBe("Uji Kepala Baru");
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM kartu_keluarga WHERE id = $1 AND kepala_keluarga = 'Uji Kepala Baru'",
+        [idKK],
+      ),
+      "kepala_keluarga di DB ikut berpindah",
+    ).toBe(1);
+
+    idBaru.push(...balas.warga.map((b) => b.id));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // B7 · B9 · B10 — Pengaturan iuran (B7), generate tagihan bulanan (B9), dan
 // dashboard "Tagihan Tercatat" beserta filternya (B10).
 //

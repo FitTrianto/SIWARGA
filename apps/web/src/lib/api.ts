@@ -1253,7 +1253,7 @@ export function patchKontakKeFe(patch: PatchKontakKeluarga): Partial<FamilyMembe
 
 // ===========================================================================
 // CRUD DATA WARGA — B13 · spesifikasi §5.4 (Portal RT).
-//   GET/POST /rt/warga · PATCH/DELETE /rt/warga/:id
+//   GET/POST /rt/warga · POST /rt/warga/:kkId/anggota · PATCH/DELETE /rt/warga/:id
 // NIK TIDAK PERNAH plaintext (hanya `nikMasked`); No.KK dari server ter-mask.
 // ===========================================================================
 
@@ -1355,6 +1355,24 @@ export function tambahWargaRt(
   payload: TambahWargaRtPayload,
 ): Promise<{ warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer }> {
   return minta("/rt/warga", { method: "POST", body: payload, csrf: true });
+}
+
+/**
+ * POST /rt/warga/:kkId/anggota — tambah anggota ke KK YANG SUDAH ADA (Okt
+ * 2026 · pintu "Tambah Anggota" menu Data Warga). No. KK & alamat TIDAK ikut
+ * payload: tujuan dipegang UUID `kkId` dari `kkList`, sehingga anggota baru
+ * mustahil dirujuk ke KK lain. Respons identik bentuk `tambahWargaRt`
+ * (`{ warga[], keluarga }`) agar penerapan state di halaman sama.
+ */
+export function tambahAnggotaKk(
+  kkId: string,
+  anggota: AnggotaBaruServer[],
+): Promise<{ warga: BarisWargaRtServer[]; keluarga: KeluargaRingkasServer }> {
+  return minta(`/rt/warga/${encodeURIComponent(kkId)}/anggota`, {
+    method: "POST",
+    body: { anggota },
+    csrf: true,
+  });
 }
 
 // --- A10 · Migrasi Data (§9.1(6)) — impor CSV/XLSX warga ---------------------
