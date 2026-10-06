@@ -1713,6 +1713,13 @@ export interface BarisSuratServer {
   /** ISO 8601 — `diajukanPada` bila ada, selain itu `createdAt`. */
   diajukanPada: string;
   terbitPada: string | null;
+  /**
+   * Batch 9 — metadata lampiran pengajuan (≤3, 5 MB/berkas). Nama berkas
+   * tersimpan server TIDAK pernah dikirim — unduhan murni lewat indeks
+   * `…/lampiran/:idx` (`tautanLampiranSurat`); `tipe` dihitung server dari
+   * ekstensi tersimpan (bukan MIME yang diklaim klien).
+   */
+  lampiran: { nama: string; tipe: string; ukuran: number }[];
 }
 
 /**
@@ -1804,13 +1811,39 @@ export function suratWarga(status?: StatusSuratServer): Promise<{
   return minta(status ? `/warga/surat?status=${encodeURIComponent(status)}` : "/warga/surat");
 }
 
-/** B12 — ajukan surat dari Portal Warga; TANPA CSRF mengikuti seluruh rute warga. */
-export function ajukanSuratWarga(payload: {
-  jenis: string;
-  keperluan: string;
-  noSurat?: string;
-}): Promise<{ surat: BarisSuratServer }> {
-  return minta("/warga/surat", { method: "POST", body: payload });
+/**
+ * B12 — ajukan surat dari Portal Warga; TANPA CSRF mengikuti seluruh rute warga.
+ *
+ * Batch 9 — bila ada lampiran dikirim sebagai `multipart/form-data` (field teks
+ * + berkas, ≤3 · 5 MB/berkas, divalidasi lagi di server); tanpa lampiran tetap
+ * JSON seperti semula (jalur lama tak berubah).
+ */
+export function ajukanSuratWarga(
+  payload: { jenis: string; keperluan: string; noSurat?: string },
+  lampiran?: File[],
+): Promise<{ surat: BarisSuratServer }> {
+  if (!lampiran?.length) return minta("/warga/surat", { method: "POST", body: payload });
+  const form = new FormData();
+  form.append("jenis", payload.jenis);
+  form.append("keperluan", payload.keperluan);
+  if (payload.noSurat) form.append("noSurat", payload.noSurat);
+  for (const f of lampiran) form.append("lampiran", f, f.name);
+  return minta("/warga/surat", { method: "POST", body: form });
+}
+
+/**
+ * Batch 9 — tautan unduh lampiran (endpoint memakai cookie sesi; tidak ada
+ * token di URL). `idx` = indeks baris metadata di server, bukan path berkas
+ * (klien tak pernah menentukan path — anti path traversal).
+ */
+export function tautanLampiranSurat(
+  serverId: string | undefined,
+  idx: number,
+  portal: "rt" | "warga",
+): string | null {
+  if (!serverId) return null;
+  const basis = portal === "rt" ? "/rt/surat" : "/warga/surat";
+  return `${PREFIX_API}${basis}/${encodeURIComponent(serverId)}/lampiran/${idx}`;
 }
 
 /** B12 — cek keaslian surat lewat QR (PUBLIK, tanpa sesi, selalu 200). */
@@ -1837,5 +1870,13 @@ export function barisSuratServerKeFe(b: BarisSuratServer): Surat {
     ...(b.catatan ? { catatan: b.catatan } : {}),
     qrToken: b.qrToken,
     noKk: b.noKk,
+    // Batch 9 — `berkas` (nama tersimpan server) sengaja tidak dibawa ke FE;
+    // klien hanya butuh `idx` untuk tautan unduh `…/lampiran/:idx`.
+    lampiran: (b.lampiran ?? []).map((l, idx) => ({
+      nama: l.nama,
+      ukuran: l.ukuran,
+      tipe: l.tipe,
+      idx,
+    })),
   };
 }

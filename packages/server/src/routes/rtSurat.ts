@@ -4,13 +4,16 @@
  *   GET    /rt/pengaturan                    → kop surat + profil visual + profil RT (B12)
  *   PATCH  /rt/pengaturan                    → simpan kop/profil RT (whitelist, wajib CSRF)
  *   GET    /rt/surat?status=                 → antrian & arsip persuratan RT
+ *   GET    /rt/surat/:id/lampiran/:idx        → unduh lampiran pengajuan (RT)
  *   POST   /rt/surat                         → buat baris surat (lihat deviasi)
  *   POST   /rt/surat/:id/terbitkan           → alur RW otomatis bila `perlu_rw`
  *   POST   /rt/surat/:id/setujui             → persetujuan RT (alias terbitkan)
  *   POST   /rt/surat/:id/tolak               → `ditolak` + alasan wajib
  *   POST   /rt/surat/:id/minta-perbaikan     → `perlu_perbaikan` + catatan
  *   GET    /warga/surat?status=              → daftar surat milik sesi + kop
- *   POST   /warga/surat                      → ajukan surat (form Portal Warga)
+ *   POST   /warga/surat                      → ajukan surat (JSON ATAU multipart
+ *                                              dengan ≤3 lampiran, lihat Batch 9)
+ *   GET    /warga/surat/:id/lampiran/:idx     → unduh lampiran milik sesi warga
  *   GET    /publik/verifikasi-surat/:qrToken → cek keaslian via QR (PUBLIK)
  *
  * Keputusan desain (dicatat di laporan tugas):
@@ -42,6 +45,19 @@
  *     sengaja tidak dibuat: seluruh PDF aplikasi (B24 laporan, B12 surat)
  *     dirender di klien dengan jsPDF + kop + QR dari data yang sama, konsisten
  *     dengan `lib/pdfLaporan.ts`. Deviasi ini dicatat pada laporan.
+ *   • **Lampiran pengajuan (Batch 9).** Metadata disimpan pada kolom JSON
+ *     `surat.data_pengajuan` pada kunci `lampiran: [{ nama, berkas, tipe,
+ *     ukuran }]` — pola sama dengan `template_surat` (tanpa migrasi skema).
+ *     Berkas fisik ditulis ke `.data-lampiran/` (gitignore) SEBELUM transaksi
+ *     (pola impor A10): gagal menulis → 500 tanpa baris surat; transaksi gagal
+ *     → berkas dihapus kembali (tidak ada file yatim). `POST /warga/surat`
+ *     menerima dua bentuk: JSON polos (jalur lama) ATAU `multipart/form-data`
+ *     (fields + ≤3 berkas, ekstensi whitelist, 5 MB/berkas) — limit multipart
+ *     yang melempar 413 di-catch di handler dan dipetakan ke VALIDATION 400
+ *     sesuai kontrak §5.0. Unduhan berbasis INDEKS array metadata (`:idx`),
+ *     bukan path dari klien — nama berkas selalu hasil tulisan server (UUID)
+ *     sehingga path traversal tidak mungkin terjadi; konten-tipe disusun dari
+ *     ekstensi (klaim `mimetype` klien tidak pernah dipercaya).
  *
  * Guard §5.0: rute `/rt/**` memakai `wajibRt`, rute `/warga/**` memakai
  * `wajibWarga` tanpa `verifikasiCsrf` (§5.6). Jangkauan data dijaga RLS
@@ -49,8 +65,12 @@
  * `denganScope("platform", …)` karena tidak ada sesi (lihat catatan di bawah).
  * Setiap mutasi mencatat `audit_log` (append-only) dengan diff sebelum/sesudah.
  */
-import { randomBytes } from "node:crypto";
-import type { FastifyPluginAsync, FastifyRequest } from "fastify";
+import { randomBytes, randomUUID } from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import multipart from "@fastify/multipart";
 import { z } from "zod";
 import { Prisma } from "../generated/prisma/client.js";
 import { catatAudit } from "../plugins/audit.js";
@@ -91,6 +111,63 @@ interface KopSurat {
   baris3: string;
 }
 
+// ---------------------------------------------------------------------------
+// Lampiran pengajuan surat (Batch 9 — deviasi terdokumentasi §5.3)
+// ---------------------------------------------------------------------------
+
+/** Batas ukuran per berkas & jumlah berkas per pengajuan (sama dengan pesan FE). */
+const MAKS_LAMPIRAN_BERKAS = 5 * 1024 * 1024;
+const MAKS_JUMLAH_LAMPIRAN = 3;
+
+/** Ekstensi whitelist — divalidasi dari NAMA berkas; MIME klaim klien tidak dipercaya. */
+const EKSTENSI_LAMPIRAN = new Set([
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+]);
+
+/** Folder lampiran — pola sama `.data-impor` (naik 2 tingkat dari `src/` maupun `dist/`). */
+const DIR_LAMPIRAN = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  ".data-lampiran",
+);
+
+/** Konten-tipe disusun SENDIRI dari ekstensi berkas tersimpan (bukan MIME klien). */
+const TIPE_LAMPIRAN: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
+/** Format nama berkas tersimpan — UUID + ekstensi, hasil tulisan server. */
+const NAMA_BERKAS_LAMPIRAN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]{1,8}$/i;
+
+/** Metadata satu lampiran — disimpan pada `surat.data_pengajuan.lampiran` (JSON). */
+interface LampiranSurat {
+  /** Nama asli berkas dari klien (tampilan & Content-Disposition). */
+  nama: string;
+  /** Nama berkas tersimpan (UUID + ekstensi) di `.data-lampiran/`. */
+  berkas: string;
+  /** Konten-tipe hasil hitungan ekstensi server. */
+  tipe: string;
+  /** Ukuran berkas dalam byte. */
+  ukuran: number;
+}
+
 /** Kolom yang dipilih untuk SELURUH daftar surat (tampilan antrian & arsip). */
 const PilihSurat = {
   id: true,
@@ -104,6 +181,7 @@ const PilihSurat = {
   diajukanPada: true,
   terbitPada: true,
   createdAt: true,
+  dataPengajuan: true,
   jenisSurat: { select: { nama: true, kode: true } },
   warga: { select: { nama: true, kk: { select: { noKk: true } } } },
 } as const;
@@ -121,8 +199,201 @@ interface SuratMentah {
   diajukanPada: Date | null;
   terbitPada: Date | null;
   createdAt: Date;
+  dataPengajuan: unknown;
   jenisSurat: { nama: string; kode: string };
   warga: { nama: string; kk: { noKk: string } };
+}
+
+/**
+ * Baca daftar lampiran dari `surat.data_pengajuan` — struktur bukan objek /
+ * entitas tak sesuai format → dilewati (baris lama tanpa lampiran → `[]`).
+ */
+function bacaLampiran(dataPengajuan: unknown): LampiranSurat[] {
+  if (!dataPengajuan || typeof dataPengajuan !== "object" || Array.isArray(dataPengajuan)) return [];
+  const v = (dataPengajuan as Record<string, unknown>).lampiran;
+  if (!Array.isArray(v)) return [];
+  const hasil: LampiranSurat[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== "object" || Array.isArray(x)) continue;
+    const l = x as Record<string, unknown>;
+    if (typeof l.nama !== "string" || typeof l.berkas !== "string") continue;
+    // Nama berkas SELALU dibuat server (UUID + ekstensi) — entitas lain
+    // ditolak sehingga `path.join(DIR_LAMPIRAN, …)` tak pernah bisa keluar folder.
+    if (!NAMA_BERKAS_LAMPIRAN.test(l.berkas)) continue;
+    hasil.push({
+      nama: l.nama.slice(0, 200),
+      berkas: l.berkas,
+      tipe: typeof l.tipe === "string" ? l.tipe : "application/octet-stream",
+      ukuran: typeof l.ukuran === "number" && Number.isFinite(l.ukuran) ? l.ukuran : 0,
+    });
+  }
+  return hasil;
+}
+
+/** Simpan daftar lampiran ke `data_pengajuan` LAMA — kunci lain tetap utuh. */
+function gabungLampiran(dataPengajuan: unknown, lampiran: LampiranSurat[]): Prisma.InputJsonValue {
+  const dasar: Record<string, unknown> =
+    dataPengajuan && typeof dataPengajuan === "object" && !Array.isArray(dataPengajuan)
+      ? { ...(dataPengajuan as Record<string, unknown>) }
+      : {};
+  dasar.lampiran = lampiran;
+  return dasar as unknown as Prisma.InputJsonValue;
+}
+
+/**
+ * `data_pengajuan` baris BARU — kunci `lampiran` hanya ditulis bila ada isinya
+ * supaya bentuk baris tanpa lampiran tidak berubah dari Batch 9 sebelumnya.
+ */
+function dataPengajuanBaru(keperluan: string, lampiran: LampiranSurat[]): Prisma.InputJsonValue {
+  const dasar: Record<string, unknown> = { keperluan, sumber: "portal" };
+  if (lampiran.length) dasar.lampiran = lampiran;
+  return dasar as unknown as Prisma.InputJsonValue;
+}
+
+/** Berkas mentah hasil parse multipart (belum tertulis ke disk). */
+interface BerkasMentah {
+  nama: string;
+  isi: Buffer;
+}
+
+/**
+ * Tulis seluruh berkas ke `.data-lampiran/` (nama = UUID + ekstensi hasil
+ * hitungan server). Melempar `GalatTolak INTERNAL` bila salah satu gagal —
+ * berkas yang sempat tertulis ikut dibuang (tidak ada file setengah jadi).
+ */
+async function tulisLampiran(daftar: BerkasMentah[]): Promise<LampiranSurat[]> {
+  const hasil: LampiranSurat[] = [];
+  try {
+    if (daftar.length) await mkdir(DIR_LAMPIRAN, { recursive: true });
+    for (const b of daftar) {
+      const ekstensi = path.extname(b.nama).toLowerCase();
+      const berkas = `${randomUUID()}${ekstensi}`;
+      await writeFile(path.join(DIR_LAMPIRAN, berkas), b.isi);
+      hasil.push({
+        nama: b.nama.slice(0, 200),
+        berkas,
+        tipe: TIPE_LAMPIRAN[ekstensi] ?? "application/octet-stream",
+        ukuran: b.isi.length,
+      });
+    }
+    return hasil;
+  } catch {
+    await hapusLampiran(hasil);
+    throw new GalatTolak(
+      "INTERNAL",
+      "Berkas lampiran gagal disimpan di server — pengajuan dibatalkan tanpa perubahan data.",
+    );
+  }
+}
+
+/** Hapus berkas lampiran yang sudah tertulis (best-effort, selalu menyelesaikan). */
+async function hapusLampiran(daftar: LampiranSurat[]): Promise<void> {
+  await Promise.all(
+    daftar.map((l) => unlink(path.join(DIR_LAMPIRAN, l.berkas)).catch(() => undefined)),
+  );
+}
+
+/**
+ * Baca `POST /warga/surat` bentuk multipart: field teks + ≤3 berkas lampiran.
+ *
+ * Limit `@fastify/multipart` melempar error `FST_*` ber-status 413 — errorHandler
+ * akan mempertahankan status itu (kontrak §5.0 hanya memakai 400 untuk galat
+ * input), jadi SELURUH error ditangkap di sini dan dipetakan ke
+ * `GalatTolak VALIDATION` (400) dengan pesan Indonesia per kasus.
+ */
+async function bacaAjukanMultipart(
+  req: FastifyRequest,
+): Promise<{ input: z.infer<typeof skemaBuatSuratWarga>; berkas: BerkasMentah[] }> {
+  // Pesan per kode limit busboy — dipilih di sini supaya klien dapat pesan
+  // yang benar-benar menjelaskan batas yang dilanggar.
+  const PESAN_FST: Record<string, string> = {
+    FST_REQ_FILE_TOO_LARGE: "Ukuran satu berkas lampiran melebihi 5 MB.",
+    FST_FILES_LIMIT: `Lampiran maksimal ${MAKS_JUMLAH_LAMPIRAN} berkas.`,
+    FST_FIELDS_LIMIT: "Terlalu banyak field pada pengajuan surat.",
+    FST_PARTS_LIMIT: "Terlalu banyak bagian pada permintaan pengajuan surat.",
+  };
+
+  const kolom: Record<string, string> = {};
+  const berkas: BerkasMentah[] = [];
+  try {
+    for await (const part of req.parts()) {
+      if (part.type === "file") {
+        // Pertahanan kedua — busboy (`files: 3`) sudah menolak berkas ke-4.
+        if (berkas.length >= MAKS_JUMLAH_LAMPIRAN) {
+          throw new GalatTolak("VALIDATION", `Lampiran maksimal ${MAKS_JUMLAH_LAMPIRAN} berkas.`);
+        }
+        // Stream SELALU dibaca dulu (dibatasi 5 MB oleh busboy) SEBELUM
+        // validasi apa pun — membuang part di tengah jalan membuat busboy
+        // menahan parser pada stream yang tak pernah dibaca (backpressure) dan
+        // permintaan bisa menggantung. Pola A10: baca dulu, baru validasi.
+        const isi = await part.toBuffer();
+        const nama = (part.filename ?? "").trim().slice(0, 200);
+        if (!nama) throw new GalatTolak("VALIDATION", "Nama berkas lampiran tidak ditemukan.");
+        // Ekstensi divalidasi dari NAMA berkas; MIME yang diklaim klien tidak
+        // dipercaya. `throwFileSizeLimit` default true → berkas >5 MB melempar
+        // FST_REQ_FILE_TOO_LARGE (terpetakan ke VALIDATION 400 di catch bawah).
+        const ekstensi = path.extname(nama).toLowerCase();
+        if (!EKSTENSI_LAMPIRAN.has(ekstensi)) {
+          throw new GalatTolak(
+            "VALIDATION",
+            `Format berkas "${ekstensi || "(tanpa ekstensi)"}" tidak didukung — gunakan PDF, gambar, atau dokumen (.pdf/.jpg/.jpeg/.png/.webp/.doc/.docx/.xls/.xlsx).`,
+          );
+        }
+        berkas.push({ nama, isi });
+      } else {
+        kolom[part.fieldname] = String(part.value ?? "");
+      }
+    }
+  } catch (e) {
+    if (e instanceof GalatTolak) throw e;
+    const kode = (e as { code?: string }).code;
+    if (typeof kode === "string" && kode.startsWith("FST_")) {
+      throw new GalatTolak("VALIDATION", PESAN_FST[kode] ?? "Berkas lampiran tidak valid.");
+    }
+    throw e;
+  }
+
+  // Field opsional kosong → hilangkan supaya lolos `.min(1)` sebagai `undefined`.
+  if (!kolom.noSurat) delete kolom.noSurat;
+  return { input: skemaBuatSuratWarga.parse(kolom), berkas };
+}
+
+/**
+ * Baca metadata lampiran pada indeks `:idx` + isi berkasnya dari disk.
+ * `meta.berkas` sudah lolos regex UUID di `bacaLampiran` — path tak pernah
+ * berasal dari klien sehingga path traversal tidak mungkin terjadi.
+ */
+async function ambilLampiran(
+  dataPengajuan: unknown,
+  idx: number,
+): Promise<{ meta: LampiranSurat; isi: Buffer }> {
+  const meta = bacaLampiran(dataPengajuan)[idx];
+  if (!meta) throw new GalatTolak("NOT_FOUND", "Lampiran tidak ditemukan pada surat ini.");
+  let isi: Buffer;
+  try {
+    isi = await readFile(path.join(DIR_LAMPIRAN, meta.berkas));
+  } catch {
+    throw new GalatTolak("NOT_FOUND", "Berkas lampiran sudah tidak tersedia di server.");
+  }
+  return { meta, isi };
+}
+
+/**
+ * Header unduh lampiran: konten-tipe disusun dari EKSTENSI tersimpan (bukan
+ * MIME klaim klien), PDF/gambar `inline` (bisa dipratinjau), sisanya `attachment`;
+ * nama asli memakai `filename*` RFC 5987 + fallback ASCII.
+ */
+function setHeaderLampiran(reply: FastifyReply, meta: LampiranSurat): FastifyReply {
+  const ekstensi = path.extname(meta.berkas).toLowerCase();
+  const pratinjau = [".pdf", ".jpg", ".jpeg", ".png", ".webp"].includes(ekstensi);
+  const ascii = meta.nama.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+  return reply
+    .header("content-type", TIPE_LAMPIRAN[ekstensi] ?? "application/octet-stream")
+    .header("x-content-type-options", "nosniff")
+    .header(
+      "content-disposition",
+      `${pratinjau ? "inline" : "attachment"}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(meta.nama)}`,
+    );
 }
 
 /** Enum mentah dipertahankan; `tanggal`/`terbitPada` disajikan sebagai ISO. */
@@ -141,6 +412,10 @@ function jsonSurat(b: SuratMentah) {
     noKk: b.noKk || b.warga.kk.noKk,
     diajukanPada: (b.diajukanPada ?? b.createdAt).toISOString(),
     terbitPada: b.terbitPada ? b.terbitPada.toISOString() : null,
+    // Batch 9 — hanya `nama`/`tipe`/`ukuran` yang keluar ke klien. Nama berkas
+    // tersimpan (UUID di `.data-lampiran/`) adalah detail internal: unduhan
+    // murni lewat indeks `:idx`, jadi klien tak pernah membutuhkannya.
+    lampiran: bacaLampiran(b.dataPengajuan).map((l) => ({ nama: l.nama, tipe: l.tipe, ukuran: l.ukuran })),
   };
 }
 
@@ -216,6 +491,8 @@ interface BaruSurat {
   noSurat: string;
   /** Pemilik surat; rute warga memakai sesi, rute RT mencocokkan nama. */
   warga: { id: string; nama: string; noKk: string };
+  /** Metadata lampiran (Batch 9) — sudah tertulis ke `.data-lampiran/` sebelum transaksi. */
+  lampiran?: LampiranSurat[];
 }
 
 async function buatBarisSurat(
@@ -230,7 +507,20 @@ async function buatBarisSurat(
     where: { rtId_noSurat: { rtId, noSurat: input.noSurat } },
     select: PilihSurat,
   });
-  if (ada) return ada;
+  if (ada) {
+    // Retry dengan lampiran: entri (nama + ukuran) yang sudah tercatat tidak
+    // diduplikasi; lampiran BARU (baris lama dibuat tanpa lampiran) disematkan.
+    const lama = bacaLampiran(ada.dataPengajuan);
+    const baru = (input.lampiran ?? []).filter(
+      (l) => !lama.some((m) => m.nama === l.nama && m.ukuran === l.ukuran),
+    );
+    if (!baru.length) return ada;
+    return tx.surat.update({
+      where: { id: ada.id },
+      data: { dataPengajuan: gabungLampiran(ada.dataPengajuan, [...lama, ...baru]) },
+      select: PilihSurat,
+    });
+  }
 
   return tx.surat.create({
     data: {
@@ -240,7 +530,7 @@ async function buatBarisSurat(
       noKk: input.warga.noKk,
       noSurat: input.noSurat,
       keperluan: input.keperluan,
-      dataPengajuan: { keperluan: input.keperluan, sumber: "portal" },
+      dataPengajuan: dataPengajuanBaru(input.keperluan, input.lampiran ?? []),
       status: "menunggu_rt",
       perluRw: jenis.perluRw,
       qrToken: tokenQrBaru(),
@@ -282,6 +572,11 @@ function inputAudit(
 
 const skemaQuerySurat = z.object({ status: z.enum(STATUS_QUERY).optional() });
 const skemaIdParam = z.object({ id: skemaId });
+/** Param unduh lampiran — `idx` indeks array metadata (bukan path, anti traversal). */
+const skemaLampiranParam = z.object({
+  id: skemaId,
+  idx: z.coerce.number().int().min(0).max(MAKS_JUMLAH_LAMPIRAN - 1),
+});
 const skemaTokenQr = z.object({
   qrToken: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, "Token tidak valid."),
 });
@@ -406,6 +701,14 @@ type JsonPengaturanSurat = ReturnType<typeof jsonPengaturanSurat> & {
 };
 
 export const ruteRtSurat: FastifyPluginAsync = async (app) => {
+  // Multipart TERBATAS untuk scope plugin ini (pola A10): `fileSize` 5 MB,
+  // maksimal 3 berkas, 6 field — hanya dipakai `POST /warga/surat` berlampiran;
+  // rute lain di scope ini tetap memakai JSON (parser tetap terdaftar, tapi
+  // `isMultipart()` yang memilih jalur).
+  await app.register(multipart, {
+    limits: { fileSize: MAKS_LAMPIRAN_BERKAS, files: MAKS_JUMLAH_LAMPIRAN, fields: 6 },
+  });
+
   // =========================================================================
   // B12 · pengaturan kop & profil visual surat
   // =========================================================================
@@ -563,6 +866,30 @@ export const ruteRtSurat: FastifyPluginAsync = async (app) => {
     );
 
     return reply.ok({ surat: daftar.map(jsonSurat) });
+  });
+
+  /**
+   * Batch 9 — unduh lampiran pengajuan dari sisi Portal RT (wajib `wajibRt`).
+   * Jangkauan baris dijaga RLS `p_scope_rt` lewat `denganScopeRequest`;
+   * indeks `:idx` menunjuk metadata lampiran di `data_pengajuan`.
+   */
+  app.get("/rt/surat/:id/lampiran/:idx", async (req, reply) => {
+    const { rtId } = wajibRt(req);
+    const p = skemaLampiranParam.parse(req.params);
+
+    const baris = await denganScopeRequest(req, (tx) =>
+      tx.surat.findUnique({
+        where: { id: p.id },
+        select: { rtId: true, dataPengajuan: true },
+      }),
+    );
+    if (!baris || baris.rtId !== rtId) {
+      throw new GalatTolak("NOT_FOUND", "Surat tidak ditemukan.");
+    }
+
+    const { meta, isi } = await ambilLampiran(baris.dataPengajuan, p.idx);
+    setHeaderLampiran(reply, meta);
+    return reply.send(isi);
   });
 
   /**
@@ -829,51 +1156,114 @@ export const ruteRtSurat: FastifyPluginAsync = async (app) => {
   /**
    * B12 — ajukan surat dari Portal Warga. TANPA `verifikasiCsrf` mengikuti
    * seluruh rute warga (§5.6). Pemilik = sesi warga (bukan input klien).
+   *
+   * Batch 9 — dua bentuk diterima: `application/json` (jalur lama, tanpa
+   * lampiran) ATAU `multipart/form-data` (field + ≤3 lampiran). Berkas ditulis
+   * ke `.data-lampiran/` SEBELUM transaksi (pola A10 — `file_url` tidak bohong):
+   * gagal menulis → 500 tanpa baris surat; transaksi gagal → berkas dihapus
+   * kembali (tidak ada file yatim). Berkas yang tidak tercatat pada baris
+   * akhir (retry idempoten yang menolak duplikat) ikut dibersihkan.
    */
   app.post("/warga/surat", async (req, reply) => {
     const { rtId, wargaId } = wajibWarga(req);
-    const input = skemaBuatSuratWarga.parse(req.body ?? {});
 
-    const hasil = await denganScopeRequest(req, async (tx) => {
-      const warga = await tx.warga.findUnique({
-        where: { id: wargaId },
-        select: { id: true, nama: true, kk: { select: { noKk: true } } },
+    let input: z.infer<typeof skemaBuatSuratWarga>;
+    let berkasMentah: BerkasMentah[] = [];
+    if (req.isMultipart()) {
+      const hasilBaca = await bacaAjukanMultipart(req);
+      input = hasilBaca.input;
+      berkasMentah = hasilBaca.berkas;
+    } else {
+      input = skemaBuatSuratWarga.parse(req.body ?? {});
+    }
+
+    const lampiran = await tulisLampiran(berkasMentah);
+
+    let hasil: SuratMentah;
+    try {
+      hasil = await denganScopeRequest(req, async (tx) => {
+        const warga = await tx.warga.findUnique({
+          where: { id: wargaId },
+          select: { id: true, nama: true, kk: { select: { noKk: true } } },
+        });
+        if (!warga) throw new GalatTolak("UNAUTHORIZED", "Data warga sesi tidak ditemukan.");
+
+        const jenis = await jenisSuratUntuk(tx, rtId, input.jenis);
+        const noSurat = input.noSurat ?? (await nomorSuratBerikutnya(tx, rtId, jenis.kode));
+        const baris = await buatBarisSurat(tx, rtId, {
+          jenis: input.jenis,
+          keperluan: input.keperluan,
+          noSurat,
+          warga: { id: warga.id, nama: warga.nama, noKk: warga.kk.noKk },
+          ...(lampiran.length ? { lampiran } : {}),
+        });
+
+        const jumlahLampiran = bacaLampiran(baris.dataPengajuan).length;
+        await catatAudit(
+          {
+            scopeLevel: "rt",
+            scopeId: rtId,
+            actorId: wargaId,
+            actorRole: "warga",
+            portal: "warga",
+            modul: "surat",
+            aksi: "ajukan_surat",
+            aksiBadge: "Pengajuan",
+            entitas: "surat",
+            entitasId: baris.id,
+            sebelum: null,
+            sesudah: {
+              noSurat: baris.noSurat,
+              jenis: baris.jenisSurat.nama,
+              status: baris.status,
+              jumlahLampiran,
+            },
+            ringkasan: `Ajukan ${baris.jenisSurat.nama} (${baris.noSurat}) — ${baris.keperluan}${
+              jumlahLampiran ? ` (+${jumlahLampiran} lampiran)` : ""
+            }`,
+            ip: req.ipAsli,
+          },
+          tx,
+        );
+
+        return baris;
       });
-      if (!warga) throw new GalatTolak("UNAUTHORIZED", "Data warga sesi tidak ditemukan.");
+    } catch (e) {
+      // Transaksi gagal / warga tak ditemukan → berkas yang baru ditulis dibuang.
+      await hapusLampiran(lampiran);
+      throw e;
+    }
 
-      const jenis = await jenisSuratUntuk(tx, rtId, input.jenis);
-      const noSurat = input.noSurat ?? (await nomorSuratBerikutnya(tx, rtId, jenis.kode));
-      const baris = await buatBarisSurat(tx, rtId, {
-        jenis: input.jenis,
-        keperluan: input.keperluan,
-        noSurat,
-        warga: { id: warga.id, nama: warga.nama, noKk: warga.kk.noKk },
-      });
-
-      await catatAudit(
-        {
-          scopeLevel: "rt",
-          scopeId: rtId,
-          actorId: wargaId,
-          actorRole: "warga",
-          portal: "warga",
-          modul: "surat",
-          aksi: "ajukan_surat",
-          aksiBadge: "Pengajuan",
-          entitas: "surat",
-          entitasId: baris.id,
-          sebelum: null,
-          sesudah: { noSurat: baris.noSurat, jenis: baris.jenisSurat.nama, status: baris.status },
-          ringkasan: `Ajukan ${baris.jenisSurat.nama} (${baris.noSurat}) — ${baris.keperluan}`,
-          ip: req.ipAsli,
-        },
-        tx,
-      );
-
-      return baris;
-    });
+    // Retry idempoten: baris sudah ada dengan entri lampiran sama → berkas
+    // duplikat tidak tercatat di DB, jadi file fisiknya ikut dibuang di sini.
+    const tercatat = new Set(bacaLampiran(hasil.dataPengajuan).map((l) => l.berkas));
+    await hapusLampiran(lampiran.filter((l) => !tercatat.has(l.berkas)));
 
     return reply.ok({ surat: jsonSurat(hasil) });
+  });
+
+  /**
+   * Batch 9 — unduh lampiran pengajuan sebagai SESI WARGA pemilik.
+   * Filter `wargaId` wajib eksplisit: RLS scope-nya setingkat RT (baris warga
+   * lain ikut terlihat oleh scope, sama seperti `GET /warga/surat`).
+   */
+  app.get("/warga/surat/:id/lampiran/:idx", async (req, reply) => {
+    const { rtId, wargaId } = wajibWarga(req);
+    const p = skemaLampiranParam.parse(req.params);
+
+    const baris = await denganScopeRequest(req, (tx) =>
+      tx.surat.findUnique({
+        where: { id: p.id },
+        select: { rtId: true, wargaId: true, dataPengajuan: true },
+      }),
+    );
+    if (!baris || baris.rtId !== rtId || baris.wargaId !== wargaId) {
+      throw new GalatTolak("NOT_FOUND", "Surat tidak ditemukan.");
+    }
+
+    const { meta, isi } = await ambilLampiran(baris.dataPengajuan, p.idx);
+    setHeaderLampiran(reply, meta);
+    return reply.send(isi);
   });
 
   // =========================================================================

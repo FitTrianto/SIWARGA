@@ -355,6 +355,15 @@ export default function App() {
   const [peringatanSesi, setPeringatanSesi] = useState(false);
   // Waktu aktivitas pointer/keyboard terakhir — diukur pengukur sesi diam.
   const aktivitasRef = useRef<number>(Date.now());
+  // Batch 9 · Bug A — generasi pemuatan data sesi RT. Setiap permintaan muat
+  // ulang menaikkan nomor; hasil permintaan LAMA yang terlambat datang lalu
+  // diabaikan (tak menimpa data sesi yang lebih baru). Dinaikkan juga saat
+  // peran berakhir/berganti supaya pemuatan yang masih berjalan gugur.
+  const generasiMuatRtRef = useRef(0);
+  // Tanda server RT benar-benar menjawab (GET pertama sukses) — polling 45 dtk
+  // hanya berjalan selama ini `true`; OFFLINE → `false` & polling berhenti
+  // supaya mode demo tidak membanjiri server/jaringan dengan galat percuma.
+  const rtServerSehatRef = useRef(true);
   const [kkList, setKkList] = useState<KkData[]>(initialKkList);
   const [kendaraanR4Count, setKendaraanR4Count] = useState(1);
 
@@ -515,6 +524,138 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peranMasuk]);
 
+  /**
+   * Batch 9 · Bug A — muat SELURUH data sesi RT dari API (8 GET; pola sama
+   * dengan blok boot lama). Ditarik keluar dari efek boot supaya dapat
+   * dipanggil ulang dari empat titik:
+   *   1. boot peran `rt` (efek `[peranMasuk]`),
+   *   2. berpindah halaman dalam Portal RT (efek `[page, peranMasuk]`),
+   *   3. jendela kembali fokus/terlihat (debounce 400 ms),
+   *   4. polling 45 detik — hanya bila tab terlihat DAN server sehat.
+   * Dengan itu input dari Portal Warga (data keluarga, iuran, pengajuan surat)
+   * langsung terlihat di Portal RT tanpa logout-login. Sengaja TANPA
+   * websocket/push: cakupan ini sudah menutup alur pemakaian nyata dengan
+   * biaya & kompleksitas jauh lebih kecil (jujur di laporan batch 9 §7).
+   *
+   * Guard `generasiMuatRtRef`: tiap panggilan menaikkan nomor; pemuatan lama
+   * yang datang belakangan menganggur (tak menimpa sesi yang lebih baru), dan
+   * nomor ikut naik saat peran berakhir/berganti. OFFLINE → data demo
+   * dipertahankan & `rtServerSehatRef` jadi `false` (polling berhenti).
+   */
+  const muatDataRtSesi = async (): Promise<void> => {
+    const generasi = ++generasiMuatRtRef.current;
+    const batal = () => generasiMuatRtRef.current !== generasi;
+    // OFFLINE menandai server tidak sehat; kegagalan non-OFFLINE (mis. sesi
+    // habis) tidak ikut menyalakan tanda ini — urusannya sudah ditangani
+    // `tanganiSesiHabis`/console di bawah.
+    const tandaiOffline = (e: unknown) => {
+      if (e instanceof GalatApi && e.code === "OFFLINE") rtServerSehatRef.current = false;
+    };
+
+    // B13 · CRUD Data Warga (§5.4): daftar baris warga + KK dari server
+    // menjadi sumber kebenaran bersama Portal RT ↔ Portal Warga. OFFLINE /
+    // sesi habis → pertahankan data demo (pola sama dengan iuran/kas).
+    try {
+      const d = await daftarWargaRt();
+      if (batal()) return;
+      // GET pertama sukses → server memang menyala; polling 45 dtk boleh jalan
+      // lagi (mis. setelah server sempat OFFLINE lalu dinyalakan ulang).
+      rtServerSehatRef.current = true;
+      setWargaRtList(d.warga.map(barisServerKeWargaRt));
+      setKkList(d.keluarga.map(keluargaKeKkData));
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      if (tanganiSesiHabis(e)) return;
+      console.info("[data-warga] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+    // §5.4 · Data Hunian: daftar unit dari server jadi sumber kebenaran
+    // (sebelumnya state demo FE — "input hunian terputus" tak pernah
+    // tersimpan). OFFLINE / sesi habis → data demo dipertahankan.
+    try {
+      const h = await daftarHunianRt();
+      if (batal()) return;
+      setHunianList(h.hunian.map(hunianServerKeHunian));
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      if (tanganiSesiHabis(e)) return;
+      console.info("[hunian] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+    // Okt 2026 · daftar undangan dari server: status token SEBENARNYA
+    // (termasuk "Kedaluwarsa" lewat 24 jam §4.2) + UUID token sehingga
+    // tombol Cabut/Kirim Ulang tetap berdaya setelah F5. OFFLINE → daftar
+    // demo dipertahankan (jalur mode demo).
+    try {
+      const u = await daftarUndanganRt();
+      if (batal()) return;
+      setUndanganList(u.undangan.map(undanganServerKeUndangan));
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      if (tanganiSesiHabis(e)) return;
+      console.info("[undangan] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+    try {
+      const r = await pembayaranRt();
+      if (batal()) return;
+      setPembayaran(
+        r.pembayaran.map((b) => barisKePembayaran(b, b.alamat ?? "-", b.nama ?? "-")),
+      );
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      console.info("[iuran] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+    // Iuran kondisional di sisi RT: daftar tagihan insidental + progres
+    // per warga dari server; OFFLINE → data demo dipertahankan.
+    try {
+      const k = await daftarKondisionalRt();
+      if (batal()) return;
+      setTagihanTambahanList(k.daftar.map(kondisionalRtKeKartu));
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      console.info("[kondisional-rt] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+    // F-6 · buku kas: ganti seluruh state (urut jurnal — baris terakhir = saldo
+    // terkini). Galat terpisah supaya kegagalan kas tidak membatalkan iuran.
+    try {
+      const k = await daftarKasRt();
+      if (batal()) return;
+      setKasRtList(k.entri.map(entriKeKasRt));
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      console.info("[kas] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+    // F-5 · B11: antrean ajuan perubahan data warga (tanpa filter status →
+    // seluruh riwayat; panel RT menampilkan yang `menunggu` untuk diproses).
+    try {
+      const a = await daftarAjuanPerubahanRt();
+      if (batal()) return;
+      setAjuanRt(a.ajuan);
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      console.info("[ajuan] antrean kosong:", e instanceof GalatApi ? e.code : e);
+    }
+    // B12 · antrian persuratan (§6.6): baris server = rujukan status & nomor
+    // untuk Surat Pengantar; OFFLINE / sesi habis → data demo dipertahankan.
+    // `lampiran` baris ikut terbawa (Batch 9) sehingga berkas pengajuan warga
+    // langsung terlihat di Portal RT.
+    try {
+      const s = await daftarSuratRt();
+      if (batal()) return;
+      setSuratList((prev) => gabungSuratServer(prev, s.surat));
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      if (tanganiSesiHabis(e)) return;
+      console.info("[surat] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+  };
+
   // F-6 · muat data keluarga + modul iuran dari API begitu sesi peran terpasang
   // (API-first). Galat OFFLINE → pertahankan data demo; sesi habis → alihkan ke
   // halaman masuk (`tanganiSesiHabis`). Tampilan tak pernah putus.
@@ -601,95 +742,83 @@ export default function App() {
     // sesi berikutnya — kembalikan ke seed demo (identity-guard sama).
     setUndanganList((prev) => (prev === undanganDefault ? prev : undanganDefault));
     if (peranMasuk === "rt") {
-      let batal = false;
-      void (async () => {
-        // B13 · CRUD Data Warga (§5.4): daftar baris warga + KK dari server
-        // menjadi sumber kebenaran bersama Portal RT ↔ Portal Warga. OFFLINE /
-        // sesi habis → pertahankan data demo (pola sama dengan iuran/kas).
-        try {
-          const d = await daftarWargaRt();
-          if (batal) return;
-          setWargaRtList(d.warga.map(barisServerKeWargaRt));
-          setKkList(d.keluarga.map(keluargaKeKkData));
-        } catch (e) {
-          if (tanganiSesiHabis(e)) return;
-          console.info("[data-warga] memakai data demo:", e instanceof GalatApi ? e.code : e);
-        }
-        // §5.4 · Data Hunian: daftar unit dari server jadi sumber kebenaran
-        // (sebelumnya state demo FE — "input hunian terputus" tak pernah
-        // tersimpan). OFFLINE / sesi habis → data demo dipertahankan.
-        try {
-          const h = await daftarHunianRt();
-          if (batal) return;
-          setHunianList(h.hunian.map(hunianServerKeHunian));
-        } catch (e) {
-          if (tanganiSesiHabis(e)) return;
-          console.info("[hunian] memakai data demo:", e instanceof GalatApi ? e.code : e);
-        }
-        // Okt 2026 · daftar undangan dari server: status token SEBENARNYA
-        // (termasuk "Kedaluwarsa" lewat 24 jam §4.2) + UUID token sehingga
-        // tombol Cabut/Kirim Ulang tetap berdaya setelah F5. OFFLINE → daftar
-        // demo dipertahankan (jalur mode demo).
-        try {
-          const u = await daftarUndanganRt();
-          if (batal) return;
-          setUndanganList(u.undangan.map(undanganServerKeUndangan));
-        } catch (e) {
-          if (tanganiSesiHabis(e)) return;
-          console.info("[undangan] memakai data demo:", e instanceof GalatApi ? e.code : e);
-        }
-        try {
-          const r = await pembayaranRt();
-          if (batal) return;
-          setPembayaran(
-            r.pembayaran.map((b) => barisKePembayaran(b, b.alamat ?? "-", b.nama ?? "-")),
-          );
-        } catch (e) {
-          console.info("[iuran] memakai data demo:", e instanceof GalatApi ? e.code : e);
-        }
-        // Iuran kondisional di sisi RT: daftar tagihan insidental + progres
-        // per warga dari server; OFFLINE → data demo dipertahankan.
-        try {
-          const k = await daftarKondisionalRt();
-          if (batal) return;
-          setTagihanTambahanList(k.daftar.map(kondisionalRtKeKartu));
-        } catch (e) {
-          console.info("[kondisional-rt] memakai data demo:", e instanceof GalatApi ? e.code : e);
-        }
-        // F-6 · buku kas: ganti seluruh state (urut jurnal — baris terakhir = saldo
-        // terkini). Galat terpisah supaya kegagalan kas tidak membatalkan iuran.
-        try {
-          const k = await daftarKasRt();
-          if (batal) return;
-          setKasRtList(k.entri.map(entriKeKasRt));
-        } catch (e) {
-          console.info("[kas] memakai data demo:", e instanceof GalatApi ? e.code : e);
-        }
-        // F-5 · B11: antrean ajuan perubahan data warga (tanpa filter status →
-        // seluruh riwayat; panel RT menampilkan yang `menunggu` untuk diproses).
-        try {
-          const a = await daftarAjuanPerubahanRt();
-          if (batal) return;
-          setAjuanRt(a.ajuan);
-        } catch (e) {
-          console.info("[ajuan] antrean kosong:", e instanceof GalatApi ? e.code : e);
-        }
-        // B12 · antrian persuratan (§6.6): baris server = rujukan status & nomor
-        // untuk Surat Pengantar; OFFLINE / sesi habis → data demo dipertahankan.
-        try {
-          const s = await daftarSuratRt();
-          if (batal) return;
-          setSuratList((prev) => gabungSuratServer(prev, s.surat));
-        } catch (e) {
-          if (tanganiSesiHabis(e)) return;
-          console.info("[surat] memakai data demo:", e instanceof GalatApi ? e.code : e);
-        }
-      })();
+      // Batch 9 · Bug A — blok 8 GET lama diekstrak menjadi `muatDataRtSesi`
+      // (lihat di atas) agar bisa dipanggil ulang saat navigasi/fokus/polling.
+      void muatDataRtSesi();
       return () => {
-        batal = true;
+        // Peran berakhir/berganti → pemuatan yang masih berjalan gugur
+        // (hasilnya tak boleh bocor ke sesi berikutnya).
+        generasiMuatRtRef.current += 1;
       };
     }
     return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peranMasuk]);
+
+  /**
+   * Batch 9 · Bug A (pemicu 2) — muat ulang data sesi RT SETIAP BERPINDAH
+   * HALAMAN dalam Portal RT: pengurus kembali ke dashboard/daftar, data terbaru
+   * dari Portal Warga (data keluarga, iuran, pengajuan surat) langsung terbaca
+   * tanpa logout-login. Sesi `warga` tidak ikut — Portal Warga sudah punya
+   * refresh-on-page (iuran) dan polling miliknya sendiri.
+   *
+   * Efek boot lama TETAP jalan duluan saat login; untuk menghindari dua pemuatan
+   * 8 GET berbarengan, perpindahan dari halaman `login` dilewati (baris `sudah`
+   * = navigasi login→portal sudah ditangani boot `[peranMasuk]`).
+   */
+  const peranRtPernahBoot = useRef(false);
+  useEffect(() => {
+    if (peranMasuk !== "rt") {
+      peranRtPernahBoot.current = false;
+      return;
+    }
+    if (!peranRtPernahBoot.current) {
+      // Boot `[peranMasuk]` baru saja memuat — tandai selesai, jangan dobel.
+      peranRtPernahBoot.current = true;
+      return;
+    }
+    void muatDataRtSesi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, peranMasuk]);
+
+  /**
+   * Batch 9 · Bug A (pemicu 3) — jendela kembali FOKUS / tab terlihat lagi:
+   * pengurus selesai ngobrol di WhatsApp lalu kembali → data disegarkan
+   * (debounce 400 ms supaya `focus` + `visibilitychange` yang datang berbarengan
+   * hanya memicu SATU muat ulang).
+   */
+  useEffect(() => {
+    if (peranMasuk !== "rt") return;
+    let jeda = 0;
+    const segarkan = () => {
+      window.clearTimeout(jeda);
+      jeda = window.setTimeout(() => void muatDataRtSesi(), 400);
+    };
+    window.addEventListener("focus", segarkan);
+    document.addEventListener("visibilitychange", segarkan);
+    return () => {
+      window.clearTimeout(jeda);
+      window.removeEventListener("focus", segarkan);
+      document.removeEventListener("visibilitychange", segarkan);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peranMasuk]);
+
+  /**
+   * Batch 9 · Bug A (pemicu 4) — polling 45 detik HANYA bila tab terlihat DAN
+   * server pernah menjawab (`rtServerSehatRef`): mode demo/offline tidak akan
+   * membanjiri jaringan dengan 8 GET mati tiap 45 detik, dan tab di latar
+   * belakang tidak boros baterai/kuota. TANPA websocket/push — keputusan
+   * sadar-sadar dicatat di laporan batch 9 §7.
+   */
+  useEffect(() => {
+    if (peranMasuk !== "rt") return;
+    const jeda = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (!rtServerSehatRef.current) return;
+      void muatDataRtSesi();
+    }, 45_000);
+    return () => window.clearInterval(jeda);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peranMasuk]);
 
@@ -1284,11 +1413,18 @@ export default function App() {
    * sehingga tidak pernah bentrok dengan nomor milik warga lain. `noKk` baris
    * dipaksa ke nilai sesi agar filter Pengajuan Surat tetap menangkap baris
    * server. OFFLINE → baris lokal (mode demo); galat lain DITERUSKAN.
+   *
+   * Batch 9 — `lampiran` ikut dikirim sebagai multipart (≤3 · 5 MB/berkas).
+   * MENJAWAB `true` hanya bila baris tersimpan di server; `false` = baris
+   * lokal mode demo (berkas TIDAK tersimpan — pemicu flash jujur di komponen).
    */
-  const ajukanSuratWargaSesi = async (s: Omit<Surat, "id">): Promise<void> => {
+  const ajukanSuratWargaSesi = async (
+    s: Omit<Surat, "id">,
+    lampiran?: File[],
+  ): Promise<boolean> => {
     let baris: Surat | null = null;
     try {
-      const hasil = await ajukanSuratWarga({ jenis: s.jenis, keperluan: s.keperluan });
+      const hasil = await ajukanSuratWarga({ jenis: s.jenis, keperluan: s.keperluan }, lampiran);
       baris = { ...barisSuratServerKeFe(hasil.surat), ...(s.noKk ? { noKk: s.noKk } : {}) };
     } catch (e) {
       if (!(e instanceof GalatApi && e.code === "OFFLINE")) {
@@ -1296,8 +1432,11 @@ export default function App() {
         throw e;
       }
     }
-    const baru: Surat = baris ?? { ...s, id: `s${Date.now()}` };
+    // Baris demo/offline TIDAK PERNAH membawa lampiran — tak ada berkas yang
+    // benar-benar tersimpan, jangan ditampilkan seolah ada.
+    const baru: Surat = baris ?? { ...s, id: `s${Date.now()}`, lampiran: [] };
     setSuratList((prev) => [baru, ...prev]);
+    return baris !== null;
   };
 
   // RT membuat tagihan kondisional → API-first (POST /rt/iuran/kondisional):

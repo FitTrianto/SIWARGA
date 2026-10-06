@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { tenant } from "../../lib/tenant";
 import {
   Surat,
@@ -7,12 +7,18 @@ import {
   downloadText,
   jenisSuratOptions,
   noSuratOtomatis,
+  ukuranBerkas,
   Pengurus,
   KopSurat,
 } from "../../lib/shared";
-import { GalatApi } from "../../lib/api";
+import { GalatApi, tautanLampiranSurat } from "../../lib/api";
 import { EmptyState } from "../../components/EmptyState";
 import { useFlash } from "../../lib/useFlash";
+
+/** Batas lampiran — SAMA dengan validasi server `POST /warga/surat` (Batch 9). */
+const MAKS_LAMPIRAN = 3;
+const MAKS_UKURAN_LAMPIRAN = 5 * 1024 * 1024;
+const EKSTENSI_LAMPIRAN = ["pdf", "jpg", "jpeg", "png", "webp", "doc", "docx", "xls", "xlsx"];
 
 interface PengajuanSuratProps {
   onNavigate?: (page: string) => void;
@@ -24,8 +30,13 @@ interface PengajuanSuratProps {
    * B12 — `POST /warga/surat` (tanpa CSRF §5.6); nomor surat dihasilkan server.
    * OFFLINE → baris lokal (mode demo); galat lain MELEMPAR (sesi habis ditangani
    * App) — dialog ajukan tetap terbuka agar pesan server terlihat.
+   *
+   * Batch 9 — `lampiran` (≤3 · 5 MB/berkas) ikut dikirim sebagai multipart;
+   * MENJAWAB `true` bila tersimpan DARING di server, `false` bila baris lokal
+   * mode demo (komponen lalu memberi tahu pengguna bahwa lampiran TIDAK
+   * tersimpan — jangan pernah mengaku sukses untuk berkas yang tak tersimpan).
    */
-  onAjukan: (s: Omit<Surat, "id">) => Promise<void>;
+  onAjukan: (s: Omit<Surat, "id">, lampiran?: File[]) => Promise<boolean>;
   /** Perbaiki pengajuan milik warga (sebelum diverifikasi Pengurus RT). */
   onEdit: (id: string, patch: Partial<Surat>) => void;
   /** Hapus pengajuan milik warga (sebelum diverifikasi Pengurus RT). */
@@ -116,7 +127,21 @@ export function PengajuanSurat({
   // Edit & Hapus hanya untuk pengajuan yang belum diverifikasi Pengurus RT.
   const [editingSurat, setEditingSurat] = useState<Surat | null>(null);
   const [hapusSurat, setHapusSurat] = useState<Surat | null>(null);
+  /**
+   * Batch 9 — lampiran terpilih untuk pengajuan BARU. Sengaja disimpan sebagai
+   * `File[]` asli (bukan salinan data) supaya `FormData` mengirim isi berkas
+   * apa adanya; dialog selalu me-reset daftar saat dibuka/ditutup/dikirim
+   * supaya berkas pengajuan lama tidak pernah ikut ke pengajuan berikutnya.
+   */
+  const [berkasDipilih, setBerkasDipilih] = useState<File[]>([]);
+  const inputBerkasRef = useRef<HTMLInputElement | null>(null);
   const { flash, toast } = useFlash();
+
+  /** Bersihkan pilihan lampiran (dipanggil saat buka/tutup/kirim form). */
+  function resetBerkas() {
+    setBerkasDipilih([]);
+    if (inputBerkasRef.current) inputBerkasRef.current.value = "";
+  }
 
   /** Pengajuan boleh diperbaiki/dihapus warga selama statusnya Draft/Menunggu RT. */
   function bisaDiperbaiki(s: Surat): boolean {
@@ -141,7 +166,41 @@ export function PengajuanSurat({
     setFormJenis(jenisSuratOptions[0]);
     setFormKeperluan("");
     setEditingSurat(null);
+    resetBerkas();
     setShowForm(true);
+  }
+
+  /**
+   * Batch 9 — terima berkas dari input/drag-drop, validasi SAMA PERSIS dengan
+   * server (ekstensi whitelist, 5 MB, maks. 3, tanpa duplikat nama+ukuran).
+   * Berkas yang ditolak TIDAK diam-diam dibuang: alasannya di-flash agar
+   * pengguna tahu berkas mana yang tidak masuk dan mengapa.
+   */
+  function terimaBerkas(daftar: File[]) {
+    const ditolak: string[] = [];
+    let pilih = [...berkasDipilih];
+    for (const f of daftar) {
+      const ekstensi = (f.name.split(".").pop() ?? "").toLowerCase();
+      if (!EKSTENSI_LAMPIRAN.includes(ekstensi)) {
+        ditolak.push(`"${f.name}" format tidak didukung`);
+        continue;
+      }
+      if (f.size > MAKS_UKURAN_LAMPIRAN) {
+        ditolak.push(`"${f.name}" melebihi 5 MB`);
+        continue;
+      }
+      if (pilih.length >= MAKS_LAMPIRAN) {
+        ditolak.push(`"${f.name}" — lampiran maksimal ${MAKS_LAMPIRAN} berkas`);
+        continue;
+      }
+      if (pilih.some((x) => x.name === f.name && x.size === f.size)) {
+        ditolak.push(`"${f.name}" sudah dipilih`);
+        continue;
+      }
+      pilih = [...pilih, f];
+    }
+    setBerkasDipilih(pilih);
+    if (ditolak.length) flash(`Berkas ditolak: ${ditolak.join("; ")}.`);
   }
 
   function ajukanUlang(s: Surat) {
@@ -255,24 +314,37 @@ export function PengajuanSurat({
       setEditingSurat(null);
       setFormJenis(jenisSuratOptions[0]);
       setFormKeperluan("");
+      resetBerkas();
       setShowForm(false);
       flash("Pengajuan surat diperbarui — masih menunggu verifikasi Pengurus RT.");
       return;
     }
 
     try {
-      await onAjukan({
-        // No. Surat wajib ada sejak pengajuan dikirim (mode demo/OFFLINE);
-        // saat daring server yang menghasilkan nomor antrean terakhir.
-        noSurat: noSuratOtomatis(surat),
-        jenis,
-        pemohon,
-        keperluan,
-        tanggal: new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" }),
-        status: "Menunggu RT",
-        perluRw: suratPerluRw(jenis),
-        noKk,
-      });
+      const daring = await onAjukan(
+        {
+          // No. Surat wajib ada sejak pengajuan dikirim (mode demo/OFFLINE);
+          // saat daring server yang menghasilkan nomor antrean terakhir.
+          noSurat: noSuratOtomatis(surat),
+          jenis,
+          pemohon,
+          keperluan,
+          tanggal: new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" }),
+          status: "Menunggu RT",
+          perluRw: suratPerluRw(jenis),
+          noKk,
+        },
+        berkasDipilih,
+      );
+      // Mode demo / OFFLINE: baris lokal tetap tampil, TAPI berkas lampiran
+      // tidak tersimpan di mana pun — dikatakan apa adanya, bukan "berhasil".
+      if (!daring && berkasDipilih.length) {
+        flash(
+          `Server sedang offline — pengajuan ditampilkan dalam mode demo. ${berkasDipilih.length} lampiran TIDAK tersimpan.`,
+        );
+      } else {
+        flash(`Pengajuan surat berhasil dikirim ke Pengurus ${tenant.rtFull}!`);
+      }
     } catch (err) {
       // Galat server (validasi, sesi habis) → dialog tetap terbuka + pesan asli.
       flash(err instanceof GalatApi ? err.message : "Pengajuan surat gagal dikirim — coba lagi.");
@@ -280,7 +352,7 @@ export function PengajuanSurat({
     }
     setFormJenis(jenisSuratOptions[0]);
     setFormKeperluan("");
-    flash(`Pengajuan surat berhasil dikirim ke Pengurus ${tenant.rtFull}!`);
+    resetBerkas();
     setShowForm(false);
   }
 
@@ -508,6 +580,43 @@ export function PengajuanSurat({
                   </div>
                 </div>
               )}
+              {/* Batch 9 — lampiran pengajuan: tautan unduh memakai sesi cookie;
+                  baris demo/offline tak pernah punya lampiran (tidak tersimpan). */}
+              {(detailSurat.lampiran?.length ?? 0) > 0 && (
+                <div className="p-3 rounded-xl bg-surface-container-low col-span-2">
+                  <div className="text-[11px] text-on-surface-variant uppercase tracking-wider font-semibold">Lampiran</div>
+                  <ul className="flex flex-col gap-1.5 mt-1.5">
+                    {detailSurat.lampiran!.map((l) => {
+                      const tautan = tautanLampiranSurat(detailSurat.serverId, l.idx, "warga");
+                      const isi = (
+                        <>
+                          <span className="material-symbols-outlined text-[15px] text-primary shrink-0">attach_file</span>
+                          <span className="text-xs text-on-surface truncate">{l.nama}</span>
+                          <span className="text-[11px] text-on-surface-variant ml-auto shrink-0">{ukuranBerkas(l.ukuran)}</span>
+                        </>
+                      );
+                      return (
+                        <li key={`${l.nama}-${l.idx}`}>
+                          {tautan ? (
+                            <a
+                              href={tautan}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant/30 hover:border-primary/50 transition-colors"
+                            >
+                              {isi}
+                            </a>
+                          ) : (
+                            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant/30">
+                              {isi}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
 
             {/* Alur progres */}
@@ -575,7 +684,7 @@ export function PengajuanSurat({
               </div>
               <button
                 className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant"
-                onClick={() => { setShowForm(false); setEditingSurat(null); }}
+                onClick={() => { setShowForm(false); setEditingSurat(null); resetBerkas(); }}
               >
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
@@ -607,19 +716,76 @@ export function PengajuanSurat({
                   onChange={(e) => setFormKeperluan(e.target.value)}
                 />
               </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-on-surface">Lampiran Berkas Pendukung</label>
-                <div className="p-5 rounded-xl border border-dashed border-outline/30 bg-surface-container-low/50 flex flex-col items-center gap-2 cursor-pointer hover:bg-surface-container-low transition-colors">
-                  <span className="material-symbols-outlined text-[32px] text-primary">upload_file</span>
-                  <span className="text-xs font-bold text-on-surface">Klik atau seret file ke sini</span>
-                  <span className="text-[11px] text-on-surface-variant">KTP, KK, Akta, dll. Maks 5 MB per file</span>
+              {/* Batch 9 — lampiran nyata: input file tersembunyi + label (dapat
+                  fokus keyboard), drag & drop, dan chips yang bisa dihapus.
+                  Sengaja TIDAK ditampilkan saat mode Edit: baris server tidak
+                  punya endpoint ganti lampiran (§5.3) — form yang hasilnya tidak
+                  pernah tersimpan = menipu, sama seperti pesan edit di atas. */}
+              {!editingSurat && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface" htmlFor="berkas-lampiran">
+                    Lampiran Berkas Pendukung{" "}
+                    <span className="font-normal text-on-surface-variant">
+                      (opsional, maks. {MAKS_LAMPIRAN} berkas · 5 MB/berkas)
+                    </span>
+                  </label>
+                  <input
+                    ref={inputBerkasRef}
+                    id="berkas-lampiran"
+                    type="file"
+                    multiple
+                    accept={EKSTENSI_LAMPIRAN.map((e) => `.${e}`).join(",")}
+                    className="sr-only"
+                    onChange={(e) => {
+                      terimaBerkas(Array.from(e.target.files ?? []));
+                      // Izinkan memilih berkas yang tadi dihapus/ditolak lagi.
+                      e.target.value = "";
+                    }}
+                  />
+                  <label
+                    htmlFor="berkas-lampiran"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      terimaBerkas(Array.from(e.dataTransfer.files ?? []));
+                    }}
+                    className="p-5 rounded-xl border border-dashed border-outline/30 bg-surface-container-low/50 flex flex-col items-center gap-2 cursor-pointer hover:bg-surface-container-low focus-within:ring-2 focus-within:ring-primary transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[32px] text-primary">upload_file</span>
+                    <span className="text-xs font-bold text-on-surface">Klik atau seret file ke sini</span>
+                    <span className="text-[11px] text-on-surface-variant">
+                      PDF, JPG, PNG, WEBP, DOC/DOCX, XLS/XLSX. Maks 5 MB per berkas
+                    </span>
+                  </label>
+                  {berkasDipilih.length > 0 && (
+                    <ul className="flex flex-col gap-1.5 mt-1">
+                      {berkasDipilih.map((f, i) => (
+                        <li
+                          key={`${f.name}-${f.size}-${i}`}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-container-low border border-outline-variant/30"
+                        >
+                          <span className="material-symbols-outlined text-[16px] text-primary shrink-0">attach_file</span>
+                          <span className="text-xs text-on-surface truncate flex-1">{f.name}</span>
+                          <span className="text-[11px] text-on-surface-variant shrink-0">{ukuranBerkas(f.size)}</span>
+                          <button
+                            type="button"
+                            aria-label={`Hapus lampiran ${f.name}`}
+                            className="w-6 h-6 rounded-md flex items-center justify-center text-on-surface-variant hover:bg-error-container/40 hover:text-error shrink-0"
+                            onClick={() => setBerkasDipilih((prev) => prev.filter((_, j) => j !== i))}
+                          >
+                            <span className="material-symbols-outlined text-[15px]">close</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-              </div>
+              )}
               <div className="flex items-center gap-3 pt-1">
                 <button
                   className="flex-1 h-11 rounded-xl bg-surface-container-high text-on-surface text-sm"
                   type="button"
-                  onClick={() => { setShowForm(false); setEditingSurat(null); }}
+                  onClick={() => { setShowForm(false); setEditingSurat(null); resetBerkas(); }}
                 >
                   Batal
                 </button>

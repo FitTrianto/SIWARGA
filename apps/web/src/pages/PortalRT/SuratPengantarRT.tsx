@@ -9,10 +9,11 @@ import {
   downloadText,
   jenisSuratOptions,
   noSuratOtomatis,
+  ukuranBerkas,
   KopSurat,
   kopSuratDefault,
 } from "../../lib/shared";
-import { GalatApi, type AksiSuratRt, type PengaturanSuratRt } from "../../lib/api";
+import { GalatApi, tautanLampiranSurat, type AksiSuratRt, type PengaturanSuratRt } from "../../lib/api";
 import { EmptyState } from "../../components/EmptyState";
 import { useFlash } from "../../lib/useFlash";
 
@@ -369,6 +370,14 @@ export function SuratPengantarRT({
                   <td className="py-4 px-4">
                     <span className="text-xs text-on-surface-variant">{row.keperluan}</span>
                     {row.catatan && <span className="block text-[11px] text-on-surface-variant mt-0.5 italic">{row.catatan}</span>}
+                    {/* Batch 9 — jumlah lampiran pengajuan warga (buka Preview
+                        untuk mengunduhnya; baris demo/offline selalu 0). */}
+                    {(row.lampiran?.length ?? 0) > 0 && (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-primary">
+                        <span className="material-symbols-outlined text-[12px]">attach_file</span>
+                        {row.lampiran!.length} lampiran
+                      </span>
+                    )}
                   </td>
                   <td className="py-4 px-4">
                     <span className="text-xs text-on-surface-variant">{row.tanggal}</span>
@@ -570,6 +579,44 @@ export function SuratPengantarRT({
                   {previewSurat.status === "Menunggu RW" && " (menunggu persetujuan Portal RW)"}
                 </span>
               </div>
+
+              {/* Batch 9 — lampiran pengajuan warga: tautan unduh lewat sesi
+                  pengurus (`GET /rt/surat/:id/lampiran/:idx`, RLS scope RT). */}
+              {(previewSurat.lampiran?.length ?? 0) > 0 && (
+                <div>
+                  <div className="text-xs font-bold text-on-surface mb-1.5">Lampiran Pengajuan</div>
+                  <ul className="flex flex-col gap-1.5">
+                    {previewSurat.lampiran!.map((l) => {
+                      const tautan = tautanLampiranSurat(previewSurat.serverId, l.idx, "rt");
+                      const isi = (
+                        <>
+                          <span className="material-symbols-outlined text-[15px] text-primary shrink-0">attach_file</span>
+                          <span className="text-xs truncate">{l.nama}</span>
+                          <span className="text-[11px] text-on-surface-variant ml-auto shrink-0">{ukuranBerkas(l.ukuran)}</span>
+                        </>
+                      );
+                      return (
+                        <li key={`${l.nama}-${l.idx}`}>
+                          {tautan ? (
+                            <a
+                              href={tautan}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-low border border-outline-variant/30 hover:border-primary/50 transition-colors"
+                            >
+                              {isi}
+                            </a>
+                          ) : (
+                            <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-surface-container-low border border-outline-variant/30">
+                              {isi}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
               <p>
                 Demikian surat pengantar ini dibuat dengan sebenarnya untuk dapat dipergunakan sebagaimana mestinya.
               </p>

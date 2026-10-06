@@ -5450,6 +5450,8 @@ describe("B12 · persuratan resmi & verifikasi QR", () => {
   let idSuratB = "";
   let tokenB = "";
   let idSuratWarga = "";
+  /** Batch 9 — nama berkas lampiran buatan tes; dihapus di afterAll (jejak disk). */
+  const berkasUjiLampiran: string[] = [];
 
   const sesiRt = () => ({ sid: sidRt, csrf_token: csrfRt });
   const csrfRtHeader = () => ({ "x-csrf-token": csrfRt });
@@ -5533,6 +5535,15 @@ describe("B12 · persuratan resmi & verifikasi QR", () => {
   }, 60_000);
 
   afterAll(async () => {
+    // Batch 9 — jejak berkas lampiran uji dihapus (folder & DB uji sementara
+    // dibuang cluster embedded di akhir proses tes — berkasnya tidak).
+    try {
+      await Promise.all(
+        berkasUjiLampiran.map((n) => rm(join(DIR_SERVER, ".data-lampiran", n), { force: true })),
+      );
+    } catch {
+      /* folder mungkin belum pernah terbentuk */
+    }
     await tutupAplikasiUji();
   });
 
@@ -6079,6 +6090,247 @@ describe("B12 · persuratan resmi & verifikasi QR", () => {
     for (const kunci of ["noKk", "nik", "keperluan", "wargaId", "catatan", "qrToken"]) {
       expect(Object.keys(data.surat), `field "${kunci}" tidak boleh bocor ke publik`).not.toContain(kunci);
     }
+  });
+
+  // =========================================================================
+  // Batch 9 · lampiran pengajuan surat (multipart + unduh terjaga RLS)
+  // =========================================================================
+
+  /**
+   * `POST /warga/surat` multipart mentah (pola A10): fields `jenis`/`keperluan`
+   * + daftar berkas pada field `lampiran`. Dibangun manual tanpa dependensi —
+   * `Content-Type` klaim sengaja `application/octet-stream` untuk membuktikan
+   * server mempercayai EKSTENSI nama berkas, bukan MIME yang diklaim klien.
+   */
+  const ajukanBerlampiran = (
+    berkas: Array<{ nama: string; isi: string | Buffer }>,
+    opsi: { sid?: string; jenis?: string; keperluan?: string } = {},
+  ) => {
+    const B = `----ujilampiran${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+    const potong: Buffer[] = [];
+    const field = (nama: string, nilai: string) =>
+      potong.push(
+        Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="${nama}"\r\n\r\n${nilai}\r\n`, "utf8"),
+      );
+    field("jenis", opsi.jenis ?? "Surat Pengantar Pindah");
+    field("keperluan", opsi.keperluan ?? "Lampiran uji Batch 9");
+    for (const b of berkas) {
+      potong.push(
+        Buffer.from(
+          `--${B}\r\nContent-Disposition: form-data; name="lampiran"; filename="${b.nama}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+          "utf8",
+        ),
+        Buffer.isBuffer(b.isi) ? b.isi : Buffer.from(b.isi, "utf8"),
+        Buffer.from("\r\n", "utf8"),
+      );
+    }
+    potong.push(Buffer.from(`--${B}--\r\n`, "utf8"));
+    return app.inject({
+      method: "POST",
+      url: `${api}/warga/surat`,
+      cookies: { sid: opsi.sid ?? sidAhmad },
+      headers: { "content-type": `multipart/form-data; boundary=${B}` },
+      payload: Buffer.concat(potong),
+    });
+  };
+
+  /** Nama berkas fisik di `.data-lampiran/` (folder mungkin belum terbentuk). */
+  const daftarBerkasLampiran = (): string[] => {
+    try {
+      return readdirSync(join(DIR_SERVER, ".data-lampiran")).sort();
+    } catch {
+      return [];
+    }
+  };
+
+  /**
+   * Metadata lampiran dari kolom JSON — `berkas` (nama tersimpan server) memang
+   * TIDAK dikirim API, jadi satu-satunya cara memeriksanya adalah lewat DB.
+   */
+  const metaLampiranDb = (id: string) =>
+    dalamScopePlat((c) => c.query("SELECT data_pengajuan FROM surat WHERE id = $1", [id])).then((r) => {
+      const dp = (r.rows[0] as { data_pengajuan?: { lampiran?: unknown } | null }).data_pengajuan;
+      return Array.isArray(dp?.lampiran)
+        ? (dp.lampiran as Array<{ nama: string; berkas: string; tipe: string; ukuran: number }>)
+        : [];
+    });
+
+  it("Batch 9 · ajukan berlampiran: metadata+file di disk, tampil di RT, unduh terjaga", async () => {
+    const isiPdf = Buffer.from("%PDF-1.4\nlampiran uji batch 9\n%%EOF\n", "utf8");
+    const isiPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const isiDocx = Buffer.from("PK\u0003\u0004uji-docx", "utf8");
+    const sebelum = await jumlahSurat();
+
+    const res = await ajukanBerlampiran([
+      { nama: "KTP Ahmad.pdf", isi: isiPdf },
+      { nama: "KK warga.png", isi: isiPng },
+      { nama: "Surat Kuasa.docx", isi: isiDocx },
+    ]);
+    expect(res.statusCode, JSON.stringify(res.json())).toBe(200);
+    const baris = isi(res).data.surat as {
+      id: string;
+      lampiran: Array<{ nama: string; tipe: string; ukuran: number; berkas?: string }>;
+    };
+    expect(baris.lampiran, "3 lampiran tercatat pada baris surat").toHaveLength(3);
+    expect(baris.lampiran.map((l) => l.nama)).toEqual(["KTP Ahmad.pdf", "KK warga.png", "Surat Kuasa.docx"]);
+    expect(baris.lampiran[0].tipe, "konten-tipe disusun server dari ekstensi").toBe("application/pdf");
+    expect(baris.lampiran[1].tipe).toBe("image/png");
+    expect(baris.lampiran[0].ukuran).toBe(isiPdf.length);
+    expect(baris.lampiran[1].ukuran).toBe(isiPng.length);
+    expect(baris.lampiran[0].berkas, "nama berkas tersimpan TIDAK boleh bocor ke API").toBeUndefined();
+
+    // metadata (termasuk nama file buatan server) benar-benar masuk kolom JSON
+    const meta = await metaLampiranDb(baris.id);
+    expect(meta).toHaveLength(3);
+    for (const m of meta) {
+      expect(m.berkas, "nama tersimpan = UUID + ekstensi tulisan server").toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]{1,8}$/i,
+      );
+      expect(existsSync(join(DIR_SERVER, ".data-lampiran", m.berkas)), `berkas ${m.berkas} harus ada di disk`).toBe(
+        true,
+      );
+      berkasUjiLampiran.push(m.berkas);
+    }
+
+    // audit: ringkasan & diff keduanya mencatat jumlah lampiran
+    expect(await hitungAudit("aksi = 'ajukan_surat' AND ringkasan LIKE $2", ["%(+3 lampiran)%"])).toBe(1);
+    expect(await hitungAudit("aksi = 'ajukan_surat' AND sesudah->>'jumlahLampiran' = '3'")).toBe(1);
+
+    // antrian RT & daftar warga memuat metadata lampiran yang sama
+    const daftarRt = await app.inject({ method: "GET", url: `${api}/rt/surat`, cookies: sesiRt() });
+    const barisRt = (isi(daftarRt).data.surat as Array<{ id: string; lampiran: unknown[] }>).find(
+      (s) => s.id === baris.id,
+    );
+    expect(barisRt?.lampiran, "Portal RT melihat lampiran pengajuan warga").toHaveLength(3);
+    const daftarWarga = await app.inject({ method: "GET", url: `${api}/warga/surat`, cookies: { sid: sidAhmad } });
+    const barisWarga = (isi(daftarWarga).data.surat as Array<{ id: string; lampiran: unknown[] }>).find(
+      (s) => s.id === baris.id,
+    );
+    expect(barisWarga?.lampiran).toHaveLength(3);
+
+    // unduh dari Portal RT: tipe dari ekstensi, nosniff, nama RFC 5987, isi utuh
+    const unduh = await app.inject({
+      method: "GET",
+      url: `${api}/rt/surat/${baris.id}/lampiran/0`,
+      cookies: sesiRt(),
+    });
+    expect(unduh.statusCode).toBe(200);
+    expect(unduh.headers["content-type"]).toBe("application/pdf");
+    expect(unduh.headers["x-content-type-options"]).toBe("nosniff");
+    expect(String(unduh.headers["content-disposition"])).toMatch(/^inline;/);
+    expect(String(unduh.headers["content-disposition"])).toContain('filename="KTP Ahmad.pdf"');
+    expect(String(unduh.headers["content-disposition"])).toContain("filename*=UTF-8''KTP%20Ahmad.pdf");
+    expect(Buffer.from(unduh.rawPayload).equals(isiPdf), "isi berkas kembali persis").toBe(true);
+
+    // dokumen non-pratinjau → attachment; gambar pratinjau → inline
+    const docx = await app.inject({
+      method: "GET",
+      url: `${api}/rt/surat/${baris.id}/lampiran/2`,
+      cookies: sesiRt(),
+    });
+    expect(docx.statusCode).toBe(200);
+    expect(String(docx.headers["content-type"])).toContain("wordprocessingml.document");
+    expect(String(docx.headers["content-disposition"])).toMatch(/^attachment;/);
+    const png = await app.inject({
+      method: "GET",
+      url: `${api}/rt/surat/${baris.id}/lampiran/1`,
+      cookies: sesiRt(),
+    });
+    expect(String(png.headers["content-disposition"])).toMatch(/^inline;/);
+    expect(Buffer.from(png.rawPayload).equals(isiPng)).toBe(true);
+
+    // pemilik warga bisa mengunduh lewat jalurnya sendiri
+    const unduhWarga = await app.inject({
+      method: "GET",
+      url: `${api}/warga/surat/${baris.id}/lampiran/0`,
+      cookies: { sid: sidAhmad },
+    });
+    expect(unduhWarga.statusCode).toBe(200);
+
+    // warga LAIN di RT sama → 404: RLS hanya setingkat RT, jadi filter
+    // `warga_id` eksplisit-lah yang menutup lampiran milik warga lain
+    const wargaLain = await app.inject({
+      method: "GET",
+      url: `${api}/warga/surat/${baris.id}/lampiran/0`,
+      cookies: { sid: sidBambang },
+    });
+    expect(wargaLain.statusCode).toBe(404);
+    expect(isi(wargaLain).error?.code).toBe("NOT_FOUND");
+
+    // RT lain (lintas tenant) → 404 lewat scope RLS
+    const rtLain = await app.inject({
+      method: "GET",
+      url: `${api}/rt/surat/${baris.id}/lampiran/0`,
+      cookies: { sid: sidRt05, csrf_token: csrfRt05 },
+    });
+    expect(rtLain.statusCode).toBe(404);
+
+    // tanpa sesi → 401 pada kedua endpoint
+    for (const url of [`${api}/rt/surat/${baris.id}/lampiran/0`, `${api}/warga/surat/${baris.id}/lampiran/0`]) {
+      const tanpa = await app.inject({ method: "GET", url });
+      expect(tanpa.statusCode, `tanpa sesi: ${url}`).toBe(401);
+    }
+
+    // indeks di luar 0..2 → 400 VALIDATION (klien tak pernah mengirim path)
+    const lewat = await app.inject({
+      method: "GET",
+      url: `${api}/rt/surat/${baris.id}/lampiran/9`,
+      cookies: sesiRt(),
+    });
+    expect(lewat.statusCode).toBe(400);
+    expect(isi(lewat).error?.code).toBe("VALIDATION");
+
+    // surat TANPA lampiran → indeks valid tapi tak ada entri → 404 jujur
+    const kosong = await app.inject({
+      method: "GET",
+      url: `${api}/warga/surat/${idSuratWarga}/lampiran/0`,
+      cookies: { sid: sidAhmad },
+    });
+    expect(kosong.statusCode).toBe(404);
+    expect(isi(kosong).error?.code).toBe("NOT_FOUND");
+
+    expect(await jumlahSurat()).toBe(sebelum + 1);
+  });
+
+  it("Batch 9 · tolak lampiran di luar kontrak: .exe, 4 berkas, >5 MB — tanpa jejak", async () => {
+    const sebelumBaris = await jumlahSurat();
+    const sebelumBerkas = daftarBerkasLampiran();
+
+    // ekstensi di luar whitelist → 400 dengan alasan yang menyebut pelanggaran
+    const exe = await ajukanBerlampiran([{ nama: "jahat.exe", isi: Buffer.from("MZ", "utf8") }]);
+    expect(exe.statusCode).toBe(400);
+    expect(isi(exe).error?.code).toBe("VALIDATION");
+    expect(isi(exe).error?.message).toMatch(/tidak didukung/);
+    expect(isi(exe).error?.message).toMatch(/\.exe/);
+
+    // berkas ke-4 → limit busboy (files:3) → 400 dengan pesan jumlah
+    const empat = await ajukanBerlampiran([1, 2, 3, 4].map((n) => ({ nama: `berkas-${n}.pdf`, isi: `uji ${n}` })));
+    expect(empat.statusCode).toBe(400);
+    expect(isi(empat).error?.code).toBe("VALIDATION");
+    expect(isi(empat).error?.message).toMatch(/maksimal 3 berkas/);
+
+    // >5 MB → limit fileSize busboy (FST_REQ_FILE_TOO_LARGE) → 400 juga,
+    // BUKAN 413: seluruh penolakan pendaftaran memakai kode VALIDATION (§5.0)
+    const besar = await ajukanBerlampiran([
+      { nama: "raksasa.pdf", isi: Buffer.alloc(5 * 1024 * 1024 + 1, 0x41) },
+    ]);
+    expect(besar.statusCode).toBe(400);
+    expect(isi(besar).error?.code).toBe("VALIDATION");
+    expect(isi(besar).error?.message).toMatch(/5 MB/);
+
+    // jalur JSON polos (tanpa lampiran) tetap diterima — kontrak lama utuh
+    const json = await app.inject({
+      method: "POST",
+      url: `${api}/warga/surat`,
+      cookies: { sid: sidAhmad },
+      payload: { jenis: "Surat Pengantar Pindah", keperluan: "Jalur JSON tanpa lampiran" },
+    });
+    expect(json.statusCode).toBe(200);
+    expect(isi(json).data.surat.lampiran, "baris tanpa lampiran = array kosong").toEqual([]);
+
+    // 3 percobaan ditolak tak membuat baris & tak meninggalkan berkas yatim
+    expect(await jumlahSurat()).toBe(sebelumBaris + 1);
+    expect(daftarBerkasLampiran(), "percobaan ditolak tidak menulis berkas").toEqual(sebelumBerkas);
   });
 });
 

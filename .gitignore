@@ -31,3 +31,7 @@ packages/server/.data-dev/
 # Berkas impor Migrasi Data (A10) — hanya disimpan lokal di server
 .data-impor/
 packages/server/.data-impor/
+
+# Berkas lampiran pengajuan surat (Batch 9) — hanya disimpan lokal di server
+.data-lampiran/
+packages/server/.data-lampiran/

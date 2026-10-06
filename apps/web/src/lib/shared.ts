@@ -403,6 +403,29 @@ export type StatusSurat =
   | "Ditolak"
   | "Perlu Perbaikan";
 
+/**
+ * Batch 9 — satu lampiran pengajuan surat (deviasi §5.3: metadata disimpan di
+ * kolom JSON `surat.data_pengajuan.lampiran`, tanpa migrasi skema).
+ *
+ *   `nama`  nama asli berkas dari pengunggah (tampilan & unduhan)
+ *   `ukuran` byte · `tipe` konten-tipe hasil hitungan ekstensi SERVER
+ *   `idx`   nomor urut unduhan `GET …/lampiran/:idx` (server menyimpan nama
+ *           berkas tersimpan terpisah — path tak pernah dikirim ke klien)
+ */
+export interface LampiranSurat {
+  nama: string;
+  ukuran: number;
+  tipe: string;
+  /** Indeks baris pada metadata lampiran — dipakai membangun tautan unduh. */
+  idx: number;
+}
+
+/** Format ukuran berkas ramah (KB/MB) — dipakai daftar lampiran surat. */
+export function ukuranBerkas(ukuran: number): string {
+  if (ukuran >= 1024 * 1024) return `${(ukuran / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(ukuran / 1024))} KB`;
+}
+
 export interface Surat {
   id: string;
   noSurat: string; // "" bila belum diterbitkan RT
@@ -411,6 +434,12 @@ export interface Surat {
   keperluan: string;
   tanggal: string; // "01 September 2026"
   status: StatusSurat;
+  /**
+   * Batch 9 — lampiran pengajuan (≤3 berkas, 5 MB/berkas). Selalu ada (boleh
+   * `[]`) untuk baris server; baris demo/offline juga `[]` (mode demo tidak
+   * menyimpan berkas — diberi tahu jujur lewat flash saat pengajuan).
+   */
+  lampiran?: LampiranSurat[];
   /** Jenis surat yang butuh persetujuan tingkat RW sebelum terbit final. */
   perluRw: boolean;
   /** Catatan dari RT (penolakan/perbaikan). */
