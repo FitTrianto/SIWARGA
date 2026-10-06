@@ -75,7 +75,7 @@ interface IuranRTProps {
   alamatWarga: string;
   kendaraanR4Count: number;
   tagihanTambahan: TagihanTambahan[];
-  onTambahTagihanTambahan: (t: TagihanTambahanBaru) => Promise<void>;
+  onTambahTagihanTambahan: (t: TagihanTambahanBaru) => Promise<boolean>;
   /** B7 — `GET /rt/iuran/pengaturan`; `null` = OFFLINE. */
   onMuatPengaturanIuran: () => Promise<PengaturanIuranRt | null>;
   /** B7 — master kategori dari server; `null` = OFFLINE. */
@@ -534,8 +534,9 @@ export function IuranRT({
     }
     const target =
       formTagihan.target === "pilih" && targetAlamat ? targetAlamat : "semua";
+    let dariServer = false;
     try {
-      await onTambahTagihanTambahan({
+      dariServer = await onTambahTagihanTambahan({
         nama,
         nominal,
         tenggat: isoKeTenggat(formTagihan.jatuhTempo) || "-",
@@ -551,7 +552,11 @@ export function IuranRT({
       );
       return;
     }
-    flash(`Tagihan "${nama}" berhasil dibuat`);
+    flash(
+      dariServer
+        ? `Tagihan "${nama}" berhasil dibuat`
+        : `Server tidak terjangkau — tagihan "${nama}" hanya dicatat di sesi ini, TIDAK tersimpan di server.`,
+    );
     setShowCreateModal(false);
     setFormTagihan({ nama: "", nominal: "", jatuhTempo: "", target: "semua" });
     setTargetAlamat("");

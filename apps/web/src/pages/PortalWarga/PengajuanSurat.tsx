@@ -316,7 +316,7 @@ export function PengajuanSurat({
       setFormKeperluan("");
       resetBerkas();
       setShowForm(false);
-      flash("Pengajuan surat diperbarui — masih menunggu verifikasi Pengurus RT.");
+      flash("Pengajuan diperbarui di sesi ini — baris lokal TIDAK terkirim ke Pengurus RT; buat pengajuan baru saat daring agar diverifikasi.");
       return;
     }
 
@@ -336,11 +336,14 @@ export function PengajuanSurat({
         },
         berkasDipilih,
       );
-      // Mode demo / OFFLINE: baris lokal tetap tampil, TAPI berkas lampiran
-      // tidak tersimpan di mana pun — dikatakan apa adanya, bukan "berhasil".
-      if (!daring && berkasDipilih.length) {
+      // Mode demo / OFFLINE: baris lokal tetap tampil TAPI tidak pernah sampai
+      // ke server — dikatakan apa adanya untuk SEMUA kasus offline (dengan atau
+      // tanpa lampiran), bukan "berhasil dikirim".
+      if (!daring) {
         flash(
-          `Server sedang offline — pengajuan ditampilkan dalam mode demo. ${berkasDipilih.length} lampiran TIDAK tersimpan.`,
+          berkasDipilih.length
+            ? `Server sedang offline — pengajuan ditampilkan dalam mode demo. ${berkasDipilih.length} lampiran TIDAK tersimpan.`
+            : `Server sedang offline — pengajuan hanya dicatat di sesi ini, TIDAK terkirim ke Pengurus ${tenant.rtFull}.`,
         );
       } else {
         flash(`Pengajuan surat berhasil dikirim ke Pengurus ${tenant.rtFull}!`);

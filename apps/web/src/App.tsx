@@ -907,7 +907,9 @@ export default function App() {
   // baru (nilai berlawanan) + menyimpan `reversalOfId` sebagai jejak audit.
   // API-first seperti tambahKasRt: OFFLINE → baris pembalik lokal (mode demo),
   // galat lain diteruskan supaya dialog menampilkan gagal, bukan sukses.
-  const koreksiEntriKas = async (id: string, alasan: string): Promise<void> => {
+  // `true` = baris pembalik dari server; `false` = baris demo lokal (OFFLINE)
+  // — pemanggil wajib membedakan agar pesan sukses tidak pernah palsu.
+  const koreksiEntriKas = async (id: string, alasan: string): Promise<boolean> => {
     let pembalik: ReturnType<typeof entriKeKasRt> | null = null;
     try {
       const hasil = await koreksiKasRt(id, alasan);
@@ -920,6 +922,7 @@ export default function App() {
     }
     if (pembalik) {
       setKasRtList((prev) => [...prev, pembalik]);
+      return true;
     } else {
       // Mode demo: baris pembalik lokal membalik nominal entri yang dikoreksi.
       setKasRtList((prev) => {
@@ -942,6 +945,7 @@ export default function App() {
           },
         ];
       });
+      return false;
     }
   };
 
@@ -1246,10 +1250,13 @@ export default function App() {
     jenis: JenisAjuan;
     namaAnggota: string;
     keterangan: string;
-  }): Promise<void> => {
+  }): Promise<boolean> => {
+    // `true` = ajuan benar-benar tercatat di server; `false` = hanya baris
+    // lokal (baris demo tanpa id server, atau server tidak terjangkau).
+    // Pemanggil WAJIB membedakan keduanya agar pesan sukses tidak palsu.
     if (!payload.targetWargaId) {
       setAjuanWarga((prev) => [ajuanLokal(payload), ...prev]);
-      return;
+      return false;
     }
     let baris: AjuanPerubahan | null = null;
     try {
@@ -1267,6 +1274,7 @@ export default function App() {
       }
     }
     setAjuanWarga((prev) => [baris ?? ajuanLokal(payload), ...prev]);
+    return baris !== null;
   };
 
   // F-5 · B20: verifikasi ajuan oleh RT — status + catatan sinkron ke portal
@@ -1358,7 +1366,9 @@ export default function App() {
     row: Surat,
     aksi: AksiSuratRt,
     catatan?: string,
-  ): Promise<Surat> => {
+  ): Promise<{ surat: Surat; dariServer: boolean }> => {
+    // `dariServer` membedakan hasil server vs patch lokal OFFLINE — halaman
+    // wajib mengaku "hanya di sesi ini" untuk yang kedua (prinsip kejujuran).
     // Status lokal (mode OFFLINE) — keputusan RW mengikuti regex jenis yang sama
     // dengan server (`jenis_surat.perlu_rw` diisi dari nama jenis yang sama).
     const statusLokal: StatusSurat =
@@ -1388,7 +1398,7 @@ export default function App() {
       if (e instanceof GalatApi && e.code === "OFFLINE") {
         const lokal: Surat = { ...row, status: statusLokal, ...(catatan ? { catatan } : {}) };
         setSuratList((prev) => prev.map((s) => (s.id === row.id ? lokal : s)));
-        return lokal;
+        return { surat: lokal, dariServer: false };
       }
       tanganiSesiHabis(e);
       throw e;
@@ -1404,7 +1414,7 @@ export default function App() {
         s.id === row.id || (row.serverId && s.serverId === row.serverId) ? hasil : s,
       ),
     );
-    return hasil;
+    return { surat: hasil, dariServer: true };
   };
 
   /**
@@ -1443,7 +1453,9 @@ export default function App() {
   // tagihan benar-benar tersimpan & tampil di Portal Warga. OFFLINE → baris
   // lokal mode demo (tetap disebut demo, bukan sukses server). Galat lain
   // (validasi / sesi habis) DITERUSKAN agar komponen menampilkan gagal.
-  const tambahTagihanTambahan = async (t: TagihanTambahanBaru): Promise<void> => {
+  // `true` = tagihan tercatat di server; `false` = baris demo lokal (OFFLINE)
+  // — halaman wajib membedakan keduanya pada pesan suksesnya.
+  const tambahTagihanTambahan = async (t: TagihanTambahanBaru): Promise<boolean> => {
     // Target "alamat rumah" dipetakan ke wargaId aktif milik RT tersebut.
     const targetWargaId =
       t.target && t.target !== "semua"
@@ -1477,7 +1489,7 @@ export default function App() {
         },
         ...prev,
       ]);
-      return;
+      return false;
     }
     // Sukses server → muat ulang daftar agar progres & label ikut terbarui;
     // bila muat ulang gagal, tagihan tetap tercatat (tampil pada muat berikutnya).
@@ -1487,6 +1499,7 @@ export default function App() {
     } catch {
       /* tagihan sudah tercatat di server — daftar dimuat ulang pada akses berikutnya */
     }
+    return true;
   };
 
   // Warga membayar tagihan kondisional → AJUAN BUKTI ke server (status
@@ -2134,6 +2147,10 @@ export default function App() {
       />,
       "data-warga-rt": <DataWargaRT
         onNavigate={navigate}
+        // Sakelar kejujuran mutasi: sesi daring ≠ mode demo → galat OFFLINE
+        // adalah kegagalan nyata (form terbuka + pesan TIDAK tersimpan),
+        // bukan fallback lokal yang mengaku "berhasil".
+        modeDemo={profilSesi?.modeDemo}
         kkList={kkList}
         wargaRt={wargaRtList}
         hunian={hunianList}

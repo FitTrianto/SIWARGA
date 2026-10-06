@@ -21,7 +21,7 @@ interface KasRTProps {
    * B8 — koreksi satu entri lewat jurnal pembalik (append-only, tak pernah
    * mengubah baris asal). MELEMPAR galat non-OFFLINE seperti `onTambahKas`.
    */
-  onKoreksiKas: (id: string, alasan: string) => void | Promise<void>;
+  onKoreksiKas: (id: string, alasan: string) => Promise<boolean>;
 }
 
 type TipeFilter = "all" | "pemasukan" | "pengeluaran";
@@ -211,15 +211,18 @@ export function KasRT({ onNavigate, kasRt, onTambahKas, onKoreksiKas }: KasRTPro
     if (alasan.length > 200) return flash("Alasan koreksi maksimal 200 karakter.");
     if (kirimKoreksi) return flash("Permintaan masih diproses — tunggu sebentar.");
     setKirimKoreksi(true);
+    let dariServer = false;
     try {
-      await onKoreksiKas(koreksiRow.id, alasan);
+      dariServer = await onKoreksiKas(koreksiRow.id, alasan);
     } catch (err) {
       setKirimKoreksi(false);
       return flash(`Koreksi gagal: ${err instanceof Error ? err.message : "server tidak terjangkau."}`);
     }
     setKirimKoreksi(false);
     flash(
-      `Koreksi "${koreksiRow.keterangan}" dicatat lewat baris pembalik — baris asal tetap utuh (append-only).`
+      dariServer
+        ? `Koreksi "${koreksiRow.keterangan}" dicatat lewat baris pembalik — baris asal tetap utuh (append-only).`
+        : `Server tidak terjangkau — koreksi "${koreksiRow.keterangan}" hanya dicatat di sesi ini (baris pembalik lokal), TIDAK tersimpan di server.`,
     );
     setKoreksiRow(null);
     setAlasanKoreksi("");

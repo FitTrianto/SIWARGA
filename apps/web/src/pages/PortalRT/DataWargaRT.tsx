@@ -62,6 +62,19 @@ import { useFlash } from "../../lib/useFlash";
 
 interface DataWargaRTProps {
   onNavigate?: (page: string) => void;
+  /**
+   * Sesi berjalan dalam MODE DEMO — `LoginPage` menandai `modeDemo: true` bila
+   * pengguna masuk saat server tidak terjangkau (banner "MODE DEMO" di App).
+   *
+   * `false` (sesi daring biasa) → galat `OFFLINE` pada mutasi adalah KEgagalan
+   * NYATA: form dipertahankan terbuka dan pesan menyatakan data TIDAK masuk
+   * database. Tanpa cabang ini, jalur lokal menutup form dengan pesan yang
+   * PERSIS sama dengan jalur server ("berhasil ditambahkan") — itulah akar bug
+   * data "Siti Hamizah" 6 Okt 2026: pengguna disuguhi sukses padahal request
+   * tidak pernah mencapai server (tidak ada `POST /rt/warga` di log API,
+   * tidak ada baris di DB, tidak ada audit).
+   */
+  modeDemo?: boolean;
   kkList: KkData[];
   wargaRt: WargaRt[];
   /**
@@ -188,7 +201,7 @@ function denganNilai(opsi: string[], nilai: string): string[] {
   return v && !opsi.includes(v) ? [v, ...opsi] : opsi;
 }
 
-export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onHapusWarga, onImporWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
+export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hunian = [], onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onHapusWarga, onImporWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<PortalStatus>("all");
   const [showInputModal, setShowInputModal] = useState(false);
@@ -389,7 +402,20 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
         }
       }
 
-      // Jalur lokal (mode demo / OFFLINE) — perilaku lama tanpa perubahan.
+      // Sesi DARING (bukan mode demo) tetapi mutasi gagal terkirim → kegagalan
+      // NYATA: form dipertahankan terbuka agar bisa diulang dan pesan
+      // menyatakan data TIDAK masuk database. Tanpa cabang ini, pesan jalur
+      // lokal yang identik dengan jalur server menutup form atas nama "sukses"
+      // padahal datanya hanya hidup di memori browser (laporan "Siti Hamizah",
+      // 6 Okt 2026 — tidak ada POST /rt/warga di log API).
+      if (!modeDemo) {
+        flash(
+          "Server tidak terjangkau saat menyimpan — data TIDAK masuk database. Form tetap terbuka; perbaiki koneksi lalu tekan Simpan kembali.",
+        );
+        return;
+      }
+
+      // Jalur lokal (MODE DEMO sah) — pesan wajib menyebut tidak tersimpan.
       const anggota = anggotaBaru.filter(anggotaTerisi).map((a) => buildMemberBaru(a));
       const kepala = anggota.find((m) => m.filter === "kepala")?.name ?? anggota[0].name;
       const kk: KkData = {
@@ -400,7 +426,9 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
         anggota,
       };
       onKkAdded(kk);
-      flash(`Data KK "${kk.alamat}" — ${anggota.length} anggota (Kepala: ${kepala}) berhasil ditambahkan.`);
+      flash(
+        `Data KK "${kk.alamat}" — ${anggota.length} anggota (Kepala: ${kepala}) ditambahkan di daftar sesi ini (mode demo — TIDAK tersimpan di server).`,
+      );
       tutupInput();
     } catch (err) {
       flash(err instanceof GalatApi ? err.message : "Gagal menyimpan Data KK.");
@@ -619,6 +647,16 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
       }
     }
 
+    // Sesi DARING tetapi mutasi gagal terkirim → kegagalan NYATA: form edit
+    // tetap terbuka, daftar tak disentuh, dan tidak menyamar sebagai "mode
+    // demo" (mode demo hanya sah bila pengguna memang masuk tanpa server).
+    if (editing.idWarga && onSimpanWarga && !modeDemo) {
+      flash(
+        "Server tidak terjangkau saat menyimpan — perubahan TIDAK masuk database. Form tetap terbuka; perbaiki koneksi lalu tekan Simpan kembali.",
+      );
+      return;
+    }
+
     const updatedRow: WargaRt = detailKeRow(
       {
         ...editing,
@@ -716,6 +754,17 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
       }
     }
 
+    // Sesi DARING tetapi mutasi gagal terkirim → kegagalan NYATA: baris TIDAK
+    // dihapus dari daftar (data server tetap utuh) dan pesan mengatakan
+    // apa adanya — tidak ada "berhasil dihapus" untuk penghapusan yang tak
+    // pernah sampai ke server.
+    if (w.idWarga && onHapusWarga && !modeDemo) {
+      flash(
+        "Server tidak terjangkau — data TIDAK dihapus dari database. Daftar tidak berubah; coba lagi setelah koneksi pulih.",
+      );
+      return;
+    }
+
     // 1) Baris Data Warga (baris murni kkList tidak ada di sini — dihapus di langkah 2).
     onWargaRtChange(barisSisa);
 
@@ -732,7 +781,11 @@ export function DataWargaRT({ onNavigate, kkList, wargaRt, hunian = [], onWargaR
 
     setSelectedWarga((prev) => prev.filter((id) => id !== w.id));
     setHapusTarget(null);
-    flash(`Data ${w.nama} (${w.alamat}) berhasil dihapus dari Data Warga.`);
+    flash(
+      w.idWarga && onHapusWarga
+        ? `Data ${w.nama} (${w.alamat}) dihapus dari daftar sesi ini (mode demo — TIDAK dihapus di server).`
+        : `Data ${w.nama} (${w.alamat}) berhasil dihapus dari Data Warga.`,
+    );
   }
 
   /* ---------- Undangan ---------- */

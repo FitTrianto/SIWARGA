@@ -39,7 +39,9 @@ export function PortalRWLayout({ currentPage, onNavigate, onLogout, children }: 
       flash("Konfirmasi password tidak sama dengan password baru.");
       return;
     }
-    flash("Password berhasil diperbarui");
+    // Jujur: Portal RW belum punya backend akun apa pun — tidak ada password
+    // yang bisa diubah, jangan mengaku "berhasil diperbarui".
+    flash("Password TIDAK disimpan — Portal RW belum punya backend akun; isian hanya divalidasi.");
     setShowGantiPassword(false);
     setFormPassword({ baru: "", konfirmasi: "" });
   }

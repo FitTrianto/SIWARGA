@@ -27,7 +27,11 @@ interface SuratPengantarRTProps {
    * OFFLINE → patch lokal; galat lain MELEMPAR (sesi habis ditangani App).
    * Mengembalikan baris FE hasil aksi (untuk pesan sukses).
    */
-  onProsesSurat: (row: Surat, aksi: AksiSuratRt, catatan?: string) => Promise<Surat>;
+  onProsesSurat: (
+    row: Surat,
+    aksi: AksiSuratRt,
+    catatan?: string,
+  ) => Promise<{ surat: Surat; dariServer: boolean }>;
   /** B12 — `GET /rt/pengaturan` → kop surat tersimpan; `null` = OFFLINE. */
   onMuatPengaturanSurat: () => Promise<PengaturanSuratRt | null>;
 }
@@ -110,12 +114,14 @@ export function SuratPengantarRT({
    */
   async function terbitkanSurat(row: Surat) {
     try {
-      const hasil = await onProsesSurat(row, "terbitkan");
+      const { surat: hasil, dariServer } = await onProsesSurat(row, "terbitkan");
       const label = hasil.noSurat || row.noSurat || noSuratOtomatis(surat);
       flash(
-        hasil.status === "Menunggu RW"
-          ? `Surat ${label} (${hasil.pemohon}) disetujui RT — menunggu persetujuan Portal RW.`
-          : `Surat ${label} (${hasil.pemohon}) berhasil diterbitkan.`,
+        !dariServer
+          ? `Server tidak terjangkau — status surat ${label} diubah di sesi ini saja, TIDAK tersimpan di server.`
+          : hasil.status === "Menunggu RW"
+            ? `Surat ${label} (${hasil.pemohon}) disetujui RT — menunggu persetujuan Portal RW.`
+            : `Surat ${label} (${hasil.pemohon}) berhasil diterbitkan.`,
       );
     } catch (err) {
       flash(err instanceof GalatApi ? err.message : "Surat gagal diterbitkan — coba lagi.");
@@ -139,12 +145,14 @@ export function SuratPengantarRT({
       return;
     }
     try {
-      const hasil = await onProsesSurat(row, aksi === "tolak" ? "tolak" : "minta-perbaikan", catatan || undefined);
+      const { surat: hasil, dariServer } = await onProsesSurat(row, aksi === "tolak" ? "tolak" : "minta-perbaikan", catatan || undefined);
       const label = hasil.noSurat || hasil.jenis;
       flash(
-        aksi === "tolak"
-          ? `Surat ${label} (${hasil.pemohon}) ditolak.`
-          : `Surat ${label} (${hasil.pemohon}) ditandai "Perlu Perbaikan".`,
+        !dariServer
+          ? `Server tidak terjangkau — keputusan surat ${label} hanya di sesi ini, TIDAK tersimpan di server.`
+          : aksi === "tolak"
+            ? `Surat ${label} (${hasil.pemohon}) ditolak.`
+            : `Surat ${label} (${hasil.pemohon}) ditandai "Perlu Perbaikan".`,
       );
     } catch (err) {
       flash(err instanceof GalatApi ? err.message : "Aksi gagal diproses — coba lagi.");

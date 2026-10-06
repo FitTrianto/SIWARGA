@@ -64,8 +64,10 @@ export function PortalWargaLayout({ children, currentPage, onNavigate, onLogout,
     if (newPassword.length < 8) { setPwError("Sandi baru minimal 8 karakter"); return; }
     if (newPassword === currentPassword) { setPwError("Sandi baru tidak boleh sama dengan sandi lama"); return; }
     if (newPassword !== confirmPassword) { setPwError("Konfirmasi sandi baru tidak cocok"); return; }
-    setPwSuccess(true);
-    setTimeout(() => { handlePwClose(); }, 1500);
+    // Jujur: backend TIDAK punya endpoint ganti sandi (daftar rute §5.3) —
+    // sandi lama tetap berlaku. Panel sukses lama ("Gunakan sandi baru Anda
+    // untuk login berikutnya") adalah kebohongan; tampilkan galat jujur saja.
+    setPwError("Kata sandi TIDAK dapat diubah — backend belum punya layanan ganti sandi; sandi lama tetap berlaku.");
   }
 
   return (
@@ -202,10 +204,10 @@ export function PortalWargaLayout({ children, currentPage, onNavigate, onLogout,
             {pwSuccess ? (
               <div className="flex flex-col items-center py-6 gap-3">
                 <div className="w-14 h-14 rounded-full bg-secondary-container flex items-center justify-center">
-                  <span className="material-symbols-outlined text-[32px] text-on-secondary-container">check_circle</span>
+                  <span className="material-symbols-outlined text-[32px] text-on-secondary-container">info</span>
                 </div>
-                <p className="text-sm font-semibold text-on-surface">Kata sandi berhasil diperbarui</p>
-                <p className="text-xs text-on-surface-variant text-center">Gunakan sandi baru Anda untuk login berikutnya</p>
+                <p className="text-sm font-semibold text-on-surface">Kata sandi tidak diubah</p>
+                <p className="text-xs text-on-surface-variant text-center">Backend belum punya layanan ganti sandi — sandi lama tetap berlaku</p>
               </div>
             ) : (
               <form className="flex flex-col gap-4" onSubmit={handlePwSubmit}>

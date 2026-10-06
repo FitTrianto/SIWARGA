@@ -47,10 +47,12 @@ export function VerifikasiSuratRW({ onNavigate, surat, onVerifikasi }: Verifikas
     if (!modal) return;
     const isSetujui = modal.keputusan === "Disetujui";
     onVerifikasi(modal.id, modal.keputusan, catatan.trim() || undefined);
+    // Portal RW belum punya backend (§5.3): keputusan hanya mengubah state
+    // sesi ini — jangan mengaku "tersinkron" lintas sesi.
     flash(
       isSetujui
-        ? `Surat ${modal.noSurat || modal.jenis} disetujui. Status tersinkron ke Portal RT & Warga.`
-        : `Surat ${modal.noSurat || modal.jenis} ditolak. Status tersinkron ke Portal RT & Warga.`
+        ? `Surat ${modal.noSurat || modal.jenis} disetujui — status berlaku di sesi ini (Portal RW belum punya backend, TIDAK tersimpan di server).`
+        : `Surat ${modal.noSurat || modal.jenis} ditolak — status berlaku di sesi ini (Portal RW belum punya backend, TIDAK tersimpan di server).`
     );
     setModal(null);
     setCatatan("");

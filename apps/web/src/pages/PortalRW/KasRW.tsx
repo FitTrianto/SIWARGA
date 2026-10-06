@@ -52,7 +52,7 @@ export function KasRW({ onNavigate, kasRw, onTambah }: KasRWProps) {
       nominal,
     });
     flash(
-      `${form.tipe} "${form.keterangan.trim()}" sebesar ${formatRupiah(nominal)} berhasil dicatat ke Buku Kas RW`
+      `${form.tipe} "${form.keterangan.trim()}" sebesar ${formatRupiah(nominal)} dicatat di sesi ini — Buku Kas RW belum tersimpan di server (Portal RW belum punya backend).`
     );
     setShowFormModal(false);
     setForm({ ...emptyForm, tanggal: hariIni() });

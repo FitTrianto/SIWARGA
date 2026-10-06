@@ -71,7 +71,6 @@ export function PortalWarga({
 }: PortalWargaProps) {
   const [showQrisModal, setShowQrisModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [showSuratModal, setShowSuratModal] = useState(false);
 
   const { flash, toast } = useFlash();
 
@@ -525,7 +524,7 @@ export function PortalWarga({
                   </div>
                   <button
                     className="inline-flex items-center justify-center gap-2 px-5 py-2.5 min-h-[44px] rounded-lg bg-primary-fixed text-on-primary-fixed hover:bg-primary-fixed-dim text-sm font-bold transition-all shadow-sm"
-                    onClick={() => setShowSuratModal(true)}
+                    onClick={() => onNavigate?.("pengajuan-surat")}
                   >
                     <span className="material-symbols-outlined text-[20px]">add_circle</span>
                     + Ajukan Surat Baru
@@ -856,7 +855,7 @@ export function PortalWarga({
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); flash(`Bukti transfer telah dikirim ke Bendahara ${namaBendahara} untuk diverifikasi`); setShowUploadModal(false); }}>
+            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); flash(`Simulasi: bukti transfer TIDAK dikirim — gunakan menu Iuran Tagihan untuk unggah bukti asli ke Bendahara ${namaBendahara}.`); setShowUploadModal(false); }}>
               <div>
                 <label className="block text-xs font-semibold text-on-surface mb-1">Rekening Tujuan RT</label>
                 <div className="p-3 bg-surface-container-low rounded-lg flex items-center justify-between">
@@ -913,77 +912,6 @@ export function PortalWarga({
         </div>
       )}
 
-      {/* Modal: Ajukan Surat */}
-      {showSuratModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/40 backdrop-blur-sm p-4">
-          <div className="bg-surface-container-lowest rounded-xl max-w-lg w-full p-6 shadow-xl relative">
-            <div className="flex items-center justify-between pb-3 mb-3">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary text-[24px]">post_add</span>
-                <h3 className="text-base font-bold text-on-surface">Ajukan Surat Pengantar RT</h3>
-              </div>
-              <button className="p-1 rounded-full text-on-surface-variant hover:bg-surface-container" onClick={() => setShowSuratModal(false)}>
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); flash("Permohonan surat berhasil dikirim. Notifikasi akan masuk saat Ketua RT menandatangani."); setShowSuratModal(false); }}>
-              <div>
-                <label className="block text-xs font-semibold text-on-surface mb-1">
-                  Pilih Pemohon (Anggota Keluarga)
-                </label>
-                <select className="w-full px-3 py-2.5 rounded-lg bg-surface-container-low text-on-surface text-sm border-0 focus:outline-none">
-                  {(kkList[0]?.anggota ?? []).map((m) => (
-                    <option key={m.name}>{m.name} ({m.role})</option>
-                  ))}
-                  {(kkList[0]?.anggota ?? []).length === 0 && <option>{namaWarga}</option>}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-on-surface mb-1">
-                  Jenis Layanan Surat
-                </label>
-                <select className="w-full px-3 py-2.5 rounded-lg bg-surface-container-low text-on-surface text-sm border-0 focus:outline-none">
-                  <option>Surat Pengantar SKCK</option>
-                  <option>Surat Keterangan Belum Menikah</option>
-                  <option>Surat Pengantar Nikah (N1-N4)</option>
-                  <option>Surat Keterangan Usaha (SKU) Mikro</option>
-                  <option>Surat Keterangan Kematian / Kedukaan</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-on-surface mb-1">
-                  Keperluan / Keterangan Tambahan
-                </label>
-                <textarea
-                  className="w-full px-3 py-2 rounded-lg bg-surface-container-low text-on-surface text-sm border-0 focus:outline-none"
-                  placeholder="Contoh: Persyaratan melamar pekerjaan BUMN di PT KAI"
-                  required
-                  rows={3}
-                />
-              </div>
-              <div className="p-3 rounded-lg bg-primary-fixed/20 text-on-primary-fixed-variant flex items-start gap-2">
-                <span className="material-symbols-outlined text-primary text-[18px]">info</span>
-                <span className="text-xs">
-                  Setelah diajukan, permohonan akan diteruskan otomatis ke smartphone Ketua RT untuk
-                  verifikasi Tanda Tangan Elektronik resmi ber-QR Code.
-                </span>
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button
-                  className="flex-1 py-2.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-sm font-semibold min-h-[44px]"
-                  type="button"
-                  onClick={() => setShowSuratModal(false)}
-                >
-                  Batal
-                </button>
-                <button className="flex-1 py-2.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary text-sm font-bold min-h-[44px]" type="submit">
-                  Kirim Permohonan
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
       {/* Toast sukses — pengganti alert() agar tidak memblokir alur warga. */}
       {toast}
     </>

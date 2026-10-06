@@ -63,7 +63,10 @@ export function KontenAdmin({ konten, onSimpan }: {
   function handleSimpan() {
     onSimpan(draft);
     setTersimpan(false);
-    flash("Konten landing page berhasil disimpan");
+    // `onSimpan` = state App (bukan API — tidak ada endpoint konten §5.3):
+    // perubahan hanya hidup sampai halaman dimuat ulang; jangan mengaku
+    // "tersimpan" tanpa keterangan.
+    flash("Konten disimpan di sesi ini — TIDAK di server (halaman admin belum punya backend; muat ulang mengembalikan konten lama).");
   }
 
   function handleReset() {

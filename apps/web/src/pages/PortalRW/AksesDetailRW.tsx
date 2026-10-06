@@ -78,10 +78,12 @@ export function AksesDetailRW({ onNavigate, akses, onAjukan }: AksesDetailRWProp
       mode,
       justifikasi: isDirect ? justifikasi.trim() : undefined,
     });
+    // Portal RW belum punya backend (§5.3): pengajuan hanya mengubah state
+    // sesi ini — tidak ada permintaan yang benar-benar dikirim ke RT.
     flash(
       isDirect
-        ? "Akses direct dicatat & masuk audit log."
-        : "Permintaan akses dikirim ke RT."
+        ? "Akses direct dicatat di sesi ini (audit log Portal RW belum tersimpan di server)."
+        : "Permintaan akses dicatat di sesi ini — Portal RW belum punya backend, TIDAK terkirim ke RT."
     );
     setAlasan("");
     setJustifikasi("");

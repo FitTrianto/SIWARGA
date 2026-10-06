@@ -36,7 +36,9 @@ export function AdminLayout({ currentPage, onNavigate, onLogout, children }: Adm
       flash("Konfirmasi password tidak sama dengan password baru.");
       return;
     }
-    flash("Password berhasil diperbarui");
+    // Jujur: konsol sysadmin belum punya autentikasi (keputusan produk 1 Okt
+    // 2026) sehingga ganti password mustahil tersimpan — jangan mengaku sukses.
+    flash("Password TIDAK disimpan — konsol sysadmin belum memiliki autentikasi; isian hanya divalidasi.");
     setShowGantiPassword(false);
     setFormPassword({ baru: "", konfirmasi: "" });
   }

@@ -49,7 +49,9 @@ export function PortalRTLayout({ currentPage, onNavigate, onLogout, profil, chil
       flash("Konfirmasi password tidak sama dengan password baru.");
       return;
     }
-    flash("Password berhasil diperbarui");
+    // Jujur: backend belum punya endpoint ganti password pengurus (daftar rute
+    // §5.3) — jangan mengaku "berhasil" untuk perubahan yang tak pernah tersimpan.
+    flash("Password TIDAK disimpan — backend belum punya layanan ganti password pengurus; isian hanya divalidasi.");
     setShowGantiPassword(false);
     setFormPassword({ baru: "", konfirmasi: "" });
   }

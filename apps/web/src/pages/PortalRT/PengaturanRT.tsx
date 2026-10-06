@@ -551,7 +551,7 @@ export function PengaturanRT({
     ]);
     setNewPengurus({ nama: "", jabatan: "" });
     setShowAddPengurusModal(false);
-    flash(`Pengurus ${nama} berhasil ditambahkan`);
+    flash(`Pengurus ${nama} ditambahkan (sesi ini — belum tersimpan di server).`);
   }
 
   function openEditPengurus(p: Pengurus) {
@@ -574,25 +574,25 @@ export function PengaturanRT({
       )
     );
     setEditForm(null);
-    flash("Data pengurus berhasil diperbarui");
+    flash("Data pengurus diperbarui (sesi ini — belum tersimpan di server).");
   }
 
   function handleRemovePengurus(id: string) {
     const target = pengurus.find((p) => p.id === id);
     onPengurusChange(pengurus.filter((p) => p.id !== id));
-    flash(`Pengurus ${target?.nama ?? ""} berhasil dihapus`.replace("  ", " "));
+    flash(`Pengurus ${target?.nama ?? ""} dihapus dari daftar sesi ini (belum tersimpan di server).`.replace("  ", " "));
   }
 
   function handleUploadTtd(id: string, file: File | null | undefined) {
     bacaGambar(file, (dataUrl) => {
       onPengurusChange(pengurus.map((p) => (p.id === id ? { ...p, ttd: dataUrl } : p)));
-      flash("TTD digital berhasil diunggah");
+      flash("TTD digital siap dipakai di sesi ini (belum tersimpan di server).");
     });
   }
 
   function handleRemoveTtd(id: string) {
     onPengurusChange(pengurus.map((p) => (p.id === id ? { ...p, ttd: undefined } : p)));
-    flash("TTD digital berhasil dihapus");
+    flash("TTD digital dihapus dari sesi ini (belum tersimpan di server).");
   }
 
   function openAturAkses(u: UserAccess) {
@@ -606,12 +606,12 @@ export function PengaturanRT({
       prev.map((u) => (u.id === accessForm.id ? { ...u, role: accessForm.role, akses: accessForm.akses } : u))
     );
     setAccessForm(null);
-    flash("Hak akses berhasil diperbarui");
+    flash("Hak akses diperbarui (sesi ini — belum tersimpan di server).");
   }
 
   function handleRevokeAccess(id: string) {
     setUserAccess((prev) => prev.filter((u) => u.id !== id));
-    flash("Akses pengguna berhasil dicabut");
+    flash("Akses pengguna dicabut (sesi ini — belum tersimpan di server).");
   }
 
   function handleInvite(e: React.FormEvent) {
@@ -620,7 +620,7 @@ export function PengaturanRT({
       flash("Email undangan wajib diisi");
       return;
     }
-    flash(`Undangan berhasil dikirim ke ${inviteEmail}!`);
+    flash(`Undangan untuk ${inviteEmail} hanya dicatat di sesi ini — TIDAK dikirim dan belum tersimpan di server.`);
     setInviteEmail("");
     setShowInviteModal(false);
   }
@@ -637,7 +637,7 @@ export function PengaturanRT({
     const aktifSampai = formatTanggalID(akhir);
     onLanggananChange({ paket: pilihPaket, mulai, aktifSampai });
     setShowLanggananModal(false);
-    flash(`Perpanjangan berhasil. Paket ${pilihPaket} aktif s/d ${aktifSampai}.`);
+    flash(`Perpanjangan dicatat di sesi ini — paket ${pilihPaket} s/d ${aktifSampai} (belum tersimpan di server).`);
   }
 
   const infoPaket = paketInfo[langganan.paket];
@@ -818,7 +818,7 @@ export function PengaturanRT({
                   <button
                     type="button"
                     className="h-8 px-3 rounded-lg bg-error-container/20 text-error hover:bg-error-container/40 text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                    onClick={() => { setBanner(null); flash("Banner RT berhasil dihapus"); }}
+                    onClick={() => { setBanner(null); flash("Banner RT dihapus dari sesi ini (belum tersimpan di server)."); }}
                   >
                     <span className="material-symbols-outlined text-[14px]">delete</span>
                     Hapus
@@ -840,7 +840,7 @@ export function PengaturanRT({
               type="file"
               accept="image/*"
               onChange={(e) =>
-                bacaGambar(e.target.files?.[0], (d) => { setBanner(d); flash("Banner RT berhasil diunggah"); })
+                bacaGambar(e.target.files?.[0], (d) => { setBanner(d); flash("Banner RT dipakai di sesi ini (belum tersimpan di server)."); })
               }
             />
             <p className="text-[11px] text-on-surface-variant mt-2">Rekomendasi: 1200 x 400 px. Format JPG, PNG. Maks 2MB.</p>
@@ -863,7 +863,7 @@ export function PengaturanRT({
                   <button
                     type="button"
                     className="h-8 px-3 rounded-lg bg-error-container/20 text-error hover:bg-error-container/40 text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                    onClick={() => { setStempel(null); flash("Stempel RT berhasil dihapus"); }}
+                    onClick={() => { setStempel(null); flash("Stempel RT dihapus dari sesi ini (belum tersimpan di server)."); }}
                   >
                     <span className="material-symbols-outlined text-[14px]">delete</span>
                     Hapus
@@ -885,7 +885,7 @@ export function PengaturanRT({
               type="file"
               accept="image/*"
               onChange={(e) =>
-                bacaGambar(e.target.files?.[0], (d) => { setStempel(d); flash("Stempel RT berhasil diunggah"); })
+                bacaGambar(e.target.files?.[0], (d) => { setStempel(d); flash("Stempel RT dipakai di sesi ini (belum tersimpan di server)."); })
               }
             />
             <p className="text-[11px] text-on-surface-variant mt-2">Format lingkaran. Rekomendasi 200 x 200 px. Format PNG transparan.</p>

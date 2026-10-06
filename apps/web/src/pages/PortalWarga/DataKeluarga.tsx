@@ -42,13 +42,17 @@ interface DataKeluargaProps {
    * F-5 · B11: kirim ajuan baru (`POST /warga/keluarga/ajuan`). Induk menangani
    * API-first + fallback OFFLINE; galat lain (409 antrean penuh, sesi habis)
    * DITERUSKAN → modal menampilkan gagal.
+   *
+   * Mengembalikan `true` bila ajuan benar-benar tercatat di server, `false`
+   * bila hanya baris lokal (mode demo / server tidak terjangkau) — pemanggil
+   * wajib membedakan agar pesan sukses tidak pernah palsu.
    */
   onAjukan?: (payload: {
     targetWargaId: string | null;
     jenis: JenisAjuan;
     namaAnggota: string;
     keterangan: string;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   kendaraanR4Count?: number;
   onKendaraanR4Change?: (v: number) => void;
 }
@@ -406,16 +410,22 @@ export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSim
     }
     setKirimAjuanSedang(true);
     try {
-      await onAjukan?.({
+      const terkirim = (await onAjukan?.({
         // Konteks anggota yang dipilih di kartu; tanpa kartu → anggota pertama.
         // Data demo tanpa `idWarga` → induk membuat baris lokal (mode OFFLINE).
         targetWargaId: nikModalData?.idWarga ?? members[0]?.idWarga ?? null,
         jenis: formAjuan.jenis,
         namaAnggota,
         keterangan,
-      });
+      })) === true;
       setShowOfficialModal(false);
-      flash(`Pengajuan verifikasi berhasil dikirim ke Pengurus ${tenant.rtFull}.`);
+      // Pesan mengikuti KENYATAAN: `true` = baris dari server; `false` = baris
+      // lokal (demo/OFFLINE) — jangan pernah mengaku "terkirim" untuk yang kedua.
+      flash(
+        terkirim
+          ? `Pengajuan verifikasi berhasil dikirim ke Pengurus ${tenant.rtFull}.`
+          : `Pengajuan hanya dicatat di sesi ini — TIDAK terkirim ke Pengurus ${tenant.rtFull} (mode demo / server tidak terjangkau).`,
+      );
     } catch (err) {
       flash(
         `Gagal mengirim pengajuan: ${err instanceof GalatApi ? err.message : "periksa koneksi"} — pengajuan TIDAK terkirim.`,

@@ -78,7 +78,7 @@ export function DashboardRW({ onNavigate, surat, akses, kasRw }: DashboardRWProp
         </div>
         <button
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-surface-container-lowest border border-surface-container-high text-on-surface text-sm font-bold shadow-sm hover:bg-surface-container-high transition-all shrink-0"
-          onClick={() => flash(`Data agregat ${tenant.rwFull} diperbarui per ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}.`)}
+          onClick={() => flash(`Data agregat ${tenant.rwFull} ditampilkan per ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })} — Portal RW belum punya backend, tombol ini hanya menampilkan ulang data sesi ini.`)}
         >
           <span className="material-symbols-outlined text-[18px]">sync</span>
           Perbarui Data

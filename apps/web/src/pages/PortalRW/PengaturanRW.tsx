@@ -50,7 +50,7 @@ export function PengaturanRW({ onNavigate }: PengaturanRWProps) {
       kontak: editProfil.kontak.trim(),
     });
     setShowEditProfil(false);
-    flash("Profil RW berhasil disimpan");
+    flash("Profil RW diperbarui di sesi ini — belum tersimpan di server.");
   }
 
   function handleGantiPassword(e: React.FormEvent) {
@@ -63,7 +63,7 @@ export function PengaturanRW({ onNavigate }: PengaturanRWProps) {
       flash("Konfirmasi password tidak sama dengan password baru.");
       return;
     }
-    flash("Password berhasil diperbarui");
+    flash("Password TIDAK disimpan — Portal RW belum punya backend akun; isian hanya divalidasi.");
     setShowGantiPassword(false);
     setFormPassword({ baru: "", konfirmasi: "" });
   }
@@ -71,7 +71,7 @@ export function PengaturanRW({ onNavigate }: PengaturanRWProps) {
   function toggleNotif(key: keyof typeof notif, label: string) {
     const next = !notif[key];
     setNotif({ ...notif, [key]: next });
-    flash(`${label} ${next ? "diaktifkan" : "dinonaktifkan"}.`);
+    flash(`${label} ${next ? "diaktifkan" : "dinonaktifkan"} (sesi ini — belum tersimpan di server).`);
   }
 
   const notifItems: { key: keyof typeof notif; icon: string; label: string; desc: string }[] = [
@@ -241,7 +241,7 @@ export function PengaturanRW({ onNavigate }: PengaturanRWProps) {
         <div className="p-4 rounded-xl bg-surface-container-low flex items-start gap-3">
           <span className="material-symbols-outlined text-primary text-[20px] shrink-0 mt-0.5">verified_user</span>
           <p className="text-sm text-on-surface-variant leading-relaxed">
-            Gunakan password minimal 8 karakter. Perubahan password langsung berlaku untuk seluruh sesi Portal RW.
+            Gunakan password minimal 8 karakter. Catatan jujur: Portal RW belum memiliki backend akun — perubahan password belum dapat disimpan di server.
           </p>
         </div>
       </section>
