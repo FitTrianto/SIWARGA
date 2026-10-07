@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { tenant } from "../../lib/tenant";
 import {
   KkData,
@@ -215,6 +215,14 @@ function denganNilai(opsi: string[], nilai: string): string[] {
 export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hunian = [], onWargaRtChange, onKkUpdated, onKkAdded, onSimpanWarga, onTambahWarga, onTambahAnggotaKk, onHapusWarga, onImporWarga, undangan, onUndanganWarga, ajuan = [], onVerifikasiAjuan, onKirimUlangUndangan, onCabutUndangan, onUbahAksesWarga, onInspeksiUndangan }: DataWargaRTProps) {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<PortalStatus>("all");
+  /**
+   * Grup KK yang dibuka chevron pada tabel berkelompok. Bawaan **tertutup**
+   * (keputusan 7 Okt 2026): satu baris per KK — No. KK & Kepala tidak lagi
+   * diulang tiap anggota; sub-baris (istri, anak, mertua, …) muncul saat
+   * diklik. Pencarian/filter tetap membuka grupnya otomatis (lihat
+   * `cariAktif`) supaya hasil tidak pernah "hilang" di balik chevron.
+   */
+  const [kkTerbuka, setKkTerbuka] = useState<Set<string>>(new Set());
   const [showInputModal, setShowInputModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -592,29 +600,67 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
     setAnggotaBaru((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  /** KK tujuan "Tambah Anggota" untuk 1 baris — `null` bila baris tak terpasang di KK mana pun. */
+  /**
+   * KK tujuan "Tambah Anggota" untuk 1 baris — `null` bila baris tak terpasang
+   * di KK mana pun (data contoh/non-KK). Dipakai pengelompokan tabel: baris
+   * dengan KK yang sama digabung jadi induk + sub-baris anggota.
+   */
   function kkUntukBaris(w: WargaRt): KkData | null {
     const link = linkFor(w, kkList);
     return (link ? kkList.find((k) => k.id === link.kkId) : undefined) ?? null;
   }
 
   /**
-   * Tombol "Tambah Anggota" pada baris tabel (Okt 2026) — hanya muncul bila
-   * baris tergabung dalam 1 KK; tujuan dirujuk lewat UUID KK-nya sehingga
-   * anggota baru pasti berada di No. KK yang sama dengan baris ini.
+   * Aksi baris anggota/tunggal: Edit, Detail, Hapus, Undangan, dan aksi
+   * Status Portal (konfirmasi dulu). Tombol "Tambah Anggota" TIDAK ada di
+   * sini — pintunya baris INDUK KK (satu per keluarga, selalu terlihat).
    */
-  function tombolTambahAnggota(w: WargaRt) {
-    const kk = kkUntukBaris(w);
-    if (!kk) return null;
+  function aksiBaris(w: WargaRt) {
     return (
-      <button
-        className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-        title={`Tambah anggota ke KK ${maskedNoKk(kk.noKk)} (Kepala: ${kk.kepala})`}
-        onClick={() => bukaTambahAnggota(kk)}
-      >
-        <span className="material-symbols-outlined text-[14px]">person_add</span>
-        Tambah Anggota
-      </button>
+      <>
+        <button
+          className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+          onClick={() => openEdit(w)}
+        >
+          <span className="material-symbols-outlined text-[14px]">edit</span>
+          Edit
+        </button>
+        <button
+          className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+          onClick={() => setDetailWarga(w)}
+        >
+          <span className="material-symbols-outlined text-[14px]">visibility</span>
+          Detail
+        </button>
+        <button
+          className="h-8 px-3 rounded-lg bg-error-container/30 text-error hover:bg-error-container hover:text-on-error-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+          onClick={() => setHapusTarget(w)}
+        >
+          <span className="material-symbols-outlined text-[14px]">delete</span>
+          Hapus
+        </button>
+        {w.statusPortal === "Belum Aktif" && (
+          <button
+            className="h-8 px-3 rounded-lg bg-tertiary-container/40 text-on-tertiary-container hover:bg-tertiary-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+            onClick={() => handleKirimUndangan(w)}
+          >
+            <span className="material-symbols-outlined text-[14px]">qr_code_2</span>
+            Undangan
+          </button>
+        )}
+        {/* B5 · aksi undangan/akses sesuai Status Portal (konfirmasi dulu). */}
+        {aksiAkses(w).map((a) => (
+          <button
+            key={a.jenis}
+            className={`h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors disabled:opacity-60 ${AKSES_KELAS[a.jenis]}`}
+            disabled={aksiSedang}
+            onClick={() => setKonfirmasiAksi({ jenis: a.jenis, warga: w })}
+          >
+            <span className="material-symbols-outlined text-[14px]">{a.ikon}</span>
+            {a.label}
+          </button>
+        ))}
+      </>
     );
   }
 
@@ -1186,6 +1232,67 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
     return matchSearch && matchFilter;
   });
 
+  /* ---------- Tabel berkelompok: INDUK KK → sub-baris anggota ---------- */
+  // Baris tersaring dikelompokkan per KK (`kkList`): induk tampil SEKALI
+  // (No. KK + Kepala keluarga), anggota jadi sub-baris saat chevron dibuka —
+  // mengatasi keluhan "terlalu banyak No. KK & NIK" pada tabel datar lama.
+  // Warga tanpa KK (data contoh / non-KK) tetap jadi baris tersendiri.
+  const cariAktif = search.trim() !== "" || filterType !== "all";
+  const grupMap = new Map<string, { kk: KkData; anggota: WargaRt[] }>();
+  const barisTunggal: WargaRt[] = [];
+  for (const w of filtered) {
+    const kk = kkUntukBaris(w);
+    if (!kk) {
+      barisTunggal.push(w);
+      continue;
+    }
+    const g = grupMap.get(kk.id);
+    if (g) g.anggota.push(w);
+    else grupMap.set(kk.id, { kk, anggota: [w] });
+  }
+  const grupKk = Array.from(grupMap.values());
+
+  /** Buka/tutup sub-baris anggota 1 KK (induk tabel). */
+  function toggleBukaKk(id: string) {
+    setKkTerbuka((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Enum server ("kepala") → label tampilan; label bebas ("Mertua") dipertahankan. */
+  function labelHubungan(w: WargaRt): string {
+    const v = (w.hubungan ?? "").trim();
+    if (!v) return "-";
+    const enumDikenal: Record<string, string> = {
+      kepala: "Kepala Keluarga",
+      istri: "Istri",
+      anak: "Anak",
+      lainnya: "Lainnya",
+    };
+    return enumDikenal[v.toLowerCase()] ?? v;
+  }
+
+  /** Chip warna-warni hubungan sub-baris (Kepala/Istri/Anak/Mertua/…). */
+  function chipHubungan(w: WargaRt) {
+    const label = labelHubungan(w);
+    const bawah = label.toLowerCase();
+    const kelas = bawah.startsWith("kepala")
+      ? "bg-primary-container/70 text-on-primary-container"
+      : bawah.startsWith("istri")
+        ? "bg-secondary-container text-on-secondary-container"
+        : label === "-"
+          ? "bg-surface-container text-on-surface-variant"
+          : "bg-tertiary-container/60 text-on-tertiary-container";
+    return (
+      <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${kelas}`}>
+        {label}
+      </span>
+    );
+  }
+
   // ---- F-5 · B11/B20: verifikasi ajuan perubahan data warga ----
   const antreanAjuan = ajuan.filter((a) => a.status === "menunggu");
 
@@ -1499,7 +1606,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
           <table className="w-full text-left text-on-surface">
             <thead className="bg-surface-container-low text-xs text-on-surface-variant uppercase tracking-wider">
               <tr>
-                <th className="py-3 px-6 w-10">
+                <th className="py-3 px-6 w-10" title="Pilih semua warga yang tampil (semua grup KK)">
                   <input
                     type="checkbox"
                     className="rounded border-outline-variant text-primary focus:ring-primary"
@@ -1507,10 +1614,10 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                     onChange={toggleSelectAll}
                   />
                 </th>
-                <th className="py-3 px-4">Nama</th>
+                <th className="py-3 px-4" title="Baris keluarga: No. KK + Kepala (induk) atau nama warga (sub-baris / tunggal)">Keluarga / Nama</th>
                 <th className="py-3 px-4">NIK</th>
-                <th className="py-3 px-4">No. KK</th>
                 <th className="py-3 px-4">Alamat</th>
+                <th className="py-3 px-4" title="Hubungan dalam keluarga: Kepala, Istri, Anak, Mertua, …">Hubungan</th>
                 <th className="py-3 px-4">Status Portal</th>
                 <th className="py-3 px-4">No. WA</th>
                 <th className="py-3 px-4">Status</th>
@@ -1518,7 +1625,128 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-container-high">
-              {filtered.map((warga) => (
+              {/* ===== Grup KK: baris INDUK (No. KK + Kepala — tampil SEKALI) ===== */}
+              {grupKk.map(({ kk, anggota: anggotaTampil }) => {
+                const terbuka = cariAktif || kkTerbuka.has(kk.id);
+                // Kepala dicari dari seluruh rows (bukan hanya yang cocok
+                // pencarian) supaya "Edit" induk selalu menunjuk Kepala KK.
+                const kepalaBaris =
+                  rows.find((w) => {
+                    const l = linkFor(w, kkList);
+                    return l !== null && l.kkId === kk.id && labelHubungan(w).toLowerCase().startsWith("kepala");
+                  }) ?? anggotaTampil[0];
+                return (
+                  <Fragment key={kk.id}>
+                    <tr className="bg-surface-container-low/70 hover:bg-surface-container-low transition-colors">
+                      <td className="py-3 px-6">
+                        <button
+                          type="button"
+                          className="w-8 h-8 -ml-1 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
+                          aria-expanded={terbuka}
+                          aria-label={terbuka ? "Sembunyikan anggota keluarga" : "Tampilkan anggota keluarga"}
+                          title={terbuka ? "Sembunyikan anggota" : "Tampilkan anggota (istri, anak, mertua, …)"}
+                          onClick={() => toggleBukaKk(kk.id)}
+                        >
+                          <span className={`material-symbols-outlined text-[20px] transition-transform ${terbuka ? "" : "-rotate-90"}`}>
+                            expand_more
+                          </span>
+                        </button>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-mono font-bold text-on-surface">{maskedNoKk(kk.noKk)}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-primary-container/60 text-on-primary-container text-[11px] font-bold whitespace-nowrap">
+                            {anggotaTampil.length === kk.anggota.length
+                              ? `${kk.anggota.length} anggota`
+                              : `${anggotaTampil.length} dari ${kk.anggota.length} anggota`}
+                          </span>
+                        </div>
+                        <div className="text-xs text-on-surface-variant mt-0.5">
+                          Kepala: <span className="font-semibold text-on-surface">{kk.kepala || "-"}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4" />
+                      <td className="py-3 px-4">
+                        <span className="text-sm text-on-surface-variant">{shortAlamat(kk.alamat)}</span>
+                      </td>
+                      <td className="py-3 px-4" />
+                      <td className="py-3 px-4" />
+                      <td className="py-3 px-4" />
+                      <td className="py-3 px-4" />
+                      <td className="py-3 px-6 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            className="h-8 px-3 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary hover:text-on-primary text-xs font-bold inline-flex items-center gap-1 transition-colors"
+                            title={`Tambah anggota ke KK ${maskedNoKk(kk.noKk)} (Kepala: ${kk.kepala})`}
+                            onClick={() => bukaTambahAnggota(kk)}
+                          >
+                            <span className="material-symbols-outlined text-[14px]">person_add</span>
+                            Tambah Anggota
+                          </button>
+                          {kepalaBaris && (
+                            <button
+                              className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                              title={`Edit ${kepalaBaris.nama} & data KK`}
+                              onClick={() => openEdit(kepalaBaris)}
+                            >
+                              <span className="material-symbols-outlined text-[14px]">edit</span>
+                              Edit
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {/* ===== Sub-baris anggota (istri, anak, mertua, …) — hanya saat terbuka ===== */}
+                    {terbuka &&
+                      anggotaTampil.map((warga) => (
+                        <tr key={warga.id} className="hover:bg-surface-container-low/50 transition-colors">
+                          <td className="py-3 px-6">
+                            <input
+                              type="checkbox"
+                              className="ml-6 rounded border-outline-variant text-primary focus:ring-primary"
+                              checked={selectedWarga.includes(warga.id)}
+                              onChange={() => toggleSelectWarga(warga.id)}
+                            />
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-3 ml-6">
+                              <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-[11px] shrink-0">
+                                {initialsOf(warga.nama)}
+                              </div>
+                              <div>
+                                <span className="text-sm font-semibold text-on-surface block">{warga.nama}</span>
+                                <span className={`text-[11px] font-semibold ${warga.statusColor}`}>{warga.status}</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-xs font-mono text-on-surface">{maskedNik(warga.nik)}</span>
+                          </td>
+                          {/* Alamat & No. KK milik baris induk — tidak diulang tiap anggota. */}
+                          <td className="py-3 px-4" />
+                          <td className="py-3 px-4">{chipHubungan(warga)}</td>
+                          <td className="py-3 px-4">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${warga.statusBadge}`}>
+                              <span className="w-2 h-2 rounded-full bg-current opacity-60" />
+                              {warga.statusPortal}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-xs font-mono text-on-surface">{fmtWa(warga.noWa)}</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-xs text-on-surface-variant">{warga.status}</span>
+                          </td>
+                          <td className="py-3 px-6 text-right">
+                            <div className="flex items-center justify-end gap-2">{aksiBaris(warga)}</div>
+                          </td>
+                        </tr>
+                      ))}
+                  </Fragment>
+                );
+              })}
+              {/* ===== Baris tunggal: warga tanpa KK terpasang (data contoh / non-KK) ===== */}
+              {barisTunggal.map((warga) => (
                 <tr key={warga.id} className="hover:bg-surface-container-low/50 transition-colors">
                   <td className="py-4 px-6">
                     <input
@@ -1535,7 +1763,10 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                       </div>
                       <div>
                         <span className="text-sm font-bold text-on-surface block">{warga.nama}</span>
-                        <span className={`text-[11px] font-semibold ${warga.statusColor}`}>{warga.status}</span>
+                        <span className="flex items-center gap-1.5 text-[11px]">
+                          {warga.noKk && <span className="font-mono text-on-surface-variant">{maskedNoKk(warga.noKk)} ·</span>}
+                          <span className={`font-semibold ${warga.statusColor}`}>{warga.status}</span>
+                        </span>
                       </div>
                     </div>
                   </td>
@@ -1543,11 +1774,9 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                     <span className="text-xs font-mono text-on-surface">{maskedNik(warga.nik)}</span>
                   </td>
                   <td className="py-4 px-4">
-                    <span className="text-xs font-mono text-on-surface">{maskedNoKk(warga.noKk)}</span>
-                  </td>
-                  <td className="py-4 px-4">
                     <span className="text-sm text-on-surface">{warga.alamat}</span>
                   </td>
+                  <td className="py-4 px-4">{chipHubungan(warga)}</td>
                   <td className="py-4 px-4">
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${warga.statusBadge}`}>
                       <span className="w-2 h-2 rounded-full bg-current opacity-60" />
@@ -1561,51 +1790,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                     <span className="text-xs text-on-surface-variant">{warga.status}</span>
                   </td>
                   <td className="py-4 px-6 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {tombolTambahAnggota(warga)}
-                      <button
-                        className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                        onClick={() => openEdit(warga)}
-                      >
-                        <span className="material-symbols-outlined text-[14px]">edit</span>
-                        Edit
-                      </button>
-                      <button
-                        className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                        onClick={() => setDetailWarga(warga)}
-                      >
-                        <span className="material-symbols-outlined text-[14px]">visibility</span>
-                        Detail
-                      </button>
-                      <button
-                        className="h-8 px-3 rounded-lg bg-error-container/30 text-error hover:bg-error-container hover:text-on-error-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                        onClick={() => setHapusTarget(warga)}
-                      >
-                        <span className="material-symbols-outlined text-[14px]">delete</span>
-                        Hapus
-                      </button>
-                      {warga.statusPortal === "Belum Aktif" && (
-                        <button
-                          className="h-8 px-3 rounded-lg bg-tertiary-container/40 text-on-tertiary-container hover:bg-tertiary-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                          onClick={() => handleKirimUndangan(warga)}
-                        >
-                          <span className="material-symbols-outlined text-[14px]">qr_code_2</span>
-                          Undangan
-                        </button>
-                      )}
-                      {/* B5 · aksi undangan/akses sesuai Status Portal (konfirmasi dulu). */}
-                      {aksiAkses(warga).map((a) => (
-                        <button
-                          key={a.jenis}
-                          className={`h-8 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1 transition-colors disabled:opacity-60 ${AKSES_KELAS[a.jenis]}`}
-                          disabled={aksiSedang}
-                          onClick={() => setKonfirmasiAksi({ jenis: a.jenis, warga })}
-                        >
-                          <span className="material-symbols-outlined text-[14px]">{a.ikon}</span>
-                          {a.label}
-                        </button>
-                      ))}
-                    </div>
+                    <div className="flex items-center justify-end gap-2">{aksiBaris(warga)}</div>
                   </td>
                 </tr>
               ))}
@@ -1624,7 +1809,10 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
           </table>
         </div>
         <div className="px-6 py-3 border-t border-surface-container-high flex items-center justify-between text-xs text-on-surface-variant">
-          <span>Menampilkan {filtered.length} dari {rows.length} warga terdaftar</span>
+          <span>
+            Menampilkan {filtered.length} warga dalam {grupKk.length} KK
+            {barisTunggal.length > 0 ? ` + ${barisTunggal.length} tanpa KK` : ""} dari {rows.length} warga terdaftar
+          </span>
           <span className="font-semibold">Halaman 1 dari 1</span>
         </div>
       </div>
