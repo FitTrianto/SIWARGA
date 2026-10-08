@@ -71,11 +71,13 @@ interface IuranRTProps {
   /**
    * API-first (F-6): bila melempar galat (bukan OFFLINE) → tampilkan gagal.
    * `kategoriTujuan` hanya dikirim pada mode alokasi `terpisah` (B7).
+   * Batch 15C: `alasan` WAJIB untuk `Ditolak` (server menolak 400 tanpa alasan).
    */
   onVerifikasi: (
     id: string,
     status: StatusPembayaran,
     kategoriTujuan?: string,
+    alasan?: string,
   ) => void | Promise<void>;
   alamatWarga: string;
   kendaraanR4Count: number;
@@ -124,6 +126,11 @@ interface IuranRTProps {
     wargaId: string,
     payload: { kategoriId: string; nominalBerlaku?: number | null; jumlahUnit?: number },
   ) => Promise<{ warga: { id: string; nama: string }; profil: { kategoriId: string; nama: string } } | null>;
+  /** Batch 15C — PATCH /rt/iuran/tagihan/:id (edit nominal); `null` = OFFLINE. */
+  onUbahNominalTagihan: (
+    id: string,
+    nominal: number,
+  ) => Promise<{ id: string; nominal: number; sisa: number; periode: string } | null>;
 }
 
 type StatusFilter = "all" | "lunas" | "pending" | "belum" | "sebagian" | "denda";
@@ -191,6 +198,7 @@ export function IuranRT({
   onMuatTagihanServer,
   onMuatProfilIuran,
   onSimpanProfilIuran,
+  onUbahNominalTagihan,
 }: IuranRTProps) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<StatusFilter>("all");
@@ -230,6 +238,18 @@ export function IuranRT({
   const [konfirmasiTutupBuku, setKonfirmasiTutupBuku] = useState(false);
   const [tutupBukuSedang, setTutupBukuSedang] = useState(false);
   const [alasanTutup, setAlasanTutup] = useState("");
+
+  // Batch 15C — dialog TOLAK dengan alasan wajib (server menolak tolak
+  // tanpa alasan ≥3 karakter; alasan menjadi bekal warga mengajukan ulang).
+  const [tolakTarget, setTolakTarget] = useState<Pembayaran | null>(null);
+  const [alasanTolak, setAlasanTolak] = useState("");
+  const [tolakSedang, setTolakSedang] = useState(false);
+
+  // Batch 15C — modal EDIT NOMINAL tagihan tercatat (per kategori, periode
+  // yang sedang ditampilkan; hanya baris tanpa pembayaran yang bisa diubah).
+  const [nominalTarget, setNominalTarget] = useState<BarisTagihanRtServer | null>(null);
+  const [nominalForm, setNominalForm] = useState<Record<string, string>>({});
+  const [nominalSedang, setNominalSedang] = useState(false);
 
   // §6.4.1 — cegah submit ganda CRUD kategori selagi menunggu respons server.
   const [kategoriSedang, setKategoriSedang] = useState(false);
@@ -430,6 +450,64 @@ export function IuranRT({
     }
   }
 
+  /**
+   * Batch 15C — buka modal edit nominal: seluruh kategori baris terisi dari
+   * nominal saat ini; baris yang SUDAH ada pembayaran (sisa < nominal) terkunci
+   * — server juga menolak 409 (konsisten dua sisi).
+   */
+  function bukaEditNominal(row: BarisTagihanRtServer) {
+    const form: Record<string, string> = {};
+    for (const k of row.perKategori) form[k.tagihanId] = String(k.nominal);
+    setNominalForm(form);
+    setNominalTarget(row);
+  }
+
+  /** Batch 15C — simpan edit nominal (hanya baris berubah & belum terbayar). */
+  async function simpanEditNominal() {
+    if (!nominalTarget) return;
+    if (nominalSedang) return flash("Permintaan masih diproses — tunggu sebentar.");
+
+    const bisaUbah = nominalTarget.perKategori.filter((k) => k.sisa >= k.nominal);
+    for (const k of bisaUbah) {
+      const teks = (nominalForm[k.tagihanId] ?? "").trim();
+      const n = Number(teks);
+      if (!teks || !Number.isFinite(n) || n <= 0 || n > 1_000_000_000) {
+        return flash(`Nominal ${k.kategori} tidak valid — isi angka 1–1.000.000.000.`);
+      }
+    }
+    const berubah = bisaUbah.filter((k) => Number(nominalForm[k.tagihanId]) !== k.nominal);
+    if (berubah.length === 0) {
+      setNominalTarget(null);
+      return flash("Belum ada perubahan nominal.");
+    }
+
+    setNominalSedang(true);
+    let sukses = 0;
+    let gagal = 0;
+    let pesanGagal = "";
+    for (const k of berubah) {
+      try {
+        const hasil = await onUbahNominalTagihan(k.tagihanId, Number(nominalForm[k.tagihanId]));
+        if (hasil) sukses += 1;
+        else gagal += 1; // OFFLINE — tidak pernah diklaim tersimpan
+      } catch (err) {
+        gagal += 1;
+        pesanGagal = err instanceof GalatApi ? err.message : "galat jaringan.";
+      }
+    }
+    setNominalSedang(false);
+    setNominalTarget(null);
+    setPemicuMuat((n) => n + 1);
+    if (gagal === 0) flash(`${sukses} nominal tagihan diperbarui.`);
+    else if (sukses === 0) {
+      flash(
+        pesanGagal
+          ? `Nominal tidak tersimpan — ${pesanGagal}`
+          : "Mode demo (server tidak terjangkau) — perubahan nominal tidak tersimpan di server.",
+      );
+    } else flash(`${sukses} nominal diperbarui, ${gagal} gagal — ${pesanGagal || "periksa data terkini."}`);
+  }
+
   /** B9 — buka modal profil iuran lalu muat baris override per kategori. */
   async function bukaProfilIuran(row: BarisTagihanRtServer) {
     setProfilTarget(row);
@@ -557,24 +635,57 @@ export function IuranRT({
 
   const pendingList = pembayaran.filter((p) => p.status === "Menunggu Verifikasi");
 
-  async function handleVerifikasiPembayaran(p: Pembayaran, status: StatusPembayaran) {
+  /**
+   * Verifikasi satu pembayaran. Batch 15C: `Ditolak` wajib membawa `alasan`
+   * (server menolak 400 tanpa alasan) — diisi lewat dialog tolak, bukan
+   * langsung dari tombol.
+   */
+  async function handleVerifikasiPembayaran(
+    p: Pembayaran,
+    status: StatusPembayaran,
+    alasan?: string,
+  ) {
     if (status === "Lunas" && !siapVerifikasi()) return;
     try {
       await onVerifikasi(
         p.id,
         status,
         modeTerpisah && status === "Lunas" ? kategoriTujuan : undefined,
+        status === "Ditolak" ? alasan : undefined,
       );
       // Refetch baris tagihan (sisa/alokasi diperbarui server setelah verifikasi).
       setPemicuMuat((n) => n + 1);
       flash(
         status === "Lunas"
           ? `Pembayaran ${p.nama} (${p.alamat}) berhasil diverifikasi`
-          : `Pembayaran ${p.nama} (${p.alamat}) ditolak.`
+          : `Pembayaran ${p.nama} (${p.alamat}) ditolak — warga perlu mengajukan ulang dengan bukti baru.`
       );
-    } catch {
-      flash("Verifikasi gagal — periksa koneksi lalu coba lagi.");
+    } catch (err) {
+      // Galat server (alasan kurang, sesi habis, dst.) tampil apa adanya.
+      flash(
+        err instanceof GalatApi
+          ? err.message
+          : "Verifikasi gagal — periksa koneksi lalu coba lagi."
+      );
     }
+  }
+
+  /**
+   * Batch 15C — konfirmasi tolak: alasan minimal 3 karakter (cermin skema
+   * server) sebelum permintaan dikirim; gagal → dialog tetap terbuka.
+   */
+  async function konfirmasiTolak() {
+    if (!tolakTarget) return;
+    if (tolakSedang) return flash("Permintaan masih diproses — tunggu sebentar.");
+    const alasan = alasanTolak.trim();
+    if (alasan.length < 3) {
+      return flash("Alasan penolakan wajib diisi (min. 3 karakter).");
+    }
+    setTolakSedang(true);
+    await handleVerifikasiPembayaran(tolakTarget, "Ditolak", alasan);
+    setTolakSedang(false);
+    setTolakTarget(null);
+    setAlasanTolak("");
   }
 
   async function handleVerifikasiMassal() {
@@ -985,15 +1096,9 @@ export function IuranRT({
                             Kirim Pengingat
                           </button>
                         )}
-                        {row.status === "Denda" && (
-                          <button
-                            className="h-8 px-3 rounded-lg bg-secondary-container/40 text-on-secondary-container hover:bg-secondary-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                            onClick={() => flash(`Denda untuk ${row.alamat} telah dibebaskan`)}
-                          >
-                            <span className="material-symbols-outlined text-[14px]">gavel</span>
-                            Bebaskan Denda
-                          </button>
-                        )}
+                        {/* Batch 15C — tombol "Bebaskan Denda" DIHAPUS sesuai spek:
+                            aksi tanpa dasar server (hanya flash) menyesatkan;
+                            keringanan/koreksi nominal lewat jalur resmi. */}
                         {row.status === "Menunggu Verifikasi" && pendingRow && (
                           <button
                             className="h-8 px-3 rounded-lg bg-primary/10 text-primary hover:bg-primary hover:text-on-primary text-xs font-semibold inline-flex items-center gap-1 transition-colors"
@@ -1254,13 +1359,23 @@ export function IuranRT({
                     <span className="text-xs text-on-surface-variant font-mono">{r.tanggalBayar ?? "-"}</span>
                   </td>
                   <td className="py-4 px-4 text-right">
-                    <button
-                      className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                      onClick={() => void bukaProfilIuran(r)}
-                    >
-                      <span className="material-symbols-outlined text-[14px]">manage_accounts</span>
-                      Profil Iuran
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                        onClick={() => void bukaProfilIuran(r)}
+                      >
+                        <span className="material-symbols-outlined text-[14px]">manage_accounts</span>
+                        Profil Iuran
+                      </button>
+                      <button
+                        className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                        onClick={() => bukaEditNominal(r)}
+                        title="Edit nominal tagihan baris ini (yang belum punya pembayaran)"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">edit</span>
+                        Edit Nominal
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1402,7 +1517,10 @@ export function IuranRT({
                     </button>
                     <button
                       className="h-9 px-3 rounded-lg bg-error-container/30 hover:bg-error-container text-error text-xs font-bold inline-flex items-center gap-1 transition-colors"
-                      onClick={() => handleVerifikasiPembayaran(p, "Ditolak")}
+                      onClick={() => {
+                        setAlasanTolak("");
+                        setTolakTarget(p);
+                      }}
                     >
                       <span className="material-symbols-outlined text-[14px]">close</span>
                       Tolak
@@ -2027,6 +2145,146 @@ export function IuranRT({
             </div>
           }
         />
+      )}
+
+      {/* Batch 15C · dialog TOLAK — alasan WAJIB (server 400 tanpa alasan);
+          alasan tersimpan di pembayaran + Audit Log dan menjadi bekal warga
+          mengajukan ulang dengan bukti baru. */}
+      {tolakTarget && (
+        <KonfirmasiDialog
+          judul="Tolak Pembayaran"
+          pesan={
+            `Pembayaran ${tolakTarget.nama} (${tolakTarget.alamat}) periode ${tolakTarget.periode} ` +
+            "akan ditolak TANPA alokasi kas. Warga perlu mengajukan ulang dengan bukti baru."
+          }
+          ikon="block"
+          aksen="error"
+          labelYa="Tolak Pembayaran"
+          sedang={tolakSedang}
+          onBatal={() => {
+            if (!tolakSedang) {
+              setTolakTarget(null);
+              setAlasanTolak("");
+            }
+          }}
+          onYa={() => void konfirmasiTolak()}
+          detail={
+            <div className="p-3 rounded-xl bg-surface-container-low space-y-2">
+              <label
+                htmlFor="alasan-tolak-pembayaran"
+                className="block text-[11px] text-on-surface-variant uppercase tracking-wider font-semibold"
+              >
+                Alasan penolakan (wajib, min. 3 karakter)
+              </label>
+              <textarea
+                id="alasan-tolak-pembayaran"
+                rows={2}
+                maxLength={200}
+                value={alasanTolak}
+                onChange={(e) => setAlasanTolak(e.target.value)}
+                placeholder="mis. Bukti blur — nominal tidak terbaca, mohon unggah ulang"
+                className="w-full px-3 py-2 rounded-xl bg-surface-container-lowest border border-surface-container-high text-xs text-on-surface placeholder:text-on-surface-variant focus:ring-2 focus:ring-primary focus:outline-none resize-none"
+              />
+              <p className="text-[11px] text-on-surface-variant leading-relaxed">
+                Alasan disimpan pada pembayaran &amp; tercatat di Audit Log (siapa menolak, kapan, apa
+                alasannya).
+              </p>
+            </div>
+          }
+        />
+      )}
+
+      {/* Batch 15C · modal EDIT NOMINAL — koreksi nominal tagihan tercatat
+          (per kategori, periode tampil); baris berbayar terkunci & catatan
+          sinkron-jujur: generate + sinkron profil berikutnya menyesuaikan
+          tagihan tak-terbayar ke profil iuran warga. */}
+      {nominalTarget && (
+        <div className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg mx-4 sm:mx-auto rounded-2xl bg-surface-container-lowest shadow-2xl p-6 flex flex-col gap-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-container flex items-center justify-center text-on-primary-container">
+                  <span className="material-symbols-outlined text-[22px]">edit</span>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-on-surface">Edit Nominal Tagihan</h3>
+                  <p className="text-xs text-on-surface-variant">
+                    {nominalTarget.nama} · {nominalTarget.alamat} ·{" "}
+                    {labelPeriodeServer(periodeServer || null)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Tutup"
+                className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface"
+                onClick={() => {
+                  if (!nominalSedang) setNominalTarget(null);
+                }}
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {nominalTarget.perKategori.map((k) => {
+                const terkunci = k.sisa < k.nominal; // sudah ada pembayaran
+                return (
+                  <div
+                    key={k.tagihanId}
+                    className="flex flex-col gap-1.5 p-3 rounded-xl bg-surface-container-low"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-on-surface">{k.kategori}</span>
+                      <span className="text-[11px] text-on-surface-variant">
+                        {terkunci ? "Sudah ada pembayaran — terkunci" : `Sisa ${formatRupiah(k.sisa)}`}
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      min={1}
+                      max={1_000_000_000}
+                      step={1}
+                      inputMode="numeric"
+                      disabled={terkunci || nominalSedang}
+                      value={nominalForm[k.tagihanId] ?? ""}
+                      onChange={(e) => setNominalForm({ ...nominalForm, [k.tagihanId]: e.target.value })}
+                      aria-label={`Nominal ${k.kategori}`}
+                      className="w-full h-10 px-3 rounded-xl bg-surface-container-lowest border border-surface-container-high text-sm text-on-surface font-mono focus:ring-2 focus:ring-primary focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="p-3 rounded-xl bg-tertiary-container/30 text-[11px] text-on-surface leading-relaxed">
+              <span className="font-bold">Catatan jujur:</span> nominal baru berlaku untuk tagihan periode
+              ini (hanya yang belum punya pembayaran). Generate berikutnya dengan sinkron profil tetap
+              menyesuaikan tagihan tak-terbayar ke profil iuran warga — bila nominal harus permanen, ubah
+              lewat &quot;Profil Iuran&quot;.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-surface-container-high">
+              <button
+                type="button"
+                className="h-11 px-4 rounded-xl text-on-surface-variant text-sm hover:bg-surface-container-high transition-colors disabled:opacity-60"
+                disabled={nominalSedang}
+                onClick={() => setNominalTarget(null)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="h-11 px-6 rounded-xl bg-primary text-on-primary text-sm font-bold shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 disabled:opacity-60"
+                disabled={nominalSedang}
+                onClick={() => void simpanEditNominal()}
+              >
+                <span className="material-symbols-outlined text-[18px]">save</span>
+                {nominalSedang ? "Menyimpan…" : "Simpan Nominal"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* B9 · profil iuran warga — override nominal & jumlah unit R4 yang

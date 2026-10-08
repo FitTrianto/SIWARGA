@@ -71,6 +71,7 @@ import {
   ubahHunianRt,
   ubahKategoriRt,
   ubahKendaraanR4Warga,
+  ubahNominalTagihanRt,
   ubahWargaRt,
   undanganServerKeUndangan,
   verifikasiAjuanPerubahanRt,
@@ -1076,6 +1077,24 @@ export default function App() {
   ): Promise<{ warga: { id: string; nama: string }; profil: { kategoriId: string; nama: string } } | null> => {
     try {
       return await simpanProfilIuranRt(wargaId, payload);
+    } catch (err) {
+      if (err instanceof GalatApi && err.code === "OFFLINE") return null;
+      tanganiSesiHabis(err);
+      throw err;
+    }
+  };
+
+  // Batch 15C · edit nominal tagihan (`PATCH /rt/iuran/tagihan/:id`) —
+  // API-first: sukses → nilai server; OFFLINE → null (halaman menghitungnya
+  // gagal & menampilkan pesan jujur "tidak tersimpan"); galat server (409
+  // sudah teralokasi, 404, validasi) DITERUSKAN agar pesan galat tampil —
+  // tidak pernah mengklaim tersimpan padahal server menolak.
+  const ubahNominalTagihanSesi = async (
+    id: string,
+    nominal: number,
+  ): Promise<{ id: string; nominal: number; sisa: number; periode: string } | null> => {
+    try {
+      return await ubahNominalTagihanRt(id, nominal);
     } catch (err) {
       if (err instanceof GalatApi && err.code === "OFFLINE") return null;
       tanganiSesiHabis(err);
@@ -2263,10 +2282,12 @@ export default function App() {
         onTambahKategori={tambahKategoriSesi}
         onUbahKategori={ubahKategoriSesi}
         pembayaran={pembayaran}
-        onVerifikasi={async (id, status, kategoriTujuan) => {
+        onVerifikasi={async (id, status, kategoriTujuan, alasan) => {
           try {
             if (status === "Lunas") await setujuiPembayaranRt(id, undefined, kategoriTujuan);
-            else await tolakPembayaranRt(id);
+            // Batch 15C — alasan tolak WAJIB di server; dialog IuranRT sudah
+            // memastikan ≥3 karakter sebelum sampai ke sini.
+            else await tolakPembayaranRt(id, alasan ?? "");
             // F-4: alokasi yang disetujui menulis entri kas OTOMATIS di server →
             // muat ulang buku kas agar langsung terlihat (daring saja; senyap bila
             // OFFLINE karena state demo tetap dipakai).
@@ -2307,6 +2328,7 @@ export default function App() {
         onMuatTagihanServer={muatTagihanServer}
         onMuatProfilIuran={muatProfilIuranSesi}
         onSimpanProfilIuran={simpanProfilIuranSesi}
+        onUbahNominalTagihan={ubahNominalTagihanSesi}
       />,
       "kas-rt": <KasRT onNavigate={navigate} kasRt={kasRtList} onTambahKas={tambahKasRt} onKoreksiKas={koreksiEntriKas} />,
       "surat-pengantar-rt": <SuratPengantarRT

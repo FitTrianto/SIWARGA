@@ -766,6 +766,8 @@ export interface BarisTagihanRtServer {
   /** B10 — badge: jumlah bulan tunggakan tertua warga (0 bila tidak). */
   tunggakanBulan?: number;
   perKategori: Array<{
+    /** Batch 15C — id tagihan baris ini (sasaran PATCH edit nominal). */
+    tagihanId: string;
     kategoriId: string;
     kategori: string;
     nominal: number;
@@ -840,11 +842,31 @@ export function simpanProfilIuranRt(
   });
 }
 
-/** POST tolak bukti → tanpa alokasi/kas (wajib CSRF; `alasan` opsional). */
-export function tolakPembayaranRt(id: string, alasan?: string): Promise<unknown> {
+/**
+ * Batch 15C — tolak bukti → tanpa alokasi/kas (wajib CSRF). `alasan` WAJIB di
+ * server (min. 3 karakter): warga berhak tahu apa yang harus diperbaiki saat
+ * mengajukan ulang.
+ */
+export function tolakPembayaranRt(id: string, alasan: string): Promise<unknown> {
   return minta(`/rt/iuran/pembayaran/${encodeURIComponent(id)}/tolak`, {
     method: "POST",
-    body: alasan ? { alasan } : {},
+    body: { alasan },
+    csrf: true,
+  });
+}
+
+/**
+ * Batch 15C — PATCH /rt/iuran/tagihan/:id (edit nominal satu tagihan; wajib
+ * CSRF). Hanya tagihan yang BELUM punya pembayaran teralokasi (409 bila sudah);
+ * 404 bila id bukan milik RT sesi (RLS).
+ */
+export function ubahNominalTagihanRt(
+  id: string,
+  nominal: number,
+): Promise<{ id: string; nominal: number; sisa: number; periode: string }> {
+  return minta(`/rt/iuran/tagihan/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { nominal },
     csrf: true,
   });
 }

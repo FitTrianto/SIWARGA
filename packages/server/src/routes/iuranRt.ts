@@ -70,7 +70,20 @@ const skemaSetujui = z.object({
   // B7 — mode terpisah: bendahara memilih kategori tujuan alokasi
   kategoriTujuan: skemaId.optional(),
 });
-const skemaTolak = z.object({ alasan: z.string().trim().min(3, "Alasan penolakan wajib diisi.").max(200).optional() });
+// Batch 15C — alasan tolak WAJIB: warga berhak tahu apa yang harus
+// diperbaiki; tanpa alasan → 400 (bukan diam-diam memakai teks default).
+// Pesan per-check eksplisit: invalid_type (undefined/non-teks), too_small, too_big.
+const skemaTolak = z.object({
+  alasan: z
+    .string({ error: "Alasan penolakan wajib diisi." })
+    .trim()
+    .min(3, "Alasan penolakan wajib diisi (min. 3 karakter).")
+    .max(200, "Alasan terlalu panjang (maks. 200 karakter)."),
+});
+// Batch 15C — edit nominal tagihan (PATCH /rt/iuran/tagihan/:id).
+const skemaNominalTagihan = z.object({
+  nominal: z.coerce.number().positive("Nominal harus lebih dari 0.").max(1_000_000_000, "Nominal terlalu besar."),
+});
 const skemaCatat = z.object({
   wargaId: skemaId,
   nominal: z.coerce.number().positive("Nominal harus lebih dari 0.").max(1_000_000_000),
@@ -471,6 +484,8 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
         /** B10 — badge: jumlah bulan tunggakan tertua warga (0 bila tidak). */
         tunggakanBulan: number;
         perKategori: Array<{
+          /** Batch 15C — id tagihan baris ini (sasaran PATCH edit nominal). */
+          tagihanId: string;
           kategoriId: string;
           kategori: string;
           nominal: number;
@@ -515,6 +530,7 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
         baris.jumlah = r2(baris.jumlah + Number(t.nominal));
         baris.sisa = r2(baris.sisa + Number(t.sisa));
         baris.perKategori.push({
+          tagihanId: t.id,
           kategoriId: t.kategoriId,
           kategori: t.kategori.nama,
           nominal: Number(t.nominal),
@@ -797,7 +813,11 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
     });
   });
 
-  /** Tolak bukti — tanpa alokasi, tanpa kas; warga boleh mengajukan ulang. */
+  /**
+   * Tolak bukti — tanpa alokasi, tanpa kas; warga boleh mengajukan ulang
+   * dengan bukti baru. Batch 15C: `alasan` WAJIB (skemaTolak) — tanpa/pendek →
+   * 400 sebelum menyentuh data; alasan tersimpan di `catatan` + Audit Log.
+   */
   app.post("/rt/iuran/pembayaran/:id/tolak", { preHandler: verifikasiCsrf }, async (req, reply) => {
     const { rtId, sesi } = wajibRt(req);
     const { id } = z.object({ id: skemaId }).parse(req.params);
@@ -818,7 +838,7 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
       });
       const diperbarui = await tx.pembayaran.update({
         where: { id: pembayaran.id },
-        data: { status: "ditolak", catatan: alasan ?? "Bukti tidak jelas." },
+        data: { status: "ditolak", catatan: alasan },
       });
 
       await catatAudit(
@@ -835,7 +855,7 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
           entitasId: pembayaran.id,
           sebelum: { status: pembayaran.status },
           sesudah: { status: "ditolak" },
-          ringkasan: `Tolak pembayaran Rp ${Number(pembayaran.nominal)}${warga ? ` (${warga.nama})` : ""}${alasan ? ` — ${alasan}` : ""}`,
+          ringkasan: `Tolak pembayaran Rp ${Number(pembayaran.nominal)}${warga ? ` (${warga.nama})` : ""} — ${alasan}`,
           ip: req.ipAsli,
         },
         tx,
@@ -976,6 +996,73 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
       );
 
       return { dibuat: gen.dibuat, dilewati: gen.dilewati, sinkron: gen.sinkron, periode };
+    });
+
+    return reply.ok(hasil);
+  });
+
+  /**
+   * Batch 15C — EDIT NOMINAL TAGIHAN: RT mengoreksi nominal satu tagihan
+   * (warga+kategori+periode) tanpa menghapus/membuat ulang. Hanya tagihan milik
+   * RT sesi (scope RLS) yang BELUM punya alokasi pembayaran — setelah ada
+   * pembayaran, `nominal`/`sisa` adalah jejak kas → 409 jujur. `nominalAwal`
+   * ikut ditulis agar tetap konsisten (pola sama dengan sinkron profil di
+   * `generateTagihan`); audit `ubah_nominal_tagihan` membawa sebelum/sesudah.
+   */
+  app.patch("/rt/iuran/tagihan/:id", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+    const { id } = z.object({ id: skemaId }).parse(req.params);
+    const { nominal } = skemaNominalTagihan.parse(req.body ?? {});
+
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const tagihan = await tx.tagihan.findFirst({
+        where: { id },
+        include: { kategori: { select: { nama: true } }, warga: { select: { nama: true } } },
+      });
+      if (!tagihan) throw new GalatTolak("NOT_FOUND", "Tagihan tidak ditemukan.");
+
+      const teralokasi = await tx.alokasiPembayaran.count({ where: { tagihanId: id } });
+      if (teralokasi > 0) {
+        throw new GalatTolak(
+          "CONFLICT",
+          "Tagihan sudah memiliki pembayaran — nominal tidak dapat diubah. " +
+            "Untuk koreksi permanen ubah profil iuran warga, untuk koreksi kas gunakan koreksi entri kas.",
+        );
+      }
+
+      const sebelum = r2(Number(tagihan.nominal));
+      if (sebelum === r2(nominal)) {
+        throw new GalatTolak("VALIDATION", "Nominal baru sama dengan nominal lama.");
+      }
+
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+      await tx.tagihan.update({
+        where: { id },
+        data: { nominal, nominalAwal: nominal, sisa: nominal },
+      });
+      await catatAudit(
+        {
+          scopeLevel: "rt",
+          scopeId: rtId,
+          actorId: oleh,
+          actorRole: "rt_admin",
+          portal: "rt",
+          modul: "iuran",
+          aksi: "ubah_nominal_tagihan",
+          aksiBadge: "Diubah",
+          entitas: "tagihan",
+          entitasId: id,
+          sebelum: { nominal: sebelum },
+          sesudah: { nominal: r2(nominal) },
+          ringkasan:
+            `Ubah nominal tagihan ${tagihan.kategori.nama} (${tagihan.warga.nama}) ` +
+            `${tagihan.periode}: Rp ${sebelum} → Rp ${r2(nominal)}`,
+          ip: req.ipAsli,
+        },
+        tx,
+      );
+
+      return { id, nominal: r2(nominal), sisa: r2(nominal), periode: tagihan.periode };
     });
 
     return reply.ok(hasil);

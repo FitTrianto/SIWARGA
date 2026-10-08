@@ -8437,3 +8437,233 @@ describe("Batch 15B · mode tagihan & tutup buku iuran (Portal RT)", () => {
     expect(tanggalJakarta()).toBeLessThanOrEqual(31);
   });
 });
+
+describe("Batch 15C · edit nominal tagihan & alasan tolak wajib (Portal RT)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRt = "";
+  let csrfRt = "";
+  let sidWarga = "";
+
+  const sesiRt = () => ({ sid: sidRt, csrf_token: csrfRt });
+  const csrfRtHeader = () => ({ "x-csrf-token": csrfRt });
+
+  interface Baris15C {
+    wargaId: string;
+    nama: string;
+    jumlah: number;
+    sisa: number;
+    status: string;
+    perKategori: Array<{
+      tagihanId: string;
+      kategoriId: string;
+      kategori: string;
+      nominal: number;
+      sisa: number;
+      status: string;
+      label: string;
+    }>;
+  }
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+
+    const rt = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt04@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt.statusCode, "login RT04").toBe(200);
+    sidRt = cookieDari(rt, "sid")!;
+    csrfRt = cookieDari(rt, "csrf_token")!;
+
+    const w = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(w.statusCode, "login warga").toBe(200);
+    sidWarga = cookieDari(w, "sid")!;
+  }, 60_000);
+
+  afterAll(async () => {
+    await tutupAplikasiUji();
+  });
+
+  it("tolak pembayaran: alasan WAJIB — 400 tanpa/pendek tanpa mengubah data; sukses → alasan tersimpan + audit", async () => {
+    // Fixture sendiri: ajukan bukti dari Portal Warga (baris tersendiri)
+    const buat = await app.inject({
+      method: "POST",
+      url: `${api}/warga/iuran/bukti`,
+      cookies: { sid: sidWarga },
+      payload: { nominal: 2000, catatan: "Uji alasan tolak batch 15C" },
+    });
+    expect(buat.statusCode).toBe(200);
+    const idBukti = isi(buat).data.pembayaran.id as string;
+
+    const tolak = (payload?: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: `${api}/rt/iuran/pembayaran/${idBukti}/tolak`,
+        cookies: sesiRt(),
+        headers: csrfRtHeader(),
+        ...(payload ? { payload } : {}),
+      });
+
+    // Tanpa badan → 400 VALIDATION — bukan diam-diam memakai teks default
+    const kosong = await tolak();
+    expect(kosong.statusCode).toBe(400);
+    expect(isi(kosong).error?.code).toBe("VALIDATION");
+    expect(isi(kosong).error?.message).toMatch(/Alasan penolakan wajib/);
+
+    const pendek = await tolak({ alasan: "ab" });
+    expect(pendek.statusCode).toBe(400);
+    expect(isi(pendek).error?.message).toMatch(/Alasan penolakan wajib/);
+
+    // Dua percobaan gagal tidak menyentuh pembayaran (masih menunggu verifikasi)
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        "SELECT count(*)::int AS n FROM pembayaran WHERE id = $1 AND status = 'menunggu_verifikasi'",
+        [idBukti],
+      ),
+      "400 → status tidak berubah",
+    ).toBe(1);
+
+    // Alasan sah → ditolak + catatan = alasan persis + satu audit
+    const alasan = "Bukti blur, mohon unggah ulang dengan jelas";
+    const ok = await tolak({ alasan });
+    expect(ok.statusCode).toBe(200);
+    expect(isi(ok).data.pembayaran.status).toBe("ditolak");
+    expect(isi(ok).data.statusLabel).toBe("Ditolak");
+
+    const baca = await denganScope({ level: "rt", id: idRt04 }, (c) =>
+      c.query("SELECT catatan FROM pembayaran WHERE id = $1", [idBukti]),
+    );
+    expect((baca.rows[0] as { catatan: string }).catatan, "catatan = alasan RT").toBe(alasan);
+
+    const auditTolak = (): Promise<number> =>
+      hitung(
+        { level: "rt", id: idRt04 },
+        "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'tolak_pembayaran' AND entitas_id = $1",
+        [idBukti],
+      );
+    expect(await auditTolak()).toBe(1);
+
+    // Tolak ulang saat sudah ditolak → idempoten (ulang: true), tanpa audit baru
+    const ulang = await tolak({ alasan: "Masih buram" });
+    expect(ulang.statusCode).toBe(200);
+    expect(isi(ulang).data.ulang).toBe(true);
+    expect(await auditTolak(), "tolak ulang tidak menggandakan audit").toBe(1);
+  });
+
+  it("edit nominal tagihan: tagihanId kontrak, round-trip + audit, guard 401/404/400, 409 teralokasi, restore", async () => {
+    const muatBaris = async (): Promise<Baris15C[]> => {
+      const res = await app.inject({ method: "GET", url: `${api}/rt/iuran/tagihan`, cookies: sesiRt() });
+      expect(res.statusCode).toBe(200);
+      return (isi(res).data as { rows: Baris15C[] }).rows;
+    };
+    const semuaBaris = (rows: Baris15C[]) => rows.flatMap((r) => r.perKategori.map((k) => ({ warga: r, k })));
+
+    const rows = await muatBaris();
+    const semua = semuaBaris(rows);
+    expect(semua.length).toBeGreaterThan(0);
+    expect(
+      semua.every(({ k }) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(k.tagihanId)),
+      "kontrak 15C: setiap perKategori kini memuat tagihanId (UUID valid)",
+    ).toBe(true);
+
+    // Sasaran: tagihan BELUM teralokasi (sisa >= nominal, nominal > 0)
+    const sasaran = semua.find(({ k }) => k.nominal > 0 && k.sisa >= k.nominal);
+    expect(sasaran, "harus ada tagihan belum dibayar").toBeTruthy();
+    const idTagihan = sasaran!.k.tagihanId;
+    const asli = sasaran!.k.nominal;
+    const baru = asli + 1234;
+    const uuidAsing = "00000000-0000-0000-0000-000000000000";
+
+    const patch = (id: string, payload: Record<string, unknown>, csrf = true) =>
+      app.inject({
+        method: "PATCH",
+        url: `${api}/rt/iuran/tagihan/${id}`,
+        cookies: sesiRt(),
+        ...(csrf ? { headers: csrfRtHeader() } : {}),
+        payload,
+      });
+
+    // Guard: tanpa CSRF → 401; id tak dikenal → 404 (RLS menyembunyikan milik RT lain)
+    const tanpaCsrf = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/tagihan/${idTagihan}`,
+      cookies: sesiRt(),
+      payload: { nominal: baru },
+    });
+    expect(tanpaCsrf.statusCode).toBe(401);
+    const asing = await patch(uuidAsing, { nominal: baru });
+    expect(asing.statusCode).toBe(404);
+    expect(isi(asing).error?.code).toBe("NOT_FOUND");
+
+    const auditUbah = (id?: string): Promise<number> =>
+      hitung(
+        { level: "rt", id: idRt04 },
+        id
+          ? "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'ubah_nominal_tagihan' AND entitas_id = $1"
+          : "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'ubah_nominal_tagihan' AND scope_id = $1",
+        [id ?? idRt04],
+      );
+    const auditSebelum = await auditUbah();
+
+    // Validasi: nominal 0, bukan angka, dan nilai sama → 400 tanpa jejak audit
+    expect((await patch(idTagihan, { nominal: 0 })).statusCode).toBe(400);
+    const bukanAngka = await patch(idTagihan, { nominal: "bukan-angka" });
+    expect(bukanAngka.statusCode).toBe(400);
+    expect(isi(bukanAngka).error?.code).toBe("VALIDATION");
+    const sama = await patch(idTagihan, { nominal: asli });
+    expect(sama.statusCode).toBe(400);
+    expect(isi(sama).error?.message).toMatch(/sama dengan nominal lama/);
+    expect(await auditUbah(), "percobaan ditolak tidak menulis audit").toBe(auditSebelum);
+
+    // Round-trip: ubah → respons & GET ulang konsisten (nominal, sisa, jumlah baris)
+    const ubah = await patch(idTagihan, { nominal: baru });
+    expect(ubah.statusCode).toBe(200);
+    expect(isi(ubah).data).toMatchObject({ id: idTagihan, nominal: baru, sisa: baru, periode: "2026-10" });
+
+    const barisSesudah = semuaBaris(await muatBaris()).find(({ k }) => k.tagihanId === idTagihan)!;
+    expect(barisSesudah.k.nominal).toBe(baru);
+    expect(barisSesudah.k.sisa, "belum teralokasi → sisa ikut nominal").toBe(baru);
+    expect(barisSesudah.k.label, "sisa == nominal → label Belum Bayar").toBe("Belum Bayar");
+    expect(
+      Math.abs(
+        barisSesudah.warga.jumlah - barisSesudah.warga.perKategori.reduce((a, k) => a + k.nominal, 0),
+      ),
+      "jumlah baris = jumlah nominal per kategori",
+    ).toBeLessThan(0.01);
+
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        `SELECT count(*)::int AS n FROM audit_log
+          WHERE aksi = 'ubah_nominal_tagihan' AND entitas_id = $1
+            AND sebelum->>'nominal' = $2 AND sesudah->>'nominal' = $3`,
+        [idTagihan, String(asli), String(baru)],
+      ),
+      "audit membawa sebelum/sesudah",
+    ).toBe(1);
+
+    // 409: tagihan yang SUDAH teralokasi (pembayaran masuk) → nominal terkunci
+    const terbayar = semua.find(({ k }) => k.sisa < k.nominal);
+    expect(terbayar, "harus ada tagihan terbayar dari pengujian sebelumnya").toBeTruthy();
+    const terkunci = await patch(terbayar!.k.tagihanId, { nominal: terbayar!.k.nominal + 500 });
+    expect(terkunci.statusCode).toBe(409);
+    expect(isi(terkunci).error?.code).toBe("CONFLICT");
+    expect(isi(terkunci).error?.message).toMatch(/pembayaran/);
+    expect(await auditUbah(terbayar!.k.tagihanId), "409 tidak menulis audit").toBe(0);
+
+    // Restore nominal asli — pengujian tidak meninggalkan perubahan
+    const pulih = await patch(idTagihan, { nominal: asli });
+    expect(pulih.statusCode).toBe(200);
+    const akhir = semuaBaris(await muatBaris()).find(({ k }) => k.tagihanId === idTagihan)!;
+    expect(akhir.k.nominal).toBe(asli);
+    expect(akhir.k.sisa).toBe(asli);
+  });
+});
