@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { tenant } from "../../lib/tenant";
 import {
   KkData,
@@ -216,13 +216,12 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<PortalStatus>("all");
   /**
-   * Grup KK yang dibuka chevron pada tabel berkelompok. Bawaan **tertutup**
-   * (keputusan 7 Okt 2026): satu baris per KK — No. KK & Kepala tidak lagi
-   * diulang tiap anggota; sub-baris (istri, anak, mertua, …) muncul saat
-   * diklik. Pencarian/filter tetap membuka grupnya otomatis (lihat
-   * `cariAktif`) supaya hasil tidak pernah "hilang" di balik chevron.
+   * KK yang dibuka pada modal "Anggota Keluarga" (keputusan 8 Okt 2026):
+   * tabel hanya menampilkan SATU baris per kepala keluarga + jumlah anggota
+   * (tanpa sub-baris); kelola tambah/ubah/hapus anggota dilakukan lewat
+   * modal ini sehingga tabel tetap ringkas.
    */
-  const [kkTerbuka, setKkTerbuka] = useState<Set<string>>(new Set());
+  const [kkKeluarga, setKkKeluarga] = useState<KkData | null>(null);
   const [showInputModal, setShowInputModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -1232,13 +1231,13 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
     return matchSearch && matchFilter;
   });
 
-  /* ---------- Tabel berkelompok: INDUK KK → sub-baris anggota ---------- */
-  // Baris tersaring dikelompokkan per KK (`kkList`): induk tampil SEKALI
-  // (No. KK + Kepala keluarga), anggota jadi sub-baris saat chevron dibuka —
-  // mengatasi keluhan "terlalu banyak No. KK & NIK" pada tabel datar lama.
-  // Warga tanpa KK (data contoh / non-KK) tetap jadi baris tersendiri.
-  const cariAktif = search.trim() !== "" || filterType !== "all";
-  const grupMap = new Map<string, { kk: KkData; anggota: WargaRt[] }>();
+  /* ---------- Tabel satu baris per KEPALA keluarga + jumlah anggota ---------- */
+  // Baris tersaring dikelompokkan per KK (`kkList`): tabel hanya menampilkan
+  // KEPALA keluarga beserta jumlah anggota keluarga (keputusan 8 Okt 2026)
+  // tanpa sub-baris — anggota dikelola lewat modal "Anggota Keluarga"
+  // (tambah/ubah/hapus). Warga tanpa KK (data contoh / non-KK) tetap jadi
+  // baris tersendiri agar tidak ada data yang tersembunyi.
+  const grupMap = new Map<string, KkData>();
   const barisTunggal: WargaRt[] = [];
   for (const w of filtered) {
     const kk = kkUntukBaris(w);
@@ -1246,21 +1245,34 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
       barisTunggal.push(w);
       continue;
     }
-    const g = grupMap.get(kk.id);
-    if (g) g.anggota.push(w);
-    else grupMap.set(kk.id, { kk, anggota: [w] });
+    if (!grupMap.has(kk.id)) grupMap.set(kk.id, kk);
   }
   const grupKk = Array.from(grupMap.values());
 
-  /** Buka/tutup sub-baris anggota 1 KK (induk tabel). */
-  function toggleBukaKk(id: string) {
-    setKkTerbuka((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  /** Seluruh anggota 1 KK dari `rows` (tak terpengaruh pencarian/filter). */
+  function anggotaKk(kkId: string): WargaRt[] {
+    return rows.filter((w) => {
+      const l = linkFor(w, kkList);
+      return l !== null && l.kkId === kkId;
     });
   }
+
+  /** Jumlah anggota keluarga ber-status portal "Aktif". */
+  function hitungAktif(anggota: WargaRt[]): number {
+    return anggota.filter((w) => w.statusPortal === "Aktif").length;
+  }
+
+  /** Pilih/batal pilih SEMUA anggota 1 keluarga sekaligus (checkbox baris). */
+  function togglePilihKeluarga(idKeluarga: string[], sedangTerpilih: boolean) {
+    setSelectedWarga((prev) =>
+      sedangTerpilih
+        ? prev.filter((id) => !idKeluarga.includes(id))
+        : Array.from(new Set([...prev, ...idKeluarga])),
+    );
+  }
+
+  /** Seluruh anggota KK yang sedang dibuka pada modal "Anggota Keluarga". */
+  const anggotaKeluarga = kkKeluarga ? anggotaKk(kkKeluarga.id) : [];
 
   /** Enum server ("kepala") → label tampilan; label bebas ("Mertua") dipertahankan. */
   function labelHubungan(w: WargaRt): string {
@@ -1606,7 +1618,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
           <table className="w-full text-left text-on-surface">
             <thead className="bg-surface-container-low text-xs text-on-surface-variant uppercase tracking-wider">
               <tr>
-                <th className="py-3 px-6 w-10" title="Pilih semua warga yang tampil (semua grup KK)">
+                <th className="py-3 px-6 w-10" title="Pilih semua warga yang tampil">
                   <input
                     type="checkbox"
                     className="rounded border-outline-variant text-primary focus:ring-primary"
@@ -1614,135 +1626,110 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                     onChange={toggleSelectAll}
                   />
                 </th>
-                <th className="py-3 px-4" title="Baris keluarga: No. KK + Kepala (induk) atau nama warga (sub-baris / tunggal)">Keluarga / Nama</th>
-                <th className="py-3 px-4">NIK</th>
+                <th className="py-3 px-4" title="Satu baris per kepala keluarga — nama kepala & No. KK miliknya">Kepala Keluarga</th>
+                <th className="py-3 px-4" title="Jumlah anggota keluarga pada KK yang sama">Anggota</th>
                 <th className="py-3 px-4">Alamat</th>
-                <th className="py-3 px-4" title="Hubungan dalam keluarga: Kepala, Istri, Anak, Mertua, …">Hubungan</th>
-                <th className="py-3 px-4">Status Portal</th>
+                <th className="py-3 px-4" title="X dari Y anggota keluarga ber-status portal Aktif">Status Portal</th>
                 <th className="py-3 px-4">No. WA</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-6 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-container-high">
-              {/* ===== Grup KK: baris INDUK (No. KK + Kepala — tampil SEKALI) ===== */}
-              {grupKk.map(({ kk, anggota: anggotaTampil }) => {
-                const terbuka = cariAktif || kkTerbuka.has(kk.id);
-                // Kepala dicari dari seluruh rows (bukan hanya yang cocok
-                // pencarian) supaya "Edit" induk selalu menunjuk Kepala KK.
+              {/* ===== Satu baris per KEPALA keluarga + jumlah anggota (tanpa sub-baris) ===== */}
+              {grupKk.map((kk) => {
+                const anggotaSemua = anggotaKk(kk.id);
+                // Kepala dicari dari seluruh rows supaya WA/status/Edit selalu
+                // menunjuk kepala KK (fallback: anggota pertama bila tak ada).
                 const kepalaBaris =
-                  rows.find((w) => {
-                    const l = linkFor(w, kkList);
-                    return l !== null && l.kkId === kk.id && labelHubungan(w).toLowerCase().startsWith("kepala");
-                  }) ?? anggotaTampil[0];
+                  anggotaSemua.find((w) => labelHubungan(w).toLowerCase().startsWith("kepala")) ?? anggotaSemua[0];
+                const portalAktif = hitungAktif(anggotaSemua);
+                const semuaAktif = anggotaSemua.length > 0 && portalAktif === anggotaSemua.length;
+                const idKeluarga = anggotaSemua.map((w) => w.id);
+                const semuaTerpilih = idKeluarga.length > 0 && idKeluarga.every((id) => selectedWarga.includes(id));
                 return (
-                  <Fragment key={kk.id}>
-                    <tr className="bg-surface-container-low/70 hover:bg-surface-container-low transition-colors">
-                      <td className="py-3 px-6">
+                  <tr key={kk.id} className="bg-surface-container-low/60 hover:bg-surface-container-low transition-colors">
+                    <td className="py-3 px-6">
+                      <input
+                        type="checkbox"
+                        className="rounded border-outline-variant text-primary focus:ring-primary"
+                        checked={semuaTerpilih}
+                        title={`Pilih semua ${idKeluarga.length} anggota keluarga ${kk.kepala || ""}`}
+                        onChange={() => togglePilihKeluarga(idKeluarga, semuaTerpilih)}
+                      />
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-xs shrink-0">
+                          {initialsOf(kk.kepala || "-")}
+                        </div>
+                        <div className="min-w-0">
+                          <span className="text-sm font-bold text-on-surface block truncate">{kk.kepala || "-"}</span>
+                          <span className="text-[11px] font-mono text-on-surface-variant">No. KK {maskedNoKk(kk.noKk)}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary-container/60 text-on-primary-container text-xs font-bold whitespace-nowrap"
+                        title={`${anggotaSemua.length} anggota terdaftar pada KK ini — klik "Keluarga" untuk mengelolanya`}
+                      >
+                        <span className="material-symbols-outlined text-[14px]">group</span>
+                        {anggotaSemua.length} anggota
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="text-sm text-on-surface-variant">{shortAlamat(kk.alamat)}</span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap ${
+                          semuaAktif
+                            ? "bg-tertiary-container text-on-tertiary-container"
+                            : "bg-surface-container text-on-surface-variant"
+                        }`}
+                        title={`${portalAktif} dari ${anggotaSemua.length} anggota ber-status portal Aktif`}
+                      >
+                        {portalAktif}/{anggotaSemua.length} aktif
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="text-xs font-mono text-on-surface">{fmtWa(kepalaBaris?.noWa ?? "")}</span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="text-xs text-on-surface-variant">{kepalaBaris?.status ?? "-"}</span>
+                    </td>
+                    <td className="py-3 px-6 text-right">
+                      <div className="flex items-center justify-end gap-2">
                         <button
-                          type="button"
-                          className="w-8 h-8 -ml-1 rounded-lg flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors"
-                          aria-expanded={terbuka}
-                          aria-label={terbuka ? "Sembunyikan anggota keluarga" : "Tampilkan anggota keluarga"}
-                          title={terbuka ? "Sembunyikan anggota" : "Tampilkan anggota (istri, anak, mertua, …)"}
-                          onClick={() => toggleBukaKk(kk.id)}
+                          className="h-8 px-3 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary hover:text-on-primary text-xs font-bold inline-flex items-center gap-1 transition-colors"
+                          title={`Kelola anggota keluarga ${kk.kepala || ""} — tambah, ubah, atau hapus anggota`}
+                          onClick={() => setKkKeluarga(kk)}
                         >
-                          <span className={`material-symbols-outlined text-[20px] transition-transform ${terbuka ? "" : "-rotate-90"}`}>
-                            expand_more
-                          </span>
+                          <span className="material-symbols-outlined text-[14px]">groups</span>
+                          Keluarga
                         </button>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-mono font-bold text-on-surface">{maskedNoKk(kk.noKk)}</span>
-                          <span className="px-2 py-0.5 rounded-full bg-primary-container/60 text-on-primary-container text-[11px] font-bold whitespace-nowrap">
-                            {anggotaTampil.length === kk.anggota.length
-                              ? `${kk.anggota.length} anggota`
-                              : `${anggotaTampil.length} dari ${kk.anggota.length} anggota`}
-                          </span>
-                        </div>
-                        <div className="text-xs text-on-surface-variant mt-0.5">
-                          Kepala: <span className="font-semibold text-on-surface">{kk.kepala || "-"}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4" />
-                      <td className="py-3 px-4">
-                        <span className="text-sm text-on-surface-variant">{shortAlamat(kk.alamat)}</span>
-                      </td>
-                      <td className="py-3 px-4" />
-                      <td className="py-3 px-4" />
-                      <td className="py-3 px-4" />
-                      <td className="py-3 px-4" />
-                      <td className="py-3 px-6 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <button
+                          className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                          title={`Tambah anggota ke KK ${maskedNoKk(kk.noKk)} (Kepala: ${kk.kepala})`}
+                          onClick={() => bukaTambahAnggota(kk)}
+                        >
+                          <span className="material-symbols-outlined text-[14px]">person_add</span>
+                          Tambah Anggota
+                        </button>
+                        {kepalaBaris && (
                           <button
-                            className="h-8 px-3 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary hover:text-on-primary text-xs font-bold inline-flex items-center gap-1 transition-colors"
-                            title={`Tambah anggota ke KK ${maskedNoKk(kk.noKk)} (Kepala: ${kk.kepala})`}
-                            onClick={() => bukaTambahAnggota(kk)}
+                            className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                            title={`Edit ${kepalaBaris.nama} & data KK`}
+                            onClick={() => openEdit(kepalaBaris)}
                           >
-                            <span className="material-symbols-outlined text-[14px]">person_add</span>
-                            Tambah Anggota
+                            <span className="material-symbols-outlined text-[14px]">edit</span>
+                            Edit
                           </button>
-                          {kepalaBaris && (
-                            <button
-                              className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                              title={`Edit ${kepalaBaris.nama} & data KK`}
-                              onClick={() => openEdit(kepalaBaris)}
-                            >
-                              <span className="material-symbols-outlined text-[14px]">edit</span>
-                              Edit
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    {/* ===== Sub-baris anggota (istri, anak, mertua, …) — hanya saat terbuka ===== */}
-                    {terbuka &&
-                      anggotaTampil.map((warga) => (
-                        <tr key={warga.id} className="hover:bg-surface-container-low/50 transition-colors">
-                          <td className="py-3 px-6">
-                            <input
-                              type="checkbox"
-                              className="ml-6 rounded border-outline-variant text-primary focus:ring-primary"
-                              checked={selectedWarga.includes(warga.id)}
-                              onChange={() => toggleSelectWarga(warga.id)}
-                            />
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-3 ml-6">
-                              <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-[11px] shrink-0">
-                                {initialsOf(warga.nama)}
-                              </div>
-                              <div>
-                                <span className="text-sm font-semibold text-on-surface block">{warga.nama}</span>
-                                <span className={`text-[11px] font-semibold ${warga.statusColor}`}>{warga.status}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="text-xs font-mono text-on-surface">{maskedNik(warga.nik)}</span>
-                          </td>
-                          {/* Alamat & No. KK milik baris induk — tidak diulang tiap anggota. */}
-                          <td className="py-3 px-4" />
-                          <td className="py-3 px-4">{chipHubungan(warga)}</td>
-                          <td className="py-3 px-4">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${warga.statusBadge}`}>
-                              <span className="w-2 h-2 rounded-full bg-current opacity-60" />
-                              {warga.statusPortal}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="text-xs font-mono text-on-surface">{fmtWa(warga.noWa)}</span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="text-xs text-on-surface-variant">{warga.status}</span>
-                          </td>
-                          <td className="py-3 px-6 text-right">
-                            <div className="flex items-center justify-end gap-2">{aksiBaris(warga)}</div>
-                          </td>
-                        </tr>
-                      ))}
-                  </Fragment>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
                 );
               })}
               {/* ===== Baris tunggal: warga tanpa KK terpasang (data contoh / non-KK) ===== */}
@@ -1771,12 +1758,12 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                     </div>
                   </td>
                   <td className="py-4 px-4">
-                    <span className="text-xs font-mono text-on-surface">{maskedNik(warga.nik)}</span>
-                  </td>
-                  <td className="py-4 px-4">
                     <span className="text-sm text-on-surface">{warga.alamat}</span>
                   </td>
-                  <td className="py-4 px-4">{chipHubungan(warga)}</td>
+                  {/* Tanpa grup KK — kolom "Anggota" kosong (tanda "—"). */}
+                  <td className="py-4 px-4">
+                    <span className="text-xs text-on-surface-variant">—</span>
+                  </td>
                   <td className="py-4 px-4">
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${warga.statusBadge}`}>
                       <span className="w-2 h-2 rounded-full bg-current opacity-60" />
@@ -1796,7 +1783,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-4">
+                  <td colSpan={8} className="py-4">
                     <EmptyState
                       icon="person_search"
                       judul="Data warga tidak ditemukan"
@@ -1810,12 +1797,103 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
         </div>
         <div className="px-6 py-3 border-t border-surface-container-high flex items-center justify-between text-xs text-on-surface-variant">
           <span>
-            Menampilkan {filtered.length} warga dalam {grupKk.length} KK
-            {barisTunggal.length > 0 ? ` + ${barisTunggal.length} tanpa KK` : ""} dari {rows.length} warga terdaftar
+            Menampilkan {grupKk.length} keluarga
+            {barisTunggal.length > 0 ? ` + ${barisTunggal.length} warga tanpa KK` : ""} ({filtered.length} warga cocok) dari {rows.length} warga terdaftar
           </span>
           <span className="font-semibold">Halaman 1 dari 1</span>
         </div>
       </div>
+
+      {/* Modal: Anggota Keluarga — tambah / ubah / hapus anggota 1 KK */}
+      {kkKeluarga && (
+        <div
+          className="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setKkKeluarga(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Anggota keluarga"
+        >
+          <div
+            className="w-full max-w-3xl rounded-2xl bg-surface-container-lowest shadow-2xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 p-5 border-b border-surface-container-high">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-primary-container flex items-center justify-center text-on-primary-container shrink-0">
+                  <span className="material-symbols-outlined text-[22px]">groups</span>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-on-surface truncate">Anggota Keluarga {kkKeluarga.kepala || "-"}</h3>
+                  <p className="text-xs text-on-surface-variant">
+                    <span className="font-mono">{maskedNoKk(kkKeluarga.noKk)}</span> · {shortAlamat(kkKeluarga.alamat)} ·{" "}
+                    {anggotaKeluarga.length} anggota
+                  </p>
+                </div>
+              </div>
+              <button
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors shrink-0"
+                aria-label="Tutup"
+                title="Tutup"
+                onClick={() => setKkKeluarga(null)}
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex flex-col gap-2">
+              {anggotaKeluarga.map((w) => (
+                <div
+                  key={w.id}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-surface-container-low/60 border border-surface-container-high"
+                >
+                  <div className="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-xs shrink-0">
+                    {initialsOf(w.nama)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-bold text-on-surface">{w.nama}</span>
+                      {chipHubungan(w)}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap text-[11px] text-on-surface-variant mt-0.5">
+                      <span className="font-mono">{maskedNik(w.nik)}</span>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${w.statusBadge}`}>
+                        {w.statusPortal}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">{aksiBaris(w)}</div>
+                </div>
+              ))}
+              {anggotaKeluarga.length === 0 && (
+                <EmptyState
+                  icon="person_search"
+                  judul="Belum ada anggota pada KK ini"
+                  pesan="Tambahkan anggota keluarga lewat tombol di bawah."
+                />
+              )}
+            </div>
+
+            <div className="p-5 border-t border-surface-container-high flex items-center justify-between gap-3">
+              <button
+                className="h-10 px-4 rounded-xl bg-surface-container-low text-on-surface-variant hover:bg-surface-container text-sm font-semibold transition-colors"
+                onClick={() => setKkKeluarga(null)}
+              >
+                Tutup
+              </button>
+              <button
+                className="h-10 px-4 rounded-xl bg-primary text-on-primary text-sm font-bold inline-flex items-center gap-1.5 shadow-sm hover:opacity-90 active:scale-[0.98] transition-all"
+                title="Tambah anggota ke KK ini"
+                onClick={() => {
+                  if (kkKeluarga) bukaTambahAnggota(kkKeluarga);
+                }}
+              >
+                <span className="material-symbols-outlined text-[18px]">person_add</span>
+                Tambah Anggota
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Input Manual */}
       {showInputModal && (
