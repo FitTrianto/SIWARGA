@@ -424,6 +424,7 @@ export const ModelName = {
   KasEntry: 'KasEntry',
   ApprovalKas: 'ApprovalKas',
   TutupBukuKas: 'TutupBukuKas',
+  TutupBukuIuran: 'TutupBukuIuran',
   JenisSurat: 'JenisSurat',
   Surat: 'Surat',
   PermintaanAksesDetail: 'PermintaanAksesDetail',
@@ -448,7 +449,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "kecamatan" | "kelurahan" | "rw" | "rt" | "pengurusRt" | "pengurusRw" | "pengaturanRt" | "pengaturanRw" | "rumah" | "kartuKeluarga" | "warga" | "perubahanDataWarga" | "tokenUndangan" | "kredensialWarga" | "sesiLogin" | "percobaanOtp" | "penggunaPengurus" | "kategoriIuran" | "profilIuranWarga" | "tagihan" | "pembayaran" | "alokasiPembayaran" | "mutasiSaldoWarga" | "keringanan" | "kasEntry" | "approvalKas" | "tutupBukuKas" | "jenisSurat" | "surat" | "permintaanAksesDetail" | "langganan" | "transaksiLangganan" | "kontenLanding" | "auditLog" | "notifikasiJob" | "imporData"
+    modelProps: "kecamatan" | "kelurahan" | "rw" | "rt" | "pengurusRt" | "pengurusRw" | "pengaturanRt" | "pengaturanRw" | "rumah" | "kartuKeluarga" | "warga" | "perubahanDataWarga" | "tokenUndangan" | "kredensialWarga" | "sesiLogin" | "percobaanOtp" | "penggunaPengurus" | "kategoriIuran" | "profilIuranWarga" | "tagihan" | "pembayaran" | "alokasiPembayaran" | "mutasiSaldoWarga" | "keringanan" | "kasEntry" | "approvalKas" | "tutupBukuKas" | "tutupBukuIuran" | "jenisSurat" | "surat" | "permintaanAksesDetail" | "langganan" | "transaksiLangganan" | "kontenLanding" | "auditLog" | "notifikasiJob" | "imporData"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -2450,6 +2451,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TutupBukuIuran: {
+      payload: Prisma.$TutupBukuIuranPayload<ExtArgs>
+      fields: Prisma.TutupBukuIuranFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TutupBukuIuranFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TutupBukuIuranFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload>
+        }
+        findFirst: {
+          args: Prisma.TutupBukuIuranFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TutupBukuIuranFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload>
+        }
+        findMany: {
+          args: Prisma.TutupBukuIuranFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload>[]
+        }
+        create: {
+          args: Prisma.TutupBukuIuranCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload>
+        }
+        createMany: {
+          args: Prisma.TutupBukuIuranCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TutupBukuIuranCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload>[]
+        }
+        delete: {
+          args: Prisma.TutupBukuIuranDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload>
+        }
+        update: {
+          args: Prisma.TutupBukuIuranUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload>
+        }
+        deleteMany: {
+          args: Prisma.TutupBukuIuranDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TutupBukuIuranUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TutupBukuIuranUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload>[]
+        }
+        upsert: {
+          args: Prisma.TutupBukuIuranUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TutupBukuIuranPayload>
+        }
+        aggregate: {
+          args: Prisma.TutupBukuIuranAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTutupBukuIuran>
+        }
+        groupBy: {
+          args: Prisma.TutupBukuIuranGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TutupBukuIuranGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TutupBukuIuranCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TutupBukuIuranCountAggregateOutputType> | number
+        }
+      }
+    }
     JenisSurat: {
       payload: Prisma.$JenisSuratPayload<ExtArgs>
       fields: Prisma.JenisSuratFieldRefs
@@ -3244,6 +3319,8 @@ export const PengaturanRtScalarFieldEnum = {
   modeAlokasi: 'modeAlokasi',
   tenggatHari: 'tenggatHari',
   dendaAktif: 'dendaAktif',
+  modeTagihan: 'modeTagihan',
+  hariGenerate: 'hariGenerate',
   notifikasiWaEnabled: 'notifikasiWaEnabled',
   modePemeliharaan: 'modePemeliharaan',
   ambangApprovalKas: 'ambangApprovalKas',
@@ -3602,6 +3679,19 @@ export const TutupBukuKasScalarFieldEnum = {
 export type TutupBukuKasScalarFieldEnum = (typeof TutupBukuKasScalarFieldEnum)[keyof typeof TutupBukuKasScalarFieldEnum]
 
 
+export const TutupBukuIuranScalarFieldEnum = {
+  id: 'id',
+  rtId: 'rtId',
+  periodeTertutup: 'periodeTertutup',
+  alasan: 'alasan',
+  ditutupOleh: 'ditutupOleh',
+  ditutupPada: 'ditutupPada',
+  dibukaKembaliPada: 'dibukaKembaliPada'
+} as const
+
+export type TutupBukuIuranScalarFieldEnum = (typeof TutupBukuIuranScalarFieldEnum)[keyof typeof TutupBukuIuranScalarFieldEnum]
+
+
 export const JenisSuratScalarFieldEnum = {
   id: 'id',
   rtId: 'rtId',
@@ -3915,6 +4005,20 @@ export type ListIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel,
  * Reference to a field of type 'Boolean'
  */
 export type BooleanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Boolean'>
+    
+
+
+/**
+ * Reference to a field of type 'ModeTagihan'
+ */
+export type EnumModeTagihanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ModeTagihan'>
+    
+
+
+/**
+ * Reference to a field of type 'ModeTagihan[]'
+ */
+export type ListEnumModeTagihanFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'ModeTagihan[]'>
     
 
 
@@ -4739,6 +4843,7 @@ export type GlobalOmitConfig = {
   kasEntry?: Prisma.KasEntryOmit
   approvalKas?: Prisma.ApprovalKasOmit
   tutupBukuKas?: Prisma.TutupBukuKasOmit
+  tutupBukuIuran?: Prisma.TutupBukuIuranOmit
   jenisSurat?: Prisma.JenisSuratOmit
   surat?: Prisma.SuratOmit
   permintaanAksesDetail?: Prisma.PermintaanAksesDetailOmit

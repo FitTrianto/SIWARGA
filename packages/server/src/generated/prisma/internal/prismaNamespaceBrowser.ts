@@ -78,6 +78,7 @@ export const ModelName = {
   KasEntry: 'KasEntry',
   ApprovalKas: 'ApprovalKas',
   TutupBukuKas: 'TutupBukuKas',
+  TutupBukuIuran: 'TutupBukuIuran',
   JenisSurat: 'JenisSurat',
   Surat: 'Surat',
   PermintaanAksesDetail: 'PermintaanAksesDetail',
@@ -194,6 +195,8 @@ export const PengaturanRtScalarFieldEnum = {
   modeAlokasi: 'modeAlokasi',
   tenggatHari: 'tenggatHari',
   dendaAktif: 'dendaAktif',
+  modeTagihan: 'modeTagihan',
+  hariGenerate: 'hariGenerate',
   notifikasiWaEnabled: 'notifikasiWaEnabled',
   modePemeliharaan: 'modePemeliharaan',
   ambangApprovalKas: 'ambangApprovalKas',
@@ -550,6 +553,19 @@ export const TutupBukuKasScalarFieldEnum = {
 } as const
 
 export type TutupBukuKasScalarFieldEnum = (typeof TutupBukuKasScalarFieldEnum)[keyof typeof TutupBukuKasScalarFieldEnum]
+
+
+export const TutupBukuIuranScalarFieldEnum = {
+  id: 'id',
+  rtId: 'rtId',
+  periodeTertutup: 'periodeTertutup',
+  alasan: 'alasan',
+  ditutupOleh: 'ditutupOleh',
+  ditutupPada: 'ditutupPada',
+  dibukaKembaliPada: 'dibukaKembaliPada'
+} as const
+
+export type TutupBukuIuranScalarFieldEnum = (typeof TutupBukuIuranScalarFieldEnum)[keyof typeof TutupBukuIuranScalarFieldEnum]
 
 
 export const JenisSuratScalarFieldEnum = {

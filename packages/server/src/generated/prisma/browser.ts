@@ -153,6 +153,11 @@ export type ApprovalKas = Prisma.ApprovalKasModel
  */
 export type TutupBukuKas = Prisma.TutupBukuKasModel
 /**
+ * Model TutupBukuIuran
+ * 
+ */
+export type TutupBukuIuran = Prisma.TutupBukuIuranModel
+/**
  * Model JenisSurat
  * 
  */

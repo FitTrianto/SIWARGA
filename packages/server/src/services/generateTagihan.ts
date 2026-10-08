@@ -18,8 +18,18 @@ import type { DbTransaksi } from "./db.js";
 
 const r2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
 
-/** Default `pengaturan_rt` (§6.4.3) bila baris pengaturan belum pernah dibuat. */
-export const PENGATURAN_IURAN_DASAR = { modeAlokasi: "gabungan", tenggatHari: 10, dendaAktif: false } as const;
+/**
+ * Default `pengaturan_rt` (§6.4.3) bila baris pengaturan belum pernah dibuat.
+ * Batch 15: `modeTagihan: "otomatis"` + `hariGenerate: 1` = perilaku lama
+ * (tagihan tergenerate otomatis tgl 1 Asia/Jakarta) dipertahankan.
+ */
+export const PENGATURAN_IURAN_DASAR = {
+  modeAlokasi: "gabungan",
+  tenggatHari: 10,
+  dendaAktif: false,
+  modeTagihan: "otomatis",
+  hariGenerate: 1,
+} as const;
 
 /**
  * Tenggat tagihan satu periode: `min(tenggat_hari, hari_akhir_bulan)` sehingga

@@ -90,11 +90,36 @@ const skemaPengaturanIuran = z
     modeAlokasi: z.enum(["gabungan", "terpisah"]).optional(),
     tenggatHari: z.coerce.number().int("Tenggat harus bilangan bulat.").min(1).max(31).optional(),
     dendaAktif: z.boolean().optional(),
+    // Batch 15 — generate otomatis pada tanggal ini (1–28, Asia/Jakarta) vs
+    // manual lewat tombol. Default skema: otomatis tgl 1.
+    modeTagihan: z.enum(["otomatis", "manual"]).optional(),
+    hariGenerate: z.coerce
+      .number()
+      .int("Hari generate harus bilangan bulat.")
+      .min(1, "Hari generate minimal 1.")
+      .max(28, "Hari generate maksimal 28.")
+      .optional(),
   })
   .refine(
-    (v) => v.modeAlokasi !== undefined || v.tenggatHari !== undefined || v.dendaAktif !== undefined,
+    (v) =>
+      v.modeAlokasi !== undefined ||
+      v.tenggatHari !== undefined ||
+      v.dendaAktif !== undefined ||
+      v.modeTagihan !== undefined ||
+      v.hariGenerate !== undefined,
     { message: "Minimal satu pengaturan harus diisi.", path: [] },
   );
+
+/**
+ * Batch 15 — tutup buku iuran. `periodeTertutup` default = periode berjalan
+ * (FE tidak menampilkan pemilih periode — tombol selalu menutup bulan ini);
+ * batas atas `periodeAktif` dijaga di handler (kejujuran: tidak bisa menutup
+ * buku "bulan depan").
+ */
+const skemaTutupBukuIuran = z.object({
+  periodeTertutup: skemaPeriode.optional(),
+  alasan: z.string().trim().max(300, "Alasan tutup buku maksimal 300 karakter.").optional(),
+});
 
 /**
  * B9 — generate tagihan bulanan: `periode` opsional, mengikuti `PERIODE_AKTIF`
@@ -413,6 +438,14 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
         },
         _min: { periode: true },
       });
+      // Batch 15 — gerbang tombol "Buat Tagihan Bulan Ini" (portal mengikuti
+      // kebenaran server, bukan status klik di FE): apakah periode berjalan
+      // SUDAH punya tagihan, dan apakah buku iuran sedang ditutup (bila ya,
+      // periode setelah periodeTertutup tidak dapat dibuat lagi).
+      const [periodeAktifAda, tutupBukuBaris] = await Promise.all([
+        tx.tagihan.findFirst({ where: { rtId, periode: config.periodeAktif }, select: { id: true } }),
+        tx.tutupBukuIuran.findUnique({ where: { rtId } }),
+      ]);
 
       const petaRumah = new Map(rumah.map((r) => [r.id, r.alamatPendek]));
       const petaMenunggu = new Set(menunggu.map((m) => m.wargaId));
@@ -514,6 +547,15 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
 
       return {
         rows: difilter,
+        sudahDibuat: periodeAktifAda !== null,
+        tutupBuku:
+          tutupBukuBaris && !tutupBukuBaris.dibukaKembaliPada
+            ? {
+                periodeTertutup: tutupBukuBaris.periodeTertutup,
+                ditutupPada: tutupBukuBaris.ditutupPada.toISOString(),
+                alasan: tutupBukuBaris.alasan,
+              }
+            : null,
         rekap: {
           total: semua.length,
           lunas: semua.filter((b) => b.status === "Lunas").length,
@@ -821,7 +863,7 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
     const pengaturan = await denganScopeRequest(req, (tx) =>
       tx.pengaturanRt.findUnique({
         where: { rtId },
-        select: { modeAlokasi: true, tenggatHari: true, dendaAktif: true },
+        select: { modeAlokasi: true, tenggatHari: true, dendaAktif: true, modeTagihan: true, hariGenerate: true },
       }),
     );
     return reply.ok(pengaturan ?? { ...PENGATURAN_IURAN_DASAR });
@@ -839,13 +881,15 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
       const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
       const lama = await tx.pengaturanRt.findUnique({
         where: { rtId },
-        select: { modeAlokasi: true, tenggatHari: true, dendaAktif: true },
+        select: { modeAlokasi: true, tenggatHari: true, dendaAktif: true, modeTagihan: true, hariGenerate: true },
       });
       const dasar = lama ?? { ...PENGATURAN_IURAN_DASAR };
       const sesudah = {
         modeAlokasi: input.modeAlokasi ?? dasar.modeAlokasi,
         tenggatHari: input.tenggatHari ?? dasar.tenggatHari,
         dendaAktif: input.dendaAktif ?? dasar.dendaAktif,
+        modeTagihan: input.modeTagihan ?? dasar.modeTagihan,
+        hariGenerate: input.hariGenerate ?? dasar.hariGenerate,
       };
 
       await tx.pengaturanRt.upsert({
@@ -868,7 +912,10 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
           entitasId: rtId,
           sebelum: lama ?? null,
           sesudah,
-          ringkasan: `Ubah pengaturan iuran: ${sesudah.modeAlokasi}, tenggat hari ${sesudah.tenggatHari}, denda ${sesudah.dendaAktif ? "aktif" : "nonaktif"}`,
+          ringkasan:
+            `Ubah pengaturan iuran: ${sesudah.modeAlokasi}, tenggat hari ${sesudah.tenggatHari}, ` +
+            `denda ${sesudah.dendaAktif ? "aktif" : "nonaktif"}, tagihan ` +
+            (sesudah.modeTagihan === "otomatis" ? `otomatis tgl ${sesudah.hariGenerate}` : "manual"),
           ip: req.ipAsli,
         },
         tx,
@@ -893,6 +940,17 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
 
     const hasil = await denganScopeRequest(req, async (tx) => {
       const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+      // Batch 15 — tutup buku: selama buku AKTIF, generate periode SETELAH
+      // periodeTertutup ditolak ("tak mengulang ke bulan berikutnya").
+      // Periode ≤ periodeTertutup tetap boleh (backfill bulan yang ditutup).
+      const tutup = await tx.tutupBukuIuran.findUnique({ where: { rtId } });
+      if (tutup && !tutup.dibukaKembaliPada && periode > tutup.periodeTertutup) {
+        throw new GalatTolak(
+          "CONFLICT",
+          `Buku iuran sudah ditutup per ${tutup.periodeTertutup} — tagihan ${periode} tidak dapat dibuat. ` +
+            `Buka kembali buku iuran bila memang perlu.`,
+        );
+      }
       const gen = await generateTagihanPeriode(tx, rtId, periode, {
         sinkronProfil: sinkronProfil === true,
       });
@@ -918,6 +976,129 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
       );
 
       return { dibuat: gen.dibuat, dilewati: gen.dilewati, sinkron: gen.sinkron, periode };
+    });
+
+    return reply.ok(hasil);
+  });
+
+  /**
+   * Batch 15 — TUTUP BUKU IURAN (sementara, bisa dibuka): selama baris
+   * AKTIF, `POST /rt/iuran/tagihan/generate` untuk periode SETELAH
+   * `periodeTertutup` ditolak 409 — "tak mengulang ke bulan berikutnya"
+   * (keputusan desain 8 Okt 2026). Satu baris per RT; menutup saat sudah
+   * aktif → 409 (buka dulu). `periodeTertutup` default periode berjalan dan
+   * tidak boleh melebihi bulan berjalan.
+   */
+  app.post("/rt/iuran/tutup-buku", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+    const input = skemaTutupBukuIuran.parse(req.body ?? {});
+    const periode = input.periodeTertutup ?? config.periodeAktif;
+    if (periode > config.periodeAktif) {
+      throw new GalatTolak(
+        "VALIDATION",
+        `Periode tutup buku tidak boleh melebihi bulan berjalan (${config.periodeAktif}).`,
+      );
+    }
+
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+      const lama = await tx.tutupBukuIuran.findUnique({ where: { rtId } });
+      if (lama && !lama.dibukaKembaliPada) {
+        throw new GalatTolak(
+          "CONFLICT",
+          `Buku iuran sudah ditutup per ${lama.periodeTertutup} — buka kembali dulu sebelum menutup ulang.`,
+        );
+      }
+      const tutup = await tx.tutupBukuIuran.upsert({
+        where: { rtId },
+        create: { rtId, periodeTertutup: periode, alasan: input.alasan, ditutupOleh: oleh },
+        // Tutup ulang (sesudah pernah dibuka) menimpa sisa nilai penutupan
+        // sebelumnya — `alasan` dikosongkan bila tidak dikirim (tanpa sisa
+        // alasan lama yang menyesatkan).
+        update: {
+          periodeTertutup: periode,
+          alasan: input.alasan ?? null,
+          ditutupOleh: oleh,
+          ditutupPada: new Date(),
+          dibukaKembaliPada: null,
+        },
+      });
+
+      await catatAudit(
+        {
+          scopeLevel: "rt",
+          scopeId: rtId,
+          actorId: oleh,
+          actorRole: "rt_admin",
+          portal: "rt",
+          modul: "iuran",
+          aksi: "tutup_buku_iuran",
+          aksiBadge: "Tutup Buku",
+          entitas: "tutup_buku_iuran",
+          entitasId: tutup.id,
+          sesudah: { periodeTertutup: periode, alasan: input.alasan ?? null },
+          ringkasan:
+            `Tutup buku iuran per ${periode} — generate tagihan periode berikutnya ` +
+            `berhenti sampai buku dibuka kembali`,
+          ip: req.ipAsli,
+        },
+        tx,
+      );
+
+      return {
+        periodeTertutup: tutup.periodeTertutup,
+        ditutupPada: tutup.ditutupPada.toISOString(),
+        alasan: tutup.alasan,
+      };
+    });
+
+    return reply.ok(hasil);
+  });
+
+  /**
+   * Batch 15 — BUKA KEMBALI buku iuran (tutup buku sementara): mengisi
+   * `dibuka_kembali_pada`, generate kembali berjalan untuk periode apa pun.
+   * Baris TIDAK dihapus (jejak penutupan terakhir tetap terbaca) — riwayat
+   * tutup/buka lengkap tersimpan di `audit_log` (append-only).
+   */
+  app.post("/rt/iuran/tutup-buku/buka", { preHandler: verifikasiCsrf }, async (req, reply) => {
+    const { rtId, sesi } = wajibRt(req);
+
+    const hasil = await denganScopeRequest(req, async (tx) => {
+      const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+      const lama = await tx.tutupBukuIuran.findUnique({ where: { rtId } });
+      if (!lama || lama.dibukaKembaliPada) {
+        throw new GalatTolak("CONFLICT", "Tidak ada tutup buku iuran yang sedang aktif.");
+      }
+      const tutup = await tx.tutupBukuIuran.update({
+        where: { rtId },
+        data: { dibukaKembaliPada: new Date() },
+      });
+
+      await catatAudit(
+        {
+          scopeLevel: "rt",
+          scopeId: rtId,
+          actorId: oleh,
+          actorRole: "rt_admin",
+          portal: "rt",
+          modul: "iuran",
+          aksi: "buka_buku_iuran",
+          aksiBadge: "Buka Buku",
+          entitas: "tutup_buku_iuran",
+          entitasId: tutup.id,
+          sebelum: { periodeTertutup: tutup.periodeTertutup, alasan: tutup.alasan },
+          sesudah: { dibukaKembaliPada: tutup.dibukaKembaliPada?.toISOString() ?? null },
+          ringkasan: `Buka kembali buku iuran (tutup per ${tutup.periodeTertutup}) — generate tagihan berjalan kembali`,
+          ip: req.ipAsli,
+        },
+        tx,
+      );
+
+      return {
+        periodeTertutup: tutup.periodeTertutup,
+        dibukaKembaliPada: tutup.dibukaKembaliPada?.toISOString() ?? null,
+      };
     });
 
     return reply.ok(hasil);

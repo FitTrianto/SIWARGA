@@ -238,6 +238,13 @@ export type BoolFilter<$PrismaModel = never> = {
   not?: Prisma.NestedBoolFilter<$PrismaModel> | boolean
 }
 
+export type EnumModeTagihanFilter<$PrismaModel = never> = {
+  equals?: $Enums.ModeTagihan | Prisma.EnumModeTagihanFieldRefInput<$PrismaModel>
+  in?: $Enums.ModeTagihan[] | Prisma.ListEnumModeTagihanFieldRefInput<$PrismaModel>
+  notIn?: $Enums.ModeTagihan[] | Prisma.ListEnumModeTagihanFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumModeTagihanFilter<$PrismaModel> | $Enums.ModeTagihan
+}
+
 export type DecimalFilter<$PrismaModel = never> = {
   equals?: runtime.Decimal | runtime.DecimalJsLike | number | string | Prisma.DecimalFieldRefInput<$PrismaModel>
   in?: runtime.Decimal[] | runtime.DecimalJsLike[] | number[] | string[] | Prisma.ListDecimalFieldRefInput<$PrismaModel>
@@ -305,6 +312,16 @@ export type BoolWithAggregatesFilter<$PrismaModel = never> = {
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedBoolFilter<$PrismaModel>
   _max?: Prisma.NestedBoolFilter<$PrismaModel>
+}
+
+export type EnumModeTagihanWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.ModeTagihan | Prisma.EnumModeTagihanFieldRefInput<$PrismaModel>
+  in?: $Enums.ModeTagihan[] | Prisma.ListEnumModeTagihanFieldRefInput<$PrismaModel>
+  notIn?: $Enums.ModeTagihan[] | Prisma.ListEnumModeTagihanFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumModeTagihanWithAggregatesFilter<$PrismaModel> | $Enums.ModeTagihan
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumModeTagihanFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumModeTagihanFilter<$PrismaModel>
 }
 
 export type DecimalWithAggregatesFilter<$PrismaModel = never> = {
@@ -1406,6 +1423,13 @@ export type NestedBoolFilter<$PrismaModel = never> = {
   not?: Prisma.NestedBoolFilter<$PrismaModel> | boolean
 }
 
+export type NestedEnumModeTagihanFilter<$PrismaModel = never> = {
+  equals?: $Enums.ModeTagihan | Prisma.EnumModeTagihanFieldRefInput<$PrismaModel>
+  in?: $Enums.ModeTagihan[] | Prisma.ListEnumModeTagihanFieldRefInput<$PrismaModel>
+  notIn?: $Enums.ModeTagihan[] | Prisma.ListEnumModeTagihanFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumModeTagihanFilter<$PrismaModel> | $Enums.ModeTagihan
+}
+
 export type NestedDecimalFilter<$PrismaModel = never> = {
   equals?: runtime.Decimal | runtime.DecimalJsLike | number | string | Prisma.DecimalFieldRefInput<$PrismaModel>
   in?: runtime.Decimal[] | runtime.DecimalJsLike[] | number[] | string[] | Prisma.ListDecimalFieldRefInput<$PrismaModel>
@@ -1460,6 +1484,16 @@ export type NestedBoolWithAggregatesFilter<$PrismaModel = never> = {
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedBoolFilter<$PrismaModel>
   _max?: Prisma.NestedBoolFilter<$PrismaModel>
+}
+
+export type NestedEnumModeTagihanWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.ModeTagihan | Prisma.EnumModeTagihanFieldRefInput<$PrismaModel>
+  in?: $Enums.ModeTagihan[] | Prisma.ListEnumModeTagihanFieldRefInput<$PrismaModel>
+  notIn?: $Enums.ModeTagihan[] | Prisma.ListEnumModeTagihanFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedEnumModeTagihanWithAggregatesFilter<$PrismaModel> | $Enums.ModeTagihan
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumModeTagihanFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumModeTagihanFilter<$PrismaModel>
 }
 
 export type NestedDecimalWithAggregatesFilter<$PrismaModel = never> = {

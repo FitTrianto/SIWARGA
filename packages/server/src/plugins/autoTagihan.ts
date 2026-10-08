@@ -26,12 +26,46 @@ import type { FastifyInstance } from "fastify";
 import { config } from "../config.js";
 import { catatAudit } from "./audit.js";
 import { databaseTersedia, denganScope } from "../services/db.js";
-import { generateTagihanPeriode } from "../services/generateTagihan.js";
+import { PENGATURAN_IURAN_DASAR, generateTagihanPeriode } from "../services/generateTagihan.js";
 
 /** Interval pemeriksaan (6 jam). */
 const JEDA_MILI = 6 * 60 * 60 * 1000;
 /** UUID tetap untuk actor sistem — `audit_log.actor_id` tidak ber-FK. */
 const AKTOR_SISTEM = "00000000-0000-0000-0000-000000000000";
+
+/**
+ * Batch 15 — alasan generate otomatis DILEWATI untuk satu RT (`null` = boleh
+ * generate). Murni tanpa DB supaya bisa diuji langsung (tes 15B):
+ *
+ *   • `mode-manual`  — RT memilih tagihan manual lewat tombol Portal RT;
+ *   • `belum-hari`   — hari berjalan (Asia/Jakarta) belum sampai `hari_generate`;
+ *   • `tutup-buku`   — buku aktif dan periode berjalan SETELAH periode tutup
+ *                      ("tak mengulang ke bulan berikutnya").
+ */
+export function blokadeAutoTagihan(opsi: {
+  mode: "otomatis" | "manual";
+  hari: number;
+  /** Tanggal bulan berjalan di Asia/Jakarta (1–31). */
+  tanggalHariIni: number;
+  periode: string;
+  tutup: { periodeTertutup: string; dibukaKembaliPada: Date | null } | null;
+}): { alasan: "mode-manual" } | { alasan: "belum-hari"; hari: number } | { alasan: "tutup-buku"; periodeTertutup: string } | null {
+  if (opsi.mode === "manual") return { alasan: "mode-manual" };
+  if (opsi.tanggalHariIni < opsi.hari) return { alasan: "belum-hari", hari: opsi.hari };
+  if (opsi.tutup && !opsi.tutup.dibukaKembaliPada && opsi.periode > opsi.tutup.periodeTertutup)
+    return { alasan: "tutup-buku", periodeTertutup: opsi.tutup.periodeTertutup };
+  return null;
+}
+
+/**
+ * Tanggal bulan berjalan di zona Asia/Jakarta — acuan "tanggal disetting"
+ * `pengaturan_rt.hari_generate` (server boleh berjalan di zona lain; tanggal
+ * warga/RT tetap WIB).
+ */
+export function tanggalJakarta(): number {
+  const bagian = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jakarta", day: "numeric" }).formatToParts(new Date());
+  return Number(bagian.find((p) => p.type === "day")?.value ?? "1");
+}
 
 export async function pasangAutoTagihan(app: FastifyInstance): Promise<void> {
   if (config.isTest || !databaseTersedia()) return;
@@ -50,6 +84,27 @@ export async function pasangAutoTagihan(app: FastifyInstance): Promise<void> {
     for (const rt of rts) {
       const p = periode();
       try {
+        // Batch 15 — gerbang per RT sebelum generate: mode manual, hari
+        // disetting (Asia/Jakarta), dan tutup buku aktif. Dilewati tanpa
+        // audit (bukan peristiwa) — cukup log debug agar tidak membanjiri.
+        const blokade = await denganScope("rt", rt.id, async (tx) => {
+          const pengaturan = await tx.pengaturanRt.findUnique({
+            where: { rtId: rt.id },
+            select: { modeTagihan: true, hariGenerate: true },
+          });
+          const tutup = await tx.tutupBukuIuran.findUnique({ where: { rtId: rt.id } });
+          return blokadeAutoTagihan({
+            mode: pengaturan?.modeTagihan ?? PENGATURAN_IURAN_DASAR.modeTagihan,
+            hari: pengaturan?.hariGenerate ?? PENGATURAN_IURAN_DASAR.hariGenerate,
+            tanggalHariIni: tanggalJakarta(),
+            periode: p,
+            tutup,
+          });
+        });
+        if (blokade) {
+          app.log.debug({ rtId: rt.id, ...blokade }, "[auto-tagihan] generate dilewati (gerbang batch 15)");
+          continue;
+        }
         const hasil = await denganScope("rt", rt.id, (tx) =>
           generateTagihanPeriode(tx, rt.id, p),
         );

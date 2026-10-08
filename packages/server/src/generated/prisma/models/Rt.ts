@@ -235,6 +235,7 @@ export type RtWhereInput = {
   ketuaRt?: Prisma.XOR<Prisma.PengurusRtNullableScalarRelationFilter, Prisma.PengurusRtWhereInput> | null
   pengurusList?: Prisma.PengurusRtListRelationFilter
   pengaturan?: Prisma.XOR<Prisma.PengaturanRtNullableScalarRelationFilter, Prisma.PengaturanRtWhereInput> | null
+  tutupBukuIuran?: Prisma.XOR<Prisma.TutupBukuIuranNullableScalarRelationFilter, Prisma.TutupBukuIuranWhereInput> | null
   rumahList?: Prisma.RumahListRelationFilter
   kartuKeluargaList?: Prisma.KartuKeluargaListRelationFilter
   wargaList?: Prisma.WargaListRelationFilter
@@ -271,6 +272,7 @@ export type RtOrderByWithRelationInput = {
   ketuaRt?: Prisma.PengurusRtOrderByWithRelationInput
   pengurusList?: Prisma.PengurusRtOrderByRelationAggregateInput
   pengaturan?: Prisma.PengaturanRtOrderByWithRelationInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranOrderByWithRelationInput
   rumahList?: Prisma.RumahOrderByRelationAggregateInput
   kartuKeluargaList?: Prisma.KartuKeluargaOrderByRelationAggregateInput
   wargaList?: Prisma.WargaOrderByRelationAggregateInput
@@ -311,6 +313,7 @@ export type RtWhereUniqueInput = Prisma.AtLeast<{
   ketuaRt?: Prisma.XOR<Prisma.PengurusRtNullableScalarRelationFilter, Prisma.PengurusRtWhereInput> | null
   pengurusList?: Prisma.PengurusRtListRelationFilter
   pengaturan?: Prisma.XOR<Prisma.PengaturanRtNullableScalarRelationFilter, Prisma.PengaturanRtWhereInput> | null
+  tutupBukuIuran?: Prisma.XOR<Prisma.TutupBukuIuranNullableScalarRelationFilter, Prisma.TutupBukuIuranWhereInput> | null
   rumahList?: Prisma.RumahListRelationFilter
   kartuKeluargaList?: Prisma.KartuKeluargaListRelationFilter
   wargaList?: Prisma.WargaListRelationFilter
@@ -378,6 +381,7 @@ export type RtCreateInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -411,6 +415,7 @@ export type RtUncheckedCreateInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -444,6 +449,7 @@ export type RtUpdateInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -477,6 +483,7 @@ export type RtUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -920,6 +927,20 @@ export type RtUpdateOneRequiredWithoutKeringananListNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.RtUpdateToOneWithWhereWithoutKeringananListInput, Prisma.RtUpdateWithoutKeringananListInput>, Prisma.RtUncheckedUpdateWithoutKeringananListInput>
 }
 
+export type RtCreateNestedOneWithoutTutupBukuIuranInput = {
+  create?: Prisma.XOR<Prisma.RtCreateWithoutTutupBukuIuranInput, Prisma.RtUncheckedCreateWithoutTutupBukuIuranInput>
+  connectOrCreate?: Prisma.RtCreateOrConnectWithoutTutupBukuIuranInput
+  connect?: Prisma.RtWhereUniqueInput
+}
+
+export type RtUpdateOneRequiredWithoutTutupBukuIuranNestedInput = {
+  create?: Prisma.XOR<Prisma.RtCreateWithoutTutupBukuIuranInput, Prisma.RtUncheckedCreateWithoutTutupBukuIuranInput>
+  connectOrCreate?: Prisma.RtCreateOrConnectWithoutTutupBukuIuranInput
+  upsert?: Prisma.RtUpsertWithoutTutupBukuIuranInput
+  connect?: Prisma.RtWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.RtUpdateToOneWithWhereWithoutTutupBukuIuranInput, Prisma.RtUpdateWithoutTutupBukuIuranInput>, Prisma.RtUncheckedUpdateWithoutTutupBukuIuranInput>
+}
+
 export type RtCreateNestedOneWithoutJenisSuratListInput = {
   create?: Prisma.XOR<Prisma.RtCreateWithoutJenisSuratListInput, Prisma.RtUncheckedCreateWithoutJenisSuratListInput>
   connectOrCreate?: Prisma.RtCreateOrConnectWithoutJenisSuratListInput
@@ -1003,6 +1024,7 @@ export type RtCreateWithoutKelurahanInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -1035,6 +1057,7 @@ export type RtUncheckedCreateWithoutKelurahanInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -1110,6 +1133,7 @@ export type RtCreateWithoutRwInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -1142,6 +1166,7 @@ export type RtUncheckedCreateWithoutRwInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -1200,6 +1225,7 @@ export type RtCreateWithoutPengurusListInput = {
   kelurahan: Prisma.KelurahanCreateNestedOneWithoutRtsInput
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -1232,6 +1258,7 @@ export type RtUncheckedCreateWithoutPengurusListInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -1269,6 +1296,7 @@ export type RtCreateWithoutKetuaRtInput = {
   kelurahan: Prisma.KelurahanCreateNestedOneWithoutRtsInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -1301,6 +1329,7 @@ export type RtUncheckedCreateWithoutKetuaRtInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -1349,6 +1378,7 @@ export type RtUpdateWithoutPengurusListInput = {
   kelurahan?: Prisma.KelurahanUpdateOneRequiredWithoutRtsNestedInput
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -1381,6 +1411,7 @@ export type RtUncheckedUpdateWithoutPengurusListInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -1424,6 +1455,7 @@ export type RtUpdateWithoutKetuaRtInput = {
   kelurahan?: Prisma.KelurahanUpdateOneRequiredWithoutRtsNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -1456,6 +1488,7 @@ export type RtUncheckedUpdateWithoutKetuaRtInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -1488,6 +1521,7 @@ export type RtCreateWithoutPengaturanInput = {
   kelurahan: Prisma.KelurahanCreateNestedOneWithoutRtsInput
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -1520,6 +1554,7 @@ export type RtUncheckedCreateWithoutPengaturanInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -1568,6 +1603,7 @@ export type RtUpdateWithoutPengaturanInput = {
   kelurahan?: Prisma.KelurahanUpdateOneRequiredWithoutRtsNestedInput
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -1600,6 +1636,7 @@ export type RtUncheckedUpdateWithoutPengaturanInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -1633,6 +1670,7 @@ export type RtCreateWithoutRumahListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
   kategoriIuran?: Prisma.KategoriIuranCreateNestedManyWithoutRtInput
@@ -1665,6 +1703,7 @@ export type RtUncheckedCreateWithoutRumahListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
   kategoriIuran?: Prisma.KategoriIuranUncheckedCreateNestedManyWithoutRtInput
@@ -1713,6 +1752,7 @@ export type RtUpdateWithoutRumahListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
   kategoriIuran?: Prisma.KategoriIuranUpdateManyWithoutRtNestedInput
@@ -1745,6 +1785,7 @@ export type RtUncheckedUpdateWithoutRumahListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
   kategoriIuran?: Prisma.KategoriIuranUncheckedUpdateManyWithoutRtNestedInput
@@ -1777,6 +1818,7 @@ export type RtCreateWithoutKartuKeluargaListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
   kategoriIuran?: Prisma.KategoriIuranCreateNestedManyWithoutRtInput
@@ -1809,6 +1851,7 @@ export type RtUncheckedCreateWithoutKartuKeluargaListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
   kategoriIuran?: Prisma.KategoriIuranUncheckedCreateNestedManyWithoutRtInput
@@ -1857,6 +1900,7 @@ export type RtUpdateWithoutKartuKeluargaListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
   kategoriIuran?: Prisma.KategoriIuranUpdateManyWithoutRtNestedInput
@@ -1889,6 +1933,7 @@ export type RtUncheckedUpdateWithoutKartuKeluargaListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
   kategoriIuran?: Prisma.KategoriIuranUncheckedUpdateManyWithoutRtNestedInput
@@ -1921,6 +1966,7 @@ export type RtCreateWithoutWargaListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   kategoriIuran?: Prisma.KategoriIuranCreateNestedManyWithoutRtInput
@@ -1953,6 +1999,7 @@ export type RtUncheckedCreateWithoutWargaListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   kategoriIuran?: Prisma.KategoriIuranUncheckedCreateNestedManyWithoutRtInput
@@ -2001,6 +2048,7 @@ export type RtUpdateWithoutWargaListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   kategoriIuran?: Prisma.KategoriIuranUpdateManyWithoutRtNestedInput
@@ -2033,6 +2081,7 @@ export type RtUncheckedUpdateWithoutWargaListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   kategoriIuran?: Prisma.KategoriIuranUncheckedUpdateManyWithoutRtNestedInput
@@ -2065,6 +2114,7 @@ export type RtCreateWithoutPerubahanListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -2097,6 +2147,7 @@ export type RtUncheckedCreateWithoutPerubahanListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -2145,6 +2196,7 @@ export type RtUpdateWithoutPerubahanListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -2177,6 +2229,7 @@ export type RtUncheckedUpdateWithoutPerubahanListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -2209,6 +2262,7 @@ export type RtCreateWithoutTokenUndanganListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -2241,6 +2295,7 @@ export type RtUncheckedCreateWithoutTokenUndanganListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -2289,6 +2344,7 @@ export type RtUpdateWithoutTokenUndanganListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -2321,6 +2377,7 @@ export type RtUncheckedUpdateWithoutTokenUndanganListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -2353,6 +2410,7 @@ export type RtCreateWithoutAkunPengurusInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -2385,6 +2443,7 @@ export type RtUncheckedCreateWithoutAkunPengurusInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -2433,6 +2492,7 @@ export type RtUpdateWithoutAkunPengurusInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -2465,6 +2525,7 @@ export type RtUncheckedUpdateWithoutAkunPengurusInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -2497,6 +2558,7 @@ export type RtCreateWithoutKategoriIuranInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -2529,6 +2591,7 @@ export type RtUncheckedCreateWithoutKategoriIuranInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -2577,6 +2640,7 @@ export type RtUpdateWithoutKategoriIuranInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -2609,6 +2673,7 @@ export type RtUncheckedUpdateWithoutKategoriIuranInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -2641,6 +2706,7 @@ export type RtCreateWithoutTagihanListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -2673,6 +2739,7 @@ export type RtUncheckedCreateWithoutTagihanListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -2721,6 +2788,7 @@ export type RtUpdateWithoutTagihanListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -2753,6 +2821,7 @@ export type RtUncheckedUpdateWithoutTagihanListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -2785,6 +2854,7 @@ export type RtCreateWithoutPembayaranListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -2817,6 +2887,7 @@ export type RtUncheckedCreateWithoutPembayaranListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -2865,6 +2936,7 @@ export type RtUpdateWithoutPembayaranListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -2897,6 +2969,7 @@ export type RtUncheckedUpdateWithoutPembayaranListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -2929,6 +3002,7 @@ export type RtCreateWithoutAlokasiListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -2961,6 +3035,7 @@ export type RtUncheckedCreateWithoutAlokasiListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -3009,6 +3084,7 @@ export type RtUpdateWithoutAlokasiListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -3041,6 +3117,7 @@ export type RtUncheckedUpdateWithoutAlokasiListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -3073,6 +3150,7 @@ export type RtCreateWithoutMutasiListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -3105,6 +3183,7 @@ export type RtUncheckedCreateWithoutMutasiListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -3153,6 +3232,7 @@ export type RtUpdateWithoutMutasiListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -3185,6 +3265,7 @@ export type RtUncheckedUpdateWithoutMutasiListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -3217,6 +3298,7 @@ export type RtCreateWithoutKeringananListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -3249,6 +3331,7 @@ export type RtUncheckedCreateWithoutKeringananListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -3297,6 +3380,7 @@ export type RtUpdateWithoutKeringananListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -3329,6 +3413,7 @@ export type RtUncheckedUpdateWithoutKeringananListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -3337,6 +3422,154 @@ export type RtUncheckedUpdateWithoutKeringananListInput = {
   pembayaranList?: Prisma.PembayaranUncheckedUpdateManyWithoutRtNestedInput
   alokasiList?: Prisma.AlokasiPembayaranUncheckedUpdateManyWithoutRtNestedInput
   mutasiList?: Prisma.MutasiSaldoWargaUncheckedUpdateManyWithoutRtNestedInput
+  jenisSuratList?: Prisma.JenisSuratUncheckedUpdateManyWithoutRtNestedInput
+  suratList?: Prisma.SuratUncheckedUpdateManyWithoutRtNestedInput
+  permintaanAkses?: Prisma.PermintaanAksesDetailUncheckedUpdateManyWithoutRtNestedInput
+  langganan?: Prisma.LanggananUncheckedUpdateOneWithoutRtNestedInput
+  imporList?: Prisma.ImporDataUncheckedUpdateManyWithoutRtNestedInput
+  perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
+  tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
+  akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+}
+
+export type RtCreateWithoutTutupBukuIuranInput = {
+  id?: string
+  kodeRt: string
+  kodeWilayah: string
+  perumahan?: string | null
+  alamat?: string | null
+  status?: $Enums.RtStatus
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  rw: Prisma.RwCreateNestedOneWithoutRtsInput
+  kelurahan: Prisma.KelurahanCreateNestedOneWithoutRtsInput
+  ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
+  pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
+  pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
+  kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
+  wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
+  kategoriIuran?: Prisma.KategoriIuranCreateNestedManyWithoutRtInput
+  tagihanList?: Prisma.TagihanCreateNestedManyWithoutRtInput
+  pembayaranList?: Prisma.PembayaranCreateNestedManyWithoutRtInput
+  alokasiList?: Prisma.AlokasiPembayaranCreateNestedManyWithoutRtInput
+  mutasiList?: Prisma.MutasiSaldoWargaCreateNestedManyWithoutRtInput
+  keringananList?: Prisma.KeringananCreateNestedManyWithoutRtInput
+  jenisSuratList?: Prisma.JenisSuratCreateNestedManyWithoutRtInput
+  suratList?: Prisma.SuratCreateNestedManyWithoutRtInput
+  permintaanAkses?: Prisma.PermintaanAksesDetailCreateNestedManyWithoutRtInput
+  langganan?: Prisma.LanggananCreateNestedOneWithoutRtInput
+  imporList?: Prisma.ImporDataCreateNestedManyWithoutRtInput
+  perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
+  tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
+  akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+}
+
+export type RtUncheckedCreateWithoutTutupBukuIuranInput = {
+  id?: string
+  rwId: string
+  kodeRt: string
+  kodeWilayah: string
+  perumahan?: string | null
+  alamat?: string | null
+  kelurahanId: string
+  ketuaRtId?: string | null
+  status?: $Enums.RtStatus
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
+  pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
+  kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
+  wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
+  kategoriIuran?: Prisma.KategoriIuranUncheckedCreateNestedManyWithoutRtInput
+  tagihanList?: Prisma.TagihanUncheckedCreateNestedManyWithoutRtInput
+  pembayaranList?: Prisma.PembayaranUncheckedCreateNestedManyWithoutRtInput
+  alokasiList?: Prisma.AlokasiPembayaranUncheckedCreateNestedManyWithoutRtInput
+  mutasiList?: Prisma.MutasiSaldoWargaUncheckedCreateNestedManyWithoutRtInput
+  keringananList?: Prisma.KeringananUncheckedCreateNestedManyWithoutRtInput
+  jenisSuratList?: Prisma.JenisSuratUncheckedCreateNestedManyWithoutRtInput
+  suratList?: Prisma.SuratUncheckedCreateNestedManyWithoutRtInput
+  permintaanAkses?: Prisma.PermintaanAksesDetailUncheckedCreateNestedManyWithoutRtInput
+  langganan?: Prisma.LanggananUncheckedCreateNestedOneWithoutRtInput
+  imporList?: Prisma.ImporDataUncheckedCreateNestedManyWithoutRtInput
+  perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
+  tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
+  akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+}
+
+export type RtCreateOrConnectWithoutTutupBukuIuranInput = {
+  where: Prisma.RtWhereUniqueInput
+  create: Prisma.XOR<Prisma.RtCreateWithoutTutupBukuIuranInput, Prisma.RtUncheckedCreateWithoutTutupBukuIuranInput>
+}
+
+export type RtUpsertWithoutTutupBukuIuranInput = {
+  update: Prisma.XOR<Prisma.RtUpdateWithoutTutupBukuIuranInput, Prisma.RtUncheckedUpdateWithoutTutupBukuIuranInput>
+  create: Prisma.XOR<Prisma.RtCreateWithoutTutupBukuIuranInput, Prisma.RtUncheckedCreateWithoutTutupBukuIuranInput>
+  where?: Prisma.RtWhereInput
+}
+
+export type RtUpdateToOneWithWhereWithoutTutupBukuIuranInput = {
+  where?: Prisma.RtWhereInput
+  data: Prisma.XOR<Prisma.RtUpdateWithoutTutupBukuIuranInput, Prisma.RtUncheckedUpdateWithoutTutupBukuIuranInput>
+}
+
+export type RtUpdateWithoutTutupBukuIuranInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  rw?: Prisma.RwUpdateOneRequiredWithoutRtsNestedInput
+  kelurahan?: Prisma.KelurahanUpdateOneRequiredWithoutRtsNestedInput
+  ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
+  pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
+  pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
+  kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
+  wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
+  kategoriIuran?: Prisma.KategoriIuranUpdateManyWithoutRtNestedInput
+  tagihanList?: Prisma.TagihanUpdateManyWithoutRtNestedInput
+  pembayaranList?: Prisma.PembayaranUpdateManyWithoutRtNestedInput
+  alokasiList?: Prisma.AlokasiPembayaranUpdateManyWithoutRtNestedInput
+  mutasiList?: Prisma.MutasiSaldoWargaUpdateManyWithoutRtNestedInput
+  keringananList?: Prisma.KeringananUpdateManyWithoutRtNestedInput
+  jenisSuratList?: Prisma.JenisSuratUpdateManyWithoutRtNestedInput
+  suratList?: Prisma.SuratUpdateManyWithoutRtNestedInput
+  permintaanAkses?: Prisma.PermintaanAksesDetailUpdateManyWithoutRtNestedInput
+  langganan?: Prisma.LanggananUpdateOneWithoutRtNestedInput
+  imporList?: Prisma.ImporDataUpdateManyWithoutRtNestedInput
+  perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
+  tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
+  akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+}
+
+export type RtUncheckedUpdateWithoutTutupBukuIuranInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  rwId?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
+  ketuaRtId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
+  pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
+  kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
+  wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
+  kategoriIuran?: Prisma.KategoriIuranUncheckedUpdateManyWithoutRtNestedInput
+  tagihanList?: Prisma.TagihanUncheckedUpdateManyWithoutRtNestedInput
+  pembayaranList?: Prisma.PembayaranUncheckedUpdateManyWithoutRtNestedInput
+  alokasiList?: Prisma.AlokasiPembayaranUncheckedUpdateManyWithoutRtNestedInput
+  mutasiList?: Prisma.MutasiSaldoWargaUncheckedUpdateManyWithoutRtNestedInput
+  keringananList?: Prisma.KeringananUncheckedUpdateManyWithoutRtNestedInput
   jenisSuratList?: Prisma.JenisSuratUncheckedUpdateManyWithoutRtNestedInput
   suratList?: Prisma.SuratUncheckedUpdateManyWithoutRtNestedInput
   permintaanAkses?: Prisma.PermintaanAksesDetailUncheckedUpdateManyWithoutRtNestedInput
@@ -3361,6 +3594,7 @@ export type RtCreateWithoutJenisSuratListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -3393,6 +3627,7 @@ export type RtUncheckedCreateWithoutJenisSuratListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -3441,6 +3676,7 @@ export type RtUpdateWithoutJenisSuratListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -3473,6 +3709,7 @@ export type RtUncheckedUpdateWithoutJenisSuratListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -3505,6 +3742,7 @@ export type RtCreateWithoutSuratListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -3537,6 +3775,7 @@ export type RtUncheckedCreateWithoutSuratListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -3585,6 +3824,7 @@ export type RtUpdateWithoutSuratListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -3617,6 +3857,7 @@ export type RtUncheckedUpdateWithoutSuratListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -3649,6 +3890,7 @@ export type RtCreateWithoutPermintaanAksesInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -3681,6 +3923,7 @@ export type RtUncheckedCreateWithoutPermintaanAksesInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -3729,6 +3972,7 @@ export type RtUpdateWithoutPermintaanAksesInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -3761,6 +4005,7 @@ export type RtUncheckedUpdateWithoutPermintaanAksesInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -3793,6 +4038,7 @@ export type RtCreateWithoutLanggananInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -3825,6 +4071,7 @@ export type RtUncheckedCreateWithoutLanggananInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -3873,6 +4120,7 @@ export type RtUpdateWithoutLanggananInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -3905,6 +4153,7 @@ export type RtUncheckedUpdateWithoutLanggananInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -3937,6 +4186,7 @@ export type RtCreateWithoutImporListInput = {
   ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
   pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
@@ -3969,6 +4219,7 @@ export type RtUncheckedCreateWithoutImporListInput = {
   updatedAt?: Date | string
   pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
   pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
   rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
   wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
@@ -4017,6 +4268,7 @@ export type RtUpdateWithoutImporListInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -4049,6 +4301,7 @@ export type RtUncheckedUpdateWithoutImporListInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -4093,6 +4346,7 @@ export type RtUpdateWithoutKelurahanInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -4125,6 +4379,7 @@ export type RtUncheckedUpdateWithoutKelurahanInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -4183,6 +4438,7 @@ export type RtUpdateWithoutRwInput = {
   ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
   pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
@@ -4215,6 +4471,7 @@ export type RtUncheckedUpdateWithoutRwInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
   pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
   wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
@@ -4439,6 +4696,7 @@ export type RtSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = run
   ketuaRt?: boolean | Prisma.Rt$ketuaRtArgs<ExtArgs>
   pengurusList?: boolean | Prisma.Rt$pengurusListArgs<ExtArgs>
   pengaturan?: boolean | Prisma.Rt$pengaturanArgs<ExtArgs>
+  tutupBukuIuran?: boolean | Prisma.Rt$tutupBukuIuranArgs<ExtArgs>
   rumahList?: boolean | Prisma.Rt$rumahListArgs<ExtArgs>
   kartuKeluargaList?: boolean | Prisma.Rt$kartuKeluargaListArgs<ExtArgs>
   wargaList?: boolean | Prisma.Rt$wargaListArgs<ExtArgs>
@@ -4514,6 +4772,7 @@ export type RtInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   ketuaRt?: boolean | Prisma.Rt$ketuaRtArgs<ExtArgs>
   pengurusList?: boolean | Prisma.Rt$pengurusListArgs<ExtArgs>
   pengaturan?: boolean | Prisma.Rt$pengaturanArgs<ExtArgs>
+  tutupBukuIuran?: boolean | Prisma.Rt$tutupBukuIuranArgs<ExtArgs>
   rumahList?: boolean | Prisma.Rt$rumahListArgs<ExtArgs>
   kartuKeluargaList?: boolean | Prisma.Rt$kartuKeluargaListArgs<ExtArgs>
   wargaList?: boolean | Prisma.Rt$wargaListArgs<ExtArgs>
@@ -4552,6 +4811,7 @@ export type $RtPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
     ketuaRt: Prisma.$PengurusRtPayload<ExtArgs> | null
     pengurusList: Prisma.$PengurusRtPayload<ExtArgs>[]
     pengaturan: Prisma.$PengaturanRtPayload<ExtArgs> | null
+    tutupBukuIuran: Prisma.$TutupBukuIuranPayload<ExtArgs> | null
     rumahList: Prisma.$RumahPayload<ExtArgs>[]
     kartuKeluargaList: Prisma.$KartuKeluargaPayload<ExtArgs>[]
     wargaList: Prisma.$WargaPayload<ExtArgs>[]
@@ -4981,6 +5241,7 @@ export interface Prisma__RtClient<T, Null = never, ExtArgs extends runtime.Types
   ketuaRt<T extends Prisma.Rt$ketuaRtArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$ketuaRtArgs<ExtArgs>>): Prisma.Prisma__PengurusRtClient<runtime.Types.Result.GetResult<Prisma.$PengurusRtPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   pengurusList<T extends Prisma.Rt$pengurusListArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$pengurusListArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PengurusRtPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   pengaturan<T extends Prisma.Rt$pengaturanArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$pengaturanArgs<ExtArgs>>): Prisma.Prisma__PengaturanRtClient<runtime.Types.Result.GetResult<Prisma.$PengaturanRtPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  tutupBukuIuran<T extends Prisma.Rt$tutupBukuIuranArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$tutupBukuIuranArgs<ExtArgs>>): Prisma.Prisma__TutupBukuIuranClient<runtime.Types.Result.GetResult<Prisma.$TutupBukuIuranPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   rumahList<T extends Prisma.Rt$rumahListArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$rumahListArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$RumahPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   kartuKeluargaList<T extends Prisma.Rt$kartuKeluargaListArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$kartuKeluargaListArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$KartuKeluargaPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   wargaList<T extends Prisma.Rt$wargaListArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$wargaListArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$WargaPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
@@ -5498,6 +5759,25 @@ export type Rt$pengaturanArgs<ExtArgs extends runtime.Types.Extensions.InternalA
    */
   include?: Prisma.PengaturanRtInclude<ExtArgs> | null
   where?: Prisma.PengaturanRtWhereInput
+}
+
+/**
+ * Rt.tutupBukuIuran
+ */
+export type Rt$tutupBukuIuranArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TutupBukuIuran
+   */
+  select?: Prisma.TutupBukuIuranSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the TutupBukuIuran
+   */
+  omit?: Prisma.TutupBukuIuranOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TutupBukuIuranInclude<ExtArgs> | null
+  where?: Prisma.TutupBukuIuranWhereInput
 }
 
 /**

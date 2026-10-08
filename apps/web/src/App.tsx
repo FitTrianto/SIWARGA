@@ -17,6 +17,7 @@ import {
   catatKasRt,
   daftarAjuanPerubahanRt,
   daftarHunianRt,
+  bukaBukuIuranRt,
   daftarKasRt,
   daftarKondisionalRt,
   daftarSuratRt,
@@ -65,6 +66,7 @@ import {
   tagihanIuran,
   tagihanRtServer,
   tolakPembayaranRt,
+  tutupBukuIuranRt,
   ubahAksesWargaRt,
   ubahHunianRt,
   ubahKategoriRt,
@@ -91,6 +93,7 @@ import {
   type ProfilLogin,
   type RingkasTagihanServer,
   type StatusAksesServer,
+  type StatusTutupBukuIuran,
   type TambahHunianRtPayload,
   type TambahKategoriRtPayload,
   type TambahWargaRtPayload,
@@ -994,6 +997,33 @@ export default function App() {
   const generateTagihanSesi = async (periode?: string): Promise<HasilGenerateTagihan | null> => {
     try {
       return await generateTagihanRt(periode);
+    } catch (err) {
+      if (err instanceof GalatApi && err.code === "OFFLINE") return null;
+      tanganiSesiHabis(err);
+      throw err;
+    }
+  };
+
+  // --- Batch 15 · tutup/buka buku iuran (sementara, bisa dibuka) -----------
+  const tutupBukuSesi = async (payload: {
+    periodeTertutup?: string;
+    alasan?: string;
+  }): Promise<StatusTutupBukuIuran | null> => {
+    try {
+      return await tutupBukuIuranRt(payload);
+    } catch (err) {
+      if (err instanceof GalatApi && err.code === "OFFLINE") return null;
+      tanganiSesiHabis(err);
+      throw err;
+    }
+  };
+
+  const bukaBukuSesi = async (): Promise<{
+    periodeTertutup: string;
+    dibukaKembaliPada: string | null;
+  } | null> => {
+    try {
+      return await bukaBukuIuranRt();
     } catch (err) {
       if (err instanceof GalatApi && err.code === "OFFLINE") return null;
       tanganiSesiHabis(err);
@@ -2272,6 +2302,8 @@ export default function App() {
         onMuatKategoriServer={muatKategoriServer}
         onMuatPengaturanIuran={muatPengaturanIuran}
         onGenerateTagihan={generateTagihanSesi}
+        onTutupBuku={tutupBukuSesi}
+        onBukaBuku={bukaBukuSesi}
         onMuatTagihanServer={muatTagihanServer}
         onMuatProfilIuran={muatProfilIuranSesi}
         onSimpanProfilIuran={simpanProfilIuranSesi}

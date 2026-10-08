@@ -223,6 +223,9 @@ export function PengaturanRT({
     modeAlokasi: "gabungan",
     tenggatHari: 10,
     dendaAktif: false,
+    // Batch 15 — default server: generate otomatis tgl 1 (Asia/Jakarta).
+    modeTagihan: "otomatis",
+    hariGenerate: 1,
   };
   const [iuran, setIuran] = useState<PengaturanIuranRt>(PENGATURAN_IURAN_DASAR);
   // Snapshot nilai terakhir tersimpan → dipakai mendeteksi "belum ada perubahan".
@@ -262,7 +265,9 @@ export function PengaturanRT({
   const iuranBerubah =
     iuran.modeAlokasi !== iuranTersimpan.modeAlokasi ||
     iuran.tenggatHari !== iuranTersimpan.tenggatHari ||
-    iuran.dendaAktif !== iuranTersimpan.dendaAktif;
+    iuran.dendaAktif !== iuranTersimpan.dendaAktif ||
+    iuran.modeTagihan !== iuranTersimpan.modeTagihan ||
+    iuran.hariGenerate !== iuranTersimpan.hariGenerate;
 
   /** B7 — simpan pengaturan iuran (PATCH parsial; hanya kirim yang berubah). */
   async function handleSimpanPengaturanIuran(e: React.FormEvent) {
@@ -272,10 +277,16 @@ export function PengaturanRT({
     if (!Number.isInteger(iuran.tenggatHari) || iuran.tenggatHari < 1 || iuran.tenggatHari > 31) {
       return flash("Tenggat hari harus bilangan bulat 1–31.");
     }
+    // Batch 15 — hari generate hanya 1–28 (bulan pendek Feb selalu punya tgl 28).
+    if (!Number.isInteger(iuran.hariGenerate) || iuran.hariGenerate < 1 || iuran.hariGenerate > 28) {
+      return flash("Hari generate tagihan harus bilangan bulat 1–28.");
+    }
     const patch: Partial<PengaturanIuranRt> = {};
     if (iuran.modeAlokasi !== iuranTersimpan.modeAlokasi) patch.modeAlokasi = iuran.modeAlokasi;
     if (iuran.tenggatHari !== iuranTersimpan.tenggatHari) patch.tenggatHari = iuran.tenggatHari;
     if (iuran.dendaAktif !== iuranTersimpan.dendaAktif) patch.dendaAktif = iuran.dendaAktif;
+    if (iuran.modeTagihan !== iuranTersimpan.modeTagihan) patch.modeTagihan = iuran.modeTagihan;
+    if (iuran.hariGenerate !== iuranTersimpan.hariGenerate) patch.hariGenerate = iuran.hariGenerate;
 
     setIuranSedangSimpan(true);
     try {
@@ -286,7 +297,11 @@ export function PengaturanRT({
         setIuranTersimpan(sesudah);
         setIuranOffline(false);
         flash(
-          `Pengaturan iuran tersimpan — alokasi ${sesudah.modeAlokasi}, tenggat hari ke-${sesudah.tenggatHari}, denda ${sesudah.dendaAktif ? "aktif" : "nonaktif"}.`
+          `Pengaturan iuran tersimpan — alokasi ${sesudah.modeAlokasi}, tenggat hari ke-${sesudah.tenggatHari}, ` +
+            `denda ${sesudah.dendaAktif ? "aktif" : "nonaktif"}, tagihan ` +
+            (sesudah.modeTagihan === "otomatis"
+              ? `otomatis tgl ${sesudah.hariGenerate}.`
+              : "manual (lewat tombol Buat Tagihan)."),
         );
       } else {
         // OFFLINE: server tak terjangkau → nilai lokal tetap berlaku di sesi ini
@@ -1292,6 +1307,96 @@ export function PengaturanRT({
                 <div className="w-11 h-6 bg-surface-container-high peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-on-surface-variant after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-checked:after:bg-on-primary" />
               </label>
             </div>
+          </div>
+
+          {/* Batch 15 — mode tagihan bulanan: OTOMATIS pada tanggal disetting
+              (1–28, Asia/Jakarta) atau MANUAL lewat tombol Portal RT. Default
+              otomatis tgl 1 = perilaku lama dipertahankan. */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-bold text-on-surface uppercase tracking-wider">
+              Mode tagihan bulanan
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {(
+                [
+                  {
+                    nilai: "otomatis",
+                    judul: "Otomatis",
+                    ikon: "calendar_month",
+                    teks: "Tagihan bulan berjalan dibuat sendiri pada tanggal yang disetting — tanpa klik apa pun.",
+                  },
+                  {
+                    nilai: "manual",
+                    judul: "Manual",
+                    ikon: "touch_app",
+                    teks: "Tagihan hanya dibuat saat bendahara menekan tombol Buat Tagihan Bulan Ini.",
+                  },
+                ] as const
+              ).map((opsi) => (
+                <label
+                  key={opsi.nilai}
+                  className={`p-4 rounded-xl border cursor-pointer transition-colors flex items-start gap-3 ${
+                    iuran.modeTagihan === opsi.nilai
+                      ? "border-primary bg-primary-container/40"
+                      : "border-surface-container-high bg-surface-container-low hover:border-outline-variant"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="modeTagihan"
+                    value={opsi.nilai}
+                    checked={iuran.modeTagihan === opsi.nilai}
+                    onChange={() => setIuran({ ...iuran, modeTagihan: opsi.nilai })}
+                    className="text-primary focus:ring-primary mt-0.5"
+                  />
+                  <span className="flex-1">
+                    <span className="flex items-center gap-1.5 text-sm font-bold text-on-surface">
+                      <span className="material-symbols-outlined text-[16px] text-primary">
+                        {opsi.ikon}
+                      </span>
+                      {opsi.judul}
+                    </span>
+                    <span className="block text-xs text-on-surface-variant leading-relaxed mt-1">
+                      {opsi.teks}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {iuran.modeTagihan === "otomatis" ? (
+              <div className="flex flex-col gap-1.5 sm:max-w-xs">
+                <label
+                  htmlFor="hari-generate-iuran"
+                  className="text-xs font-bold text-on-surface flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-on-surface-variant">
+                    event
+                  </span>
+                  Tanggal tagihan dibuat (tgl ke-)
+                </label>
+                <input
+                  id="hari-generate-iuran"
+                  className="w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface font-mono focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
+                  type="number"
+                  min={1}
+                  max={28}
+                  step={1}
+                  value={iuran.hariGenerate}
+                  onChange={(e) =>
+                    setIuran({ ...iuran, hariGenerate: Number(e.target.value) })
+                  }
+                />
+                <span className="text-[11px] text-on-surface-variant leading-relaxed">
+                  Tagihan mulai dibuat otomatis hari ke-{iuran.hariGenerate} tiap bulan (1–28, waktu
+                  Asia/Jakarta) — paling cepat tgl 1, paling lambat tgl 28.
+                </span>
+              </div>
+            ) : (
+              <span className="text-[11px] text-on-surface-variant leading-relaxed">
+                Mode manual: tagihan tidak pernah dibuat otomatis — buka halaman Iuran RT lalu tekan
+                tombol <span className="font-bold">Buat Tagihan Bulan Ini</span> kapan pun diperlukan.
+              </span>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-surface-container-high">

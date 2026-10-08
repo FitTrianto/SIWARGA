@@ -54,6 +54,15 @@ enum ModeAlokasi {
   terpisah
 }
 
+// Batch 15 (Okt 2026) — cara tagihan bulanan dibuat: OTOMATIS pada
+// `hari_generate` (default tgl 1, Asia/Jakarta) atau MANUAL lewat tombol
+// "Buat Tagihan Bulan Ini" (keputusan desain 8 Okt 2026: default Otomatis tgl 1
+// — perilaku hari ini tidak berubah).
+enum ModeTagihan {
+  otomatis
+  manual
+}
+
 model Kecamatan {
   id     String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   // Permendagri 137/2017 — 10 digit
@@ -124,6 +133,7 @@ model Rt {
 
   pengurusList     PengurusRt[]
   pengaturan       PengaturanRt?
+  tutupBukuIuran   TutupBukuIuran?
   rumahList        Rumah[]
   kartuKeluargaList KartuKeluarga[]
   wargaList        Warga[]
@@ -194,6 +204,10 @@ model PengaturanRt {
   // §6.4.3 — tenggat iuran per bulan
   tenggatHari         Int         @default(10) @map("tenggat_hari")
   dendaAktif          Boolean     @default(false) @map("denda_aktif")
+  // Batch 15 — tagihan bulanan: otomatis pada hariGenerate (1–28, Asia/Jakarta)
+  // atau manual lewat tombol Portal RT.
+  modeTagihan         ModeTagihan @default(otomatis) @map("mode_tagihan")
+  hariGenerate        Int         @default(1) @map("hari_generate")
   notifikasiWaEnabled Boolean     @default(true) @map("notifikasi_wa_enabled")
   modePemeliharaan    Boolean     @default(false) @map("mode_pemeliharaan")
   // §6.5 — ambang approval pengeluaran kas
@@ -887,6 +901,28 @@ model TutupBukuKas {
 
   @@unique([scopeLevel, scopeId, periode])
   @@map("tutup_buku_kas")
+}
+
+// Batch 15 (Okt 2026) — TUTUP BUKU IURAN per RT (sementara: bisa dibuka
+// kembali). Selama baris AKTIF (`dibuka_kembali_pada IS NULL`), generate
+// tagihan periode SETELAH `periode_tertutup` ditolak — "tak mengulang ke
+// bulan berikutnya" (keputusan desain 8 Okt 2026). Riwayat tutup/buka
+// lengkap tetap tersimpan di `audit_log` (append-only); kolom
+// `dibuka_kembali_pada` mencatat kali terakhir buku dibuka.
+model TutupBukuIuran {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rtId             String    @unique @map("rt_id") @db.Uuid
+  // Periode TERAKHIR yang masih ber-tagihan (YYYY-MM) — generate > ini ditolak.
+  periodeTertutup  String    @map("periode_tertutup") @db.VarChar(7)
+  alasan           String?   @db.VarChar(300)
+  ditutupOleh      String    @map("ditutup_oleh") @db.Uuid
+  ditutupPada      DateTime  @default(now()) @map("ditutup_pada") @db.Timestamptz(3)
+  // Non-null = buku sudah dibuka kembali (baris jadi tidak aktif).
+  dibukaKembaliPada DateTime? @map("dibuka_kembali_pada") @db.Timestamptz(3)
+
+  rt Rt @relation(fields: [rtId], references: [id], onDelete: Cascade)
+
+  @@map("tutup_buku_iuran")
 }
 
 // =============================================================================

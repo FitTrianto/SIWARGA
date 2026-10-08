@@ -31,16 +31,21 @@ import {
   type HasilGenerateTagihan,
   type KategoriIuranServer,
   type PengaturanIuranRt,
+  type StatusTutupBukuIuran,
   type TambahKategoriRtPayload,
 } from "../../lib/api";
 import { EmptyState } from "../../components/EmptyState";
 import { KonfirmasiDialog } from "../../components/KonfirmasiDialog";
 import { useFlash } from "../../lib/useFlash";
 
-/** Bentuk lengkap respons `GET /rt/iuran/tagihan` (B9/B10). */
+/** Bentuk lengkap respons `GET /rt/iuran/tagihan` (B9/B10 + batch 15). */
 interface TagihanServer {
   periode: string;
   rows: BarisTagihanRtServer[];
+  /** Batch 15 — periode berjalan sudah punya tagihan? (gerbang tombol generate). */
+  sudahDibuat: boolean;
+  /** Batch 15 — status tutup buku; `null` = buku terbuka. */
+  tutupBuku: StatusTutupBukuIuran | null;
   rekap: {
     total: number;
     lunas: number;
@@ -93,6 +98,16 @@ interface IuranRTProps {
   ) => Promise<KategoriIuranServer | null>;
   /** B9 — `POST /rt/iuran/tagihan/generate`; `null` = OFFLINE. */
   onGenerateTagihan: (periode?: string) => Promise<HasilGenerateTagihan | null>;
+  /** Batch 15 — `POST /rt/iuran/tutup-buku`; `null` = OFFLINE (tidak diterapkan). */
+  onTutupBuku: (payload: {
+    periodeTertutup?: string;
+    alasan?: string;
+  }) => Promise<StatusTutupBukuIuran | null>;
+  /** Batch 15 — `POST /rt/iuran/tutup-buku/buka`; `null` = OFFLINE. */
+  onBukaBuku: () => Promise<{
+    periodeTertutup: string;
+    dibukaKembaliPada: string | null;
+  } | null>;
   /** B9/B10 — `GET /rt/iuran/tagihan`; `null` = OFFLINE. */
   onMuatTagihanServer: (opsi: {
     periode?: string;
@@ -171,6 +186,8 @@ export function IuranRT({
   onTambahKategori,
   onUbahKategori,
   onGenerateTagihan,
+  onTutupBuku,
+  onBukaBuku,
   onMuatTagihanServer,
   onMuatProfilIuran,
   onSimpanProfilIuran,
@@ -190,6 +207,10 @@ export function IuranRT({
   const [tagihanServer, setTagihanServer] = useState<BarisTagihanRtServer[] | null>(null);
   const [rekapServer, setRekapServer] = useState<TagihanServer["rekap"] | null>(null);
   const [periodeServer, setPeriodeServer] = useState<string>("");
+  // Batch 15 — status tagihan periode berjalan & tutup buku iuran (sumber
+  // kebenaran dari server; `null` = OFFLINE / belum dimuat).
+  const [sudahDibuat, setSudahDibuat] = useState<boolean | null>(null);
+  const [tutupBuku, setTutupBuku] = useState<TagihanServer["tutupBuku"]>(null);
 
   // Filter bagian server (diproses server, bukan FE).
   const [fPeriode, setFPeriode] = useState("");
@@ -203,6 +224,12 @@ export function IuranRT({
   // B9 — konfirmasi generate tagihan bulanan.
   const [konfirmasiGenerate, setKonfirmasiGenerate] = useState(false);
   const [generateSedang, setGenerateSedang] = useState(false);
+
+  // Batch 15 — konfirmasi TUTUP BUKU iuran (sementara, bisa dibuka) + alasan
+  // opsional yang ikut tercatat di audit log.
+  const [konfirmasiTutupBuku, setKonfirmasiTutupBuku] = useState(false);
+  const [tutupBukuSedang, setTutupBukuSedang] = useState(false);
+  const [alasanTutup, setAlasanTutup] = useState("");
 
   // §6.4.1 — cegah submit ganda CRUD kategori selagi menunggu respons server.
   const [kategoriSedang, setKategoriSedang] = useState(false);
@@ -261,10 +288,14 @@ export function IuranRT({
             setTagihanServer(h.rows);
             setRekapServer(h.rekap);
             setPeriodeServer(h.periode);
+            setSudahDibuat(h.sudahDibuat);
+            setTutupBuku(h.tutupBuku);
           } else {
             setTagihanServer(null);
             setRekapServer(null);
             setPeriodeServer("");
+            setSudahDibuat(null);
+            setTutupBuku(null);
           }
         })
         .catch((err: unknown) => {
@@ -284,6 +315,16 @@ export function IuranRT({
   }, [fPeriode, fKategori, fStatus, qServer, pemicuMuat]);
 
   const modeTerpisah = pengaturanIuran?.modeAlokasi === "terpisah";
+
+  /**
+   * Batch 15 — gerbang tutup buku untuk tombol generate: hanya blokir bila
+   * periode tutup SEBELUM periode berjalan (server menolak `periode >
+   * periodeTertutup`; periode sama masih boleh — backfill bulan yang ditutup).
+   * Perbandingan string aman untuk format `YYYY-MM`.
+   */
+  const blokadeGenerate = Boolean(
+    tutupBuku && periodeServer && periodeServer > tutupBuku.periodeTertutup,
+  );
   /** Kategori tujuan yang boleh dipilih — hanya yang aktif. */
   const kategoriTujuanOpsi = kategoriIuran.filter((k) => k.statusAktif);
 
@@ -303,6 +344,14 @@ export function IuranRT({
    */
   async function handleGenerateTagihan() {
     if (generateSedang) return flash("Permintaan masih diproses — tunggu sebentar.");
+    // Gerbang jujur sejajar server: buku aktif dengan periode tutup SEBELUM
+    // periode berjalan → generate ditolak 409 di server; cegah di sini dulu.
+    if (blokadeGenerate) {
+      return flash(
+        `Buku iuran sudah ditutup per ${labelPeriodeServer(tutupBuku!.periodeTertutup)} — ` +
+          "tagihan bulan berjalan tidak dapat dibuat. Buka kembali buku iuran bila memang perlu.",
+      );
+    }
     setGenerateSedang(true);
     try {
       const hasil = await onGenerateTagihan();
@@ -324,6 +373,60 @@ export function IuranRT({
       return flash(
         err instanceof GalatApi ? err.message : "Generate tagihan gagal — coba lagi."
       );
+    }
+  }
+
+  /**
+   * Batch 15 — TUTUP BUKU IURAN (sementara, bisa dibuka): server menolak
+   * generate periode SETELAH periode tutup (409). Tutup ganda saat masih
+   * aktif → 409 dari server; riwayat tutup/buka tercatat di Audit Log.
+   */
+  async function handleTutupBuku() {
+    if (tutupBukuSedang) return flash("Permintaan masih diproses — tunggu sebentar.");
+    setTutupBukuSedang(true);
+    try {
+      const baris = await onTutupBuku(alasanTutup.trim() ? { alasan: alasanTutup.trim() } : {});
+      setTutupBukuSedang(false);
+      setKonfirmasiTutupBuku(false);
+      setAlasanTutup("");
+      if (baris) {
+        setTutupBuku(baris);
+        flash(
+          `Buku iuran ditutup per ${labelPeriodeServer(baris.periodeTertutup)} — ` +
+            "tagihan bulan berikutnya tidak dapat dibuat sampai buku dibuka kembali.",
+        );
+        setPemicuMuat((n) => n + 1);
+      } else {
+        // OFFLINE: jangan pernah mengklaim buku tertutup di server.
+        flash("Mode demo (server tidak terjangkau) — tutup buku tidak diterapkan di server.");
+      }
+    } catch (err) {
+      setTutupBukuSedang(false);
+      setKonfirmasiTutupBuku(false);
+      return flash(err instanceof GalatApi ? err.message : "Tutup buku gagal — coba lagi.");
+    }
+  }
+
+  /** Batch 15 — BUKA KEMBALI buku iuran; generate berjalan kembali. */
+  async function handleBukaBuku() {
+    if (tutupBukuSedang) return flash("Permintaan masih diproses — tunggu sebentar.");
+    setTutupBukuSedang(true);
+    try {
+      const hasil = await onBukaBuku();
+      setTutupBukuSedang(false);
+      if (hasil) {
+        setTutupBuku(null);
+        flash(
+          `Buku iuran dibuka kembali (tutup per ${labelPeriodeServer(hasil.periodeTertutup)}) — ` +
+            "generate tagihan berjalan kembali.",
+        );
+        setPemicuMuat((n) => n + 1);
+      } else {
+        flash("Mode demo (server tidak terjangkau) — buka buku tidak diterapkan di server.");
+      }
+    } catch (err) {
+      setTutupBukuSedang(false);
+      return flash(err instanceof GalatApi ? err.message : "Buka buku gagal — coba lagi.");
     }
   }
 
@@ -944,13 +1047,63 @@ export function IuranRT({
               </p>
             </div>
           </div>
-          <button
-            className="h-11 px-5 rounded-xl bg-primary text-on-primary text-sm shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 shrink-0"
-            onClick={() => setKonfirmasiGenerate(true)}
-          >
-            <span className="material-symbols-outlined text-[20px]">calendar_add_on</span>
-            Buat Tagihan Bulan Ini
-          </button>
+          {/* Batch 15 — gerbang tutup buku: tombol generate dinonaktifkan
+              HANYA bila server benar-benar menolak (periode tutup < berjalan);
+              alasan nonaktif selalu terlihat (kejujuran UI — tanpa tombol bebas
+              penjelasan). Tombol Tutup/Buka buku berdampingan (sifat sementara). */}
+          <div className="flex flex-col items-stretch lg:items-end gap-1.5 shrink-0">
+            <div className="flex items-center gap-2">
+              <button
+                className="h-11 px-5 rounded-xl bg-primary text-on-primary text-sm shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2 shrink-0 disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
+                onClick={() => setKonfirmasiGenerate(true)}
+                disabled={blokadeGenerate}
+                title={
+                  blokadeGenerate && tutupBuku
+                    ? `Buku iuran sudah ditutup per ${labelPeriodeServer(tutupBuku.periodeTertutup)}`
+                    : undefined
+                }
+              >
+                <span className="material-symbols-outlined text-[20px]">calendar_add_on</span>
+                Buat Tagihan Bulan Ini
+              </button>
+              <button
+                className="h-11 px-4 rounded-xl border border-surface-container-high bg-surface-container-low text-on-surface text-sm font-semibold hover:bg-surface-container active:scale-[0.98] transition-all flex items-center gap-2 shrink-0 disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
+                onClick={() => (tutupBuku ? void handleBukaBuku() : setKonfirmasiTutupBuku(true))}
+                disabled={tutupBukuSedang}
+                title={
+                  tutupBuku
+                    ? "Buku iuran sedang ditutup — buka kembali agar generate berjalan"
+                    : "Tutup buku iuran periode berjalan (sementara, bisa dibuka)"
+                }
+              >
+                <span className="material-symbols-outlined text-[20px]">
+                  {tutupBukuSedang
+                    ? "progress_activity"
+                    : tutupBuku
+                      ? "lock_open"
+                      : "lock"}
+                </span>
+                {tutupBuku ? "Buka Buku" : "Tutup Buku"}
+              </button>
+            </div>
+            {blokadeGenerate && tutupBuku ? (
+              <span className="text-[11px] text-error font-semibold text-right leading-relaxed flex items-center gap-1 justify-end">
+                <span className="material-symbols-outlined text-[13px]">block</span>
+                Buku ditutup per {labelPeriodeServer(tutupBuku.periodeTertutup)} — buka kembali
+                buku untuk membuat tagihan.
+              </span>
+            ) : tutupBuku ? (
+              <span className="text-[11px] text-on-surface-variant text-right leading-relaxed flex items-center gap-1 justify-end">
+                <span className="material-symbols-outlined text-[13px]">lock</span>
+                Buku ditutup per {labelPeriodeServer(tutupBuku.periodeTertutup)} — tagihan bulan
+                berikutnya belum bisa dibuat.
+              </span>
+            ) : sudahDibuat ? (
+              <span className="text-[11px] text-on-surface-variant text-right leading-relaxed">
+                Tagihan periode berjalan sudah dibuat — klik lagi untuk sinkronisasi profil iuran.
+              </span>
+            ) : null}
+          </div>
         </div>
 
         {rekapServer && (
@@ -1823,6 +1976,54 @@ export function IuranRT({
                     </div>
                   ))
               )}
+            </div>
+          }
+        />
+      )}
+
+      {/* Batch 15 · konfirmasi TUTUP BUKU iuran — sifatnya SEMENTARA (bisa
+          dibuka kembali), server menolak generate periode setelah tutup (409),
+          riwayat tutup/buka tercatat append-only di Audit Log. */}
+      {konfirmasiTutupBuku && (
+        <KonfirmasiDialog
+          judul="Tutup Buku Iuran"
+          pesan={
+            "Buku iuran periode berjalan akan ditutup: tagihan bulan berikutnya tidak dapat " +
+            "dibuat sampai buku dibuka kembali. Sifatnya sementara — tutup/buka boleh " +
+            "diulang kapan pun dan riwayatnya tercatat di Audit Log."
+          }
+          ikon="lock"
+          aksen="error"
+          labelYa="Tutup Buku"
+          sedang={tutupBukuSedang}
+          onBatal={() => {
+            if (!tutupBukuSedang) {
+              setKonfirmasiTutupBuku(false);
+              setAlasanTutup("");
+            }
+          }}
+          onYa={() => void handleTutupBuku()}
+          detail={
+            <div className="p-3 rounded-xl bg-surface-container-low space-y-2">
+              <label
+                htmlFor="alasan-tutup-buku"
+                className="block text-[11px] text-on-surface-variant uppercase tracking-wider font-semibold"
+              >
+                Alasan tutup buku (opsional, maks 300 karakter)
+              </label>
+              <textarea
+                id="alasan-tutup-buku"
+                rows={2}
+                maxLength={300}
+                value={alasanTutup}
+                onChange={(e) => setAlasanTutup(e.target.value)}
+                placeholder="mis. Tutup buku bulan berjalan setelah rapat pengurus"
+                className="w-full px-3 py-2 rounded-xl bg-surface-container-lowest border border-surface-container-high text-xs text-on-surface placeholder:text-on-surface-variant focus:ring-2 focus:ring-primary focus:outline-none resize-none"
+              />
+              <div className="text-[11px] text-on-surface-variant leading-relaxed">
+                Tutup aktif: {alasanTutup.trim() ? "dengan alasan tercatat" : "tanpa alasan"} —
+                keduanya tetap tercatat siapa &amp; kapan di Audit Log.
+              </div>
             </div>
           }
         />

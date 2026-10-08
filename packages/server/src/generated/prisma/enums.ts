@@ -45,6 +45,14 @@ export const ModeAlokasi = {
 export type ModeAlokasi = (typeof ModeAlokasi)[keyof typeof ModeAlokasi]
 
 
+export const ModeTagihan = {
+  otomatis: 'otomatis',
+  manual: 'manual'
+} as const
+
+export type ModeTagihan = (typeof ModeTagihan)[keyof typeof ModeTagihan]
+
+
 export const StatusHuni = {
   milik: 'milik',
   sewa: 'sewa',

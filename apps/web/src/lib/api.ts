@@ -508,11 +508,15 @@ export function setujuiPembayaranRt(
 // B7 · pengaturan iuran per-RT (§6.4.5 · §6.4.10)
 // ---------------------------------------------------------------------------
 
-/** `GET/PATCH /rt/iuran/pengaturan` — mode alokasi, tenggat, denda. */
+/** `GET/PATCH /rt/iuran/pengaturan` — mode alokasi, tenggat, denda, mode tagihan. */
 export interface PengaturanIuranRt {
   modeAlokasi: "gabungan" | "terpisah";
   tenggatHari: number;
   dendaAktif: boolean;
+  /** Batch 15 — tagihan dibuat otomatis pada `hariGenerate` atau manual lewat tombol. */
+  modeTagihan: "otomatis" | "manual";
+  /** Batch 15 — tanggal generate bulanan (1–28, Asia/Jakarta); default 1. */
+  hariGenerate: number;
 }
 
 /** B7 — baca pengaturan iuran RT sesi. Baris belum ada → default skema. */
@@ -554,6 +558,33 @@ export function generateTagihanRt(
     body: { ...(periode ? { periode } : {}), sinkronProfil },
     csrf: true,
   });
+}
+
+/** Batch 15 — status tutup buku iuran (dibaca dari `GET /rt/iuran/tagihan`). */
+export interface StatusTutupBukuIuran {
+  periodeTertutup: string;
+  ditutupPada: string;
+  alasan: string | null;
+}
+
+/**
+ * Batch 15 — TUTUP BUKU IURAN (sementara, bisa dibuka): generate periode
+ * SETELAH `periodeTertutup` ditolak server (409). Tanpa `periodeTertutup`
+ * server memakai periode berjalan. Balasan = baris tersimpan.
+ */
+export function tutupBukuIuranRt(payload: {
+  periodeTertutup?: string;
+  alasan?: string;
+}): Promise<StatusTutupBukuIuran> {
+  return minta("/rt/iuran/tutup-buku", { method: "POST", body: payload, csrf: true });
+}
+
+/** Batch 15 — buka kembali buku iuran; generate berjalan kembali. */
+export function bukaBukuIuranRt(): Promise<{
+  periodeTertutup: string;
+  dibukaKembaliPada: string | null;
+}> {
+  return minta("/rt/iuran/tutup-buku/buka", { method: "POST", body: {}, csrf: true });
 }
 
 /** Satu baris `GET /rt/iuran/kategori` (master server — bukan state demo FE). */
@@ -752,6 +783,14 @@ export function tagihanRtServer(
 ): Promise<{
   periode: string;
   rows: BarisTagihanRtServer[];
+  /** Batch 15 — apakah periode berjalan sudah punya tagihan (gerbang tombol generate). */
+  sudahDibuat: boolean;
+  /** Batch 15 — status tutup buku iuran; `null` bila buku terbuka. */
+  tutupBuku: {
+    periodeTertutup: string;
+    ditutupPada: string;
+    alasan: string | null;
+  } | null;
   rekap: {
     total: number;
     lunas: number;

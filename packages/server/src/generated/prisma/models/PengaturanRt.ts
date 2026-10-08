@@ -28,11 +28,13 @@ export type AggregatePengaturanRt = {
 
 export type PengaturanRtAvgAggregateOutputType = {
   tenggatHari: number | null
+  hariGenerate: number | null
   ambangApprovalKas: runtime.Decimal | null
 }
 
 export type PengaturanRtSumAggregateOutputType = {
   tenggatHari: number | null
+  hariGenerate: number | null
   ambangApprovalKas: runtime.Decimal | null
 }
 
@@ -44,6 +46,8 @@ export type PengaturanRtMinAggregateOutputType = {
   modeAlokasi: $Enums.ModeAlokasi | null
   tenggatHari: number | null
   dendaAktif: boolean | null
+  modeTagihan: $Enums.ModeTagihan | null
+  hariGenerate: number | null
   notifikasiWaEnabled: boolean | null
   modePemeliharaan: boolean | null
   ambangApprovalKas: runtime.Decimal | null
@@ -57,6 +61,8 @@ export type PengaturanRtMaxAggregateOutputType = {
   modeAlokasi: $Enums.ModeAlokasi | null
   tenggatHari: number | null
   dendaAktif: boolean | null
+  modeTagihan: $Enums.ModeTagihan | null
+  hariGenerate: number | null
   notifikasiWaEnabled: boolean | null
   modePemeliharaan: boolean | null
   ambangApprovalKas: runtime.Decimal | null
@@ -70,6 +76,8 @@ export type PengaturanRtCountAggregateOutputType = {
   modeAlokasi: number
   tenggatHari: number
   dendaAktif: number
+  modeTagihan: number
+  hariGenerate: number
   notifikasiWaEnabled: number
   modePemeliharaan: number
   ambangApprovalKas: number
@@ -80,11 +88,13 @@ export type PengaturanRtCountAggregateOutputType = {
 
 export type PengaturanRtAvgAggregateInputType = {
   tenggatHari?: true
+  hariGenerate?: true
   ambangApprovalKas?: true
 }
 
 export type PengaturanRtSumAggregateInputType = {
   tenggatHari?: true
+  hariGenerate?: true
   ambangApprovalKas?: true
 }
 
@@ -96,6 +106,8 @@ export type PengaturanRtMinAggregateInputType = {
   modeAlokasi?: true
   tenggatHari?: true
   dendaAktif?: true
+  modeTagihan?: true
+  hariGenerate?: true
   notifikasiWaEnabled?: true
   modePemeliharaan?: true
   ambangApprovalKas?: true
@@ -109,6 +121,8 @@ export type PengaturanRtMaxAggregateInputType = {
   modeAlokasi?: true
   tenggatHari?: true
   dendaAktif?: true
+  modeTagihan?: true
+  hariGenerate?: true
   notifikasiWaEnabled?: true
   modePemeliharaan?: true
   ambangApprovalKas?: true
@@ -122,6 +136,8 @@ export type PengaturanRtCountAggregateInputType = {
   modeAlokasi?: true
   tenggatHari?: true
   dendaAktif?: true
+  modeTagihan?: true
+  hariGenerate?: true
   notifikasiWaEnabled?: true
   modePemeliharaan?: true
   ambangApprovalKas?: true
@@ -223,6 +239,8 @@ export type PengaturanRtGroupByOutputType = {
   modeAlokasi: $Enums.ModeAlokasi
   tenggatHari: number
   dendaAktif: boolean
+  modeTagihan: $Enums.ModeTagihan
+  hariGenerate: number
   notifikasiWaEnabled: boolean
   modePemeliharaan: boolean
   ambangApprovalKas: runtime.Decimal
@@ -260,6 +278,8 @@ export type PengaturanRtWhereInput = {
   modeAlokasi?: Prisma.EnumModeAlokasiFilter<"PengaturanRt"> | $Enums.ModeAlokasi
   tenggatHari?: Prisma.IntFilter<"PengaturanRt"> | number
   dendaAktif?: Prisma.BoolFilter<"PengaturanRt"> | boolean
+  modeTagihan?: Prisma.EnumModeTagihanFilter<"PengaturanRt"> | $Enums.ModeTagihan
+  hariGenerate?: Prisma.IntFilter<"PengaturanRt"> | number
   notifikasiWaEnabled?: Prisma.BoolFilter<"PengaturanRt"> | boolean
   modePemeliharaan?: Prisma.BoolFilter<"PengaturanRt"> | boolean
   ambangApprovalKas?: Prisma.DecimalFilter<"PengaturanRt"> | runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -275,6 +295,8 @@ export type PengaturanRtOrderByWithRelationInput = {
   modeAlokasi?: Prisma.SortOrder
   tenggatHari?: Prisma.SortOrder
   dendaAktif?: Prisma.SortOrder
+  modeTagihan?: Prisma.SortOrder
+  hariGenerate?: Prisma.SortOrder
   notifikasiWaEnabled?: Prisma.SortOrder
   modePemeliharaan?: Prisma.SortOrder
   ambangApprovalKas?: Prisma.SortOrder
@@ -293,6 +315,8 @@ export type PengaturanRtWhereUniqueInput = Prisma.AtLeast<{
   modeAlokasi?: Prisma.EnumModeAlokasiFilter<"PengaturanRt"> | $Enums.ModeAlokasi
   tenggatHari?: Prisma.IntFilter<"PengaturanRt"> | number
   dendaAktif?: Prisma.BoolFilter<"PengaturanRt"> | boolean
+  modeTagihan?: Prisma.EnumModeTagihanFilter<"PengaturanRt"> | $Enums.ModeTagihan
+  hariGenerate?: Prisma.IntFilter<"PengaturanRt"> | number
   notifikasiWaEnabled?: Prisma.BoolFilter<"PengaturanRt"> | boolean
   modePemeliharaan?: Prisma.BoolFilter<"PengaturanRt"> | boolean
   ambangApprovalKas?: Prisma.DecimalFilter<"PengaturanRt"> | runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -308,6 +332,8 @@ export type PengaturanRtOrderByWithAggregationInput = {
   modeAlokasi?: Prisma.SortOrder
   tenggatHari?: Prisma.SortOrder
   dendaAktif?: Prisma.SortOrder
+  modeTagihan?: Prisma.SortOrder
+  hariGenerate?: Prisma.SortOrder
   notifikasiWaEnabled?: Prisma.SortOrder
   modePemeliharaan?: Prisma.SortOrder
   ambangApprovalKas?: Prisma.SortOrder
@@ -330,6 +356,8 @@ export type PengaturanRtScalarWhereWithAggregatesInput = {
   modeAlokasi?: Prisma.EnumModeAlokasiWithAggregatesFilter<"PengaturanRt"> | $Enums.ModeAlokasi
   tenggatHari?: Prisma.IntWithAggregatesFilter<"PengaturanRt"> | number
   dendaAktif?: Prisma.BoolWithAggregatesFilter<"PengaturanRt"> | boolean
+  modeTagihan?: Prisma.EnumModeTagihanWithAggregatesFilter<"PengaturanRt"> | $Enums.ModeTagihan
+  hariGenerate?: Prisma.IntWithAggregatesFilter<"PengaturanRt"> | number
   notifikasiWaEnabled?: Prisma.BoolWithAggregatesFilter<"PengaturanRt"> | boolean
   modePemeliharaan?: Prisma.BoolWithAggregatesFilter<"PengaturanRt"> | boolean
   ambangApprovalKas?: Prisma.DecimalWithAggregatesFilter<"PengaturanRt"> | runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -343,6 +371,8 @@ export type PengaturanRtCreateInput = {
   modeAlokasi?: $Enums.ModeAlokasi
   tenggatHari?: number
   dendaAktif?: boolean
+  modeTagihan?: $Enums.ModeTagihan
+  hariGenerate?: number
   notifikasiWaEnabled?: boolean
   modePemeliharaan?: boolean
   ambangApprovalKas?: runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -358,6 +388,8 @@ export type PengaturanRtUncheckedCreateInput = {
   modeAlokasi?: $Enums.ModeAlokasi
   tenggatHari?: number
   dendaAktif?: boolean
+  modeTagihan?: $Enums.ModeTagihan
+  hariGenerate?: number
   notifikasiWaEnabled?: boolean
   modePemeliharaan?: boolean
   ambangApprovalKas?: runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -371,6 +403,8 @@ export type PengaturanRtUpdateInput = {
   modeAlokasi?: Prisma.EnumModeAlokasiFieldUpdateOperationsInput | $Enums.ModeAlokasi
   tenggatHari?: Prisma.IntFieldUpdateOperationsInput | number
   dendaAktif?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  modeTagihan?: Prisma.EnumModeTagihanFieldUpdateOperationsInput | $Enums.ModeTagihan
+  hariGenerate?: Prisma.IntFieldUpdateOperationsInput | number
   notifikasiWaEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   modePemeliharaan?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ambangApprovalKas?: Prisma.DecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -386,6 +420,8 @@ export type PengaturanRtUncheckedUpdateInput = {
   modeAlokasi?: Prisma.EnumModeAlokasiFieldUpdateOperationsInput | $Enums.ModeAlokasi
   tenggatHari?: Prisma.IntFieldUpdateOperationsInput | number
   dendaAktif?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  modeTagihan?: Prisma.EnumModeTagihanFieldUpdateOperationsInput | $Enums.ModeTagihan
+  hariGenerate?: Prisma.IntFieldUpdateOperationsInput | number
   notifikasiWaEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   modePemeliharaan?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ambangApprovalKas?: Prisma.DecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -400,6 +436,8 @@ export type PengaturanRtCreateManyInput = {
   modeAlokasi?: $Enums.ModeAlokasi
   tenggatHari?: number
   dendaAktif?: boolean
+  modeTagihan?: $Enums.ModeTagihan
+  hariGenerate?: number
   notifikasiWaEnabled?: boolean
   modePemeliharaan?: boolean
   ambangApprovalKas?: runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -413,6 +451,8 @@ export type PengaturanRtUpdateManyMutationInput = {
   modeAlokasi?: Prisma.EnumModeAlokasiFieldUpdateOperationsInput | $Enums.ModeAlokasi
   tenggatHari?: Prisma.IntFieldUpdateOperationsInput | number
   dendaAktif?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  modeTagihan?: Prisma.EnumModeTagihanFieldUpdateOperationsInput | $Enums.ModeTagihan
+  hariGenerate?: Prisma.IntFieldUpdateOperationsInput | number
   notifikasiWaEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   modePemeliharaan?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ambangApprovalKas?: Prisma.DecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -427,6 +467,8 @@ export type PengaturanRtUncheckedUpdateManyInput = {
   modeAlokasi?: Prisma.EnumModeAlokasiFieldUpdateOperationsInput | $Enums.ModeAlokasi
   tenggatHari?: Prisma.IntFieldUpdateOperationsInput | number
   dendaAktif?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  modeTagihan?: Prisma.EnumModeTagihanFieldUpdateOperationsInput | $Enums.ModeTagihan
+  hariGenerate?: Prisma.IntFieldUpdateOperationsInput | number
   notifikasiWaEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   modePemeliharaan?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ambangApprovalKas?: Prisma.DecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -446,6 +488,8 @@ export type PengaturanRtCountOrderByAggregateInput = {
   modeAlokasi?: Prisma.SortOrder
   tenggatHari?: Prisma.SortOrder
   dendaAktif?: Prisma.SortOrder
+  modeTagihan?: Prisma.SortOrder
+  hariGenerate?: Prisma.SortOrder
   notifikasiWaEnabled?: Prisma.SortOrder
   modePemeliharaan?: Prisma.SortOrder
   ambangApprovalKas?: Prisma.SortOrder
@@ -454,6 +498,7 @@ export type PengaturanRtCountOrderByAggregateInput = {
 
 export type PengaturanRtAvgOrderByAggregateInput = {
   tenggatHari?: Prisma.SortOrder
+  hariGenerate?: Prisma.SortOrder
   ambangApprovalKas?: Prisma.SortOrder
 }
 
@@ -465,6 +510,8 @@ export type PengaturanRtMaxOrderByAggregateInput = {
   modeAlokasi?: Prisma.SortOrder
   tenggatHari?: Prisma.SortOrder
   dendaAktif?: Prisma.SortOrder
+  modeTagihan?: Prisma.SortOrder
+  hariGenerate?: Prisma.SortOrder
   notifikasiWaEnabled?: Prisma.SortOrder
   modePemeliharaan?: Prisma.SortOrder
   ambangApprovalKas?: Prisma.SortOrder
@@ -478,6 +525,8 @@ export type PengaturanRtMinOrderByAggregateInput = {
   modeAlokasi?: Prisma.SortOrder
   tenggatHari?: Prisma.SortOrder
   dendaAktif?: Prisma.SortOrder
+  modeTagihan?: Prisma.SortOrder
+  hariGenerate?: Prisma.SortOrder
   notifikasiWaEnabled?: Prisma.SortOrder
   modePemeliharaan?: Prisma.SortOrder
   ambangApprovalKas?: Prisma.SortOrder
@@ -485,6 +534,7 @@ export type PengaturanRtMinOrderByAggregateInput = {
 
 export type PengaturanRtSumOrderByAggregateInput = {
   tenggatHari?: Prisma.SortOrder
+  hariGenerate?: Prisma.SortOrder
   ambangApprovalKas?: Prisma.SortOrder
 }
 
@@ -536,6 +586,10 @@ export type BoolFieldUpdateOperationsInput = {
   set?: boolean
 }
 
+export type EnumModeTagihanFieldUpdateOperationsInput = {
+  set?: $Enums.ModeTagihan
+}
+
 export type DecimalFieldUpdateOperationsInput = {
   set?: runtime.Decimal | runtime.DecimalJsLike | number | string
   increment?: runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -551,6 +605,8 @@ export type PengaturanRtCreateWithoutRtInput = {
   modeAlokasi?: $Enums.ModeAlokasi
   tenggatHari?: number
   dendaAktif?: boolean
+  modeTagihan?: $Enums.ModeTagihan
+  hariGenerate?: number
   notifikasiWaEnabled?: boolean
   modePemeliharaan?: boolean
   ambangApprovalKas?: runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -564,6 +620,8 @@ export type PengaturanRtUncheckedCreateWithoutRtInput = {
   modeAlokasi?: $Enums.ModeAlokasi
   tenggatHari?: number
   dendaAktif?: boolean
+  modeTagihan?: $Enums.ModeTagihan
+  hariGenerate?: number
   notifikasiWaEnabled?: boolean
   modePemeliharaan?: boolean
   ambangApprovalKas?: runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -593,6 +651,8 @@ export type PengaturanRtUpdateWithoutRtInput = {
   modeAlokasi?: Prisma.EnumModeAlokasiFieldUpdateOperationsInput | $Enums.ModeAlokasi
   tenggatHari?: Prisma.IntFieldUpdateOperationsInput | number
   dendaAktif?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  modeTagihan?: Prisma.EnumModeTagihanFieldUpdateOperationsInput | $Enums.ModeTagihan
+  hariGenerate?: Prisma.IntFieldUpdateOperationsInput | number
   notifikasiWaEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   modePemeliharaan?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ambangApprovalKas?: Prisma.DecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -606,6 +666,8 @@ export type PengaturanRtUncheckedUpdateWithoutRtInput = {
   modeAlokasi?: Prisma.EnumModeAlokasiFieldUpdateOperationsInput | $Enums.ModeAlokasi
   tenggatHari?: Prisma.IntFieldUpdateOperationsInput | number
   dendaAktif?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  modeTagihan?: Prisma.EnumModeTagihanFieldUpdateOperationsInput | $Enums.ModeTagihan
+  hariGenerate?: Prisma.IntFieldUpdateOperationsInput | number
   notifikasiWaEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   modePemeliharaan?: Prisma.BoolFieldUpdateOperationsInput | boolean
   ambangApprovalKas?: Prisma.DecimalFieldUpdateOperationsInput | runtime.Decimal | runtime.DecimalJsLike | number | string
@@ -622,6 +684,8 @@ export type PengaturanRtSelect<ExtArgs extends runtime.Types.Extensions.Internal
   modeAlokasi?: boolean
   tenggatHari?: boolean
   dendaAktif?: boolean
+  modeTagihan?: boolean
+  hariGenerate?: boolean
   notifikasiWaEnabled?: boolean
   modePemeliharaan?: boolean
   ambangApprovalKas?: boolean
@@ -637,6 +701,8 @@ export type PengaturanRtSelectCreateManyAndReturn<ExtArgs extends runtime.Types.
   modeAlokasi?: boolean
   tenggatHari?: boolean
   dendaAktif?: boolean
+  modeTagihan?: boolean
+  hariGenerate?: boolean
   notifikasiWaEnabled?: boolean
   modePemeliharaan?: boolean
   ambangApprovalKas?: boolean
@@ -652,6 +718,8 @@ export type PengaturanRtSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.
   modeAlokasi?: boolean
   tenggatHari?: boolean
   dendaAktif?: boolean
+  modeTagihan?: boolean
+  hariGenerate?: boolean
   notifikasiWaEnabled?: boolean
   modePemeliharaan?: boolean
   ambangApprovalKas?: boolean
@@ -667,13 +735,15 @@ export type PengaturanRtSelectScalar = {
   modeAlokasi?: boolean
   tenggatHari?: boolean
   dendaAktif?: boolean
+  modeTagihan?: boolean
+  hariGenerate?: boolean
   notifikasiWaEnabled?: boolean
   modePemeliharaan?: boolean
   ambangApprovalKas?: boolean
   templateSurat?: boolean
 }
 
-export type PengaturanRtOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"rtId" | "bannerUrl" | "stempelUrl" | "kopSuratUrl" | "modeAlokasi" | "tenggatHari" | "dendaAktif" | "notifikasiWaEnabled" | "modePemeliharaan" | "ambangApprovalKas" | "templateSurat", ExtArgs["result"]["pengaturanRt"]>
+export type PengaturanRtOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"rtId" | "bannerUrl" | "stempelUrl" | "kopSuratUrl" | "modeAlokasi" | "tenggatHari" | "dendaAktif" | "modeTagihan" | "hariGenerate" | "notifikasiWaEnabled" | "modePemeliharaan" | "ambangApprovalKas" | "templateSurat", ExtArgs["result"]["pengaturanRt"]>
 export type PengaturanRtInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   rt?: boolean | Prisma.RtDefaultArgs<ExtArgs>
 }
@@ -697,6 +767,8 @@ export type $PengaturanRtPayload<ExtArgs extends runtime.Types.Extensions.Intern
     modeAlokasi: $Enums.ModeAlokasi
     tenggatHari: number
     dendaAktif: boolean
+    modeTagihan: $Enums.ModeTagihan
+    hariGenerate: number
     notifikasiWaEnabled: boolean
     modePemeliharaan: boolean
     ambangApprovalKas: runtime.Decimal
@@ -1132,6 +1204,8 @@ export interface PengaturanRtFieldRefs {
   readonly modeAlokasi: Prisma.FieldRef<"PengaturanRt", 'ModeAlokasi'>
   readonly tenggatHari: Prisma.FieldRef<"PengaturanRt", 'Int'>
   readonly dendaAktif: Prisma.FieldRef<"PengaturanRt", 'Boolean'>
+  readonly modeTagihan: Prisma.FieldRef<"PengaturanRt", 'ModeTagihan'>
+  readonly hariGenerate: Prisma.FieldRef<"PengaturanRt", 'Int'>
   readonly notifikasiWaEnabled: Prisma.FieldRef<"PengaturanRt", 'Boolean'>
   readonly modePemeliharaan: Prisma.FieldRef<"PengaturanRt", 'Boolean'>
   readonly ambangApprovalKas: Prisma.FieldRef<"PengaturanRt", 'Decimal'>

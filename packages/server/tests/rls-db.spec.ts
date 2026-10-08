@@ -27,6 +27,11 @@ import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { dekripsiNik } from "../src/services/crypto.js";
+// CATATAN batch 15B: `blokadeAutoTagihan`/`tanggalJakarta` dari autoTagihan
+// diimpor DINAMIS di dalam tesnya — impor statis akan menarik `src/config.js`
+// dievaluasi saat file uji dimuat, SEBELUM `envUji()` menyetel DATABASE_URL
+// di `bukaAplikasiUji()`, sehingga `config.databaseUrl` kosong dan SEMUA rute
+// ber-basis Prisma (login dll) melempar 500.
 
 /**
  * Port & URL diisi di `beforeAll` memakai port bebas — cluster sementara tidak
@@ -551,7 +556,7 @@ describe("gagal-aman: tanpa scope = nol baris", () => {
 });
 
 describe("Row Level Security aktif + FORCE", () => {
-  it("30 dari 36 tabel di-RLS; 6 tabel kunci otorisasi sengaja dikecualikan", async () => {
+  it("31 dari 37 tabel di-RLS; 6 tabel kunci otorisasi sengaja dikecualikan", async () => {
     const r = await dalamScopePlat((c) =>
       c.query(
         `SELECT c.relname AS tabel, c.relrowsecurity AS rls, c.relforcerowsecurity AS force
@@ -563,10 +568,10 @@ describe("Row Level Security aktif + FORCE", () => {
       ),
     );
     const baris = r.rows as Array<{ tabel: string; rls: boolean; force: boolean }>;
-    expect(baris).toHaveLength(36);
+    expect(baris).toHaveLength(37);
 
     const berRls = baris.filter((b) => b.rls);
-    expect(berRls).toHaveLength(30);
+    expect(berRls).toHaveLength(31);
     // FORCE wajib: tanpa FORCE, pemilik tabel bisa melewati RLS
     for (const b of berRls) expect(b.force, `${b.tabel} harus FORCE ROW LEVEL SECURITY`).toBe(true);
 
@@ -4882,7 +4887,13 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
   it("B7 · GET pengaturan = nilai seed; PATCH parsial tersimpan + audit ubah_pengaturan_iuran", async () => {
     const awal = await app.inject({ method: "GET", url: `${api}/rt/iuran/pengaturan`, cookies: sesiRt() });
     expect(awal.statusCode).toBe(200);
-    expect(isi(awal).data).toEqual({ modeAlokasi: "gabungan", tenggatHari: 10, dendaAktif: false });
+    expect(isi(awal).data).toEqual({
+      modeAlokasi: "gabungan",
+      tenggatHari: 10,
+      dendaAktif: false,
+      modeTagihan: "otomatis",
+      hariGenerate: 1,
+    });
 
     const tenggat = await app.inject({
       method: "PATCH",
@@ -4892,7 +4903,13 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
       payload: { tenggatHari: 15 },
     });
     expect(tenggat.statusCode).toBe(200);
-    expect(isi(tenggat).data).toEqual({ modeAlokasi: "gabungan", tenggatHari: 15, dendaAktif: false });
+    expect(isi(tenggat).data).toEqual({
+      modeAlokasi: "gabungan",
+      tenggatHari: 15,
+      dendaAktif: false,
+      modeTagihan: "otomatis",
+      hariGenerate: 1,
+    });
 
     const mode = await app.inject({
       method: "PATCH",
@@ -4902,10 +4919,22 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
       payload: { modeAlokasi: "terpisah", dendaAktif: true },
     });
     expect(mode.statusCode).toBe(200);
-    expect(isi(mode).data).toEqual({ modeAlokasi: "terpisah", tenggatHari: 15, dendaAktif: true });
+    expect(isi(mode).data).toEqual({
+      modeAlokasi: "terpisah",
+      tenggatHari: 15,
+      dendaAktif: true,
+      modeTagihan: "otomatis",
+      hariGenerate: 1,
+    });
 
     const ulang = await app.inject({ method: "GET", url: `${api}/rt/iuran/pengaturan`, cookies: sesiRt() });
-    expect(isi(ulang).data).toEqual({ modeAlokasi: "terpisah", tenggatHari: 15, dendaAktif: true });
+    expect(isi(ulang).data).toEqual({
+      modeAlokasi: "terpisah",
+      tenggatHari: 15,
+      dendaAktif: true,
+      modeTagihan: "otomatis",
+      hariGenerate: 1,
+    });
 
     // audit: tepat dua baris, masing-masing membawa nilai sebelum & sesudah
     const audit = "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'ubah_pengaturan_iuran' AND scope_id = $1";
@@ -4964,6 +4993,8 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
       modeAlokasi: "terpisah",
       tenggatHari: 15,
       dendaAktif: true,
+      modeTagihan: "otomatis",
+      hariGenerate: 1,
     });
     expect(await hitung({ level: "rt", id: idRt04 }, audit, [idRt04]), "galat validasi tidak menulis audit").toBe(2);
   });
@@ -5595,7 +5626,13 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
       payload: { modeAlokasi: "gabungan", dendaAktif: false },
     });
     expect(pulih.statusCode).toBe(200);
-    expect(isi(pulih).data).toEqual({ modeAlokasi: "gabungan", tenggatHari: 15, dendaAktif: false });
+    expect(isi(pulih).data).toEqual({
+      modeAlokasi: "gabungan",
+      tenggatHari: 15,
+      dendaAktif: false,
+      modeTagihan: "otomatis",
+      hariGenerate: 1,
+    });
   });
 
   it("lintas-RT: pengaturan, generate, dashboard tagihan & profil iuran tetap terisolasi", async () => {
@@ -5604,6 +5641,8 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
       modeAlokasi: "terpisah",
       tenggatHari: 15,
       dendaAktif: false,
+      modeTagihan: "otomatis",
+      hariGenerate: 1,
     });
 
     const patch05 = await app.inject({
@@ -5614,13 +5653,21 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
       payload: { tenggatHari: 3 },
     });
     expect(patch05.statusCode).toBe(200);
-    expect(isi(patch05).data).toEqual({ modeAlokasi: "terpisah", tenggatHari: 3, dendaAktif: false });
+    expect(isi(patch05).data).toEqual({
+      modeAlokasi: "terpisah",
+      tenggatHari: 3,
+      dendaAktif: false,
+      modeTagihan: "otomatis",
+      hariGenerate: 1,
+    });
 
     const pengaturan04 = await app.inject({ method: "GET", url: `${api}/rt/iuran/pengaturan`, cookies: sesiRt() });
     expect(isi(pengaturan04).data, "pengaturan RT04 tak tersentuh oleh RT05").toEqual({
       modeAlokasi: "gabungan",
       tenggatHari: 15,
       dendaAktif: false,
+      modeTagihan: "otomatis",
+      hariGenerate: 1,
     });
 
     // generate oleh RT04 tidak pernah menambah baris milik RT05
@@ -8014,5 +8061,379 @@ describe("Master kategori iuran (POST/PATCH /rt/iuran/kategori · §5.4)", () =>
       ),
       "RT04 punya tepat 1 — bukan kembar lintas-RT",
     ).toBe(1);
+  });
+});
+
+describe("Batch 15B · mode tagihan & tutup buku iuran (Portal RT)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRt = "";
+  let csrfRt = "";
+  let sidWarga = "";
+
+  const sesiRt = () => ({ sid: sidRt, csrf_token: csrfRt });
+  const csrfRtHeader = () => ({ "x-csrf-token": csrfRt });
+
+  const auditGenerate =
+    "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'generate_tagihan' AND scope_id = $1";
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+
+    const rt = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt04@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt.statusCode, "login RT04").toBe(200);
+    sidRt = cookieDari(rt, "sid")!;
+    csrfRt = cookieDari(rt, "csrf_token")!;
+
+    const w = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(w.statusCode, "login warga").toBe(200);
+    sidWarga = cookieDari(w, "sid")!;
+  }, 60_000);
+
+  afterAll(async () => {
+    await tutupAplikasiUji();
+  });
+
+  it("PATCH pengaturan: modeTagihan + hariGenerate round-trip, validasi 1–28 & enum, audit, restore", async () => {
+    const simpan = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/pengaturan`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { modeTagihan: "manual", hariGenerate: 5 },
+    });
+    expect(simpan.statusCode).toBe(200);
+    expect(isi(simpan).data).toMatchObject({ modeTagihan: "manual", hariGenerate: 5 });
+
+    const baca = await app.inject({ method: "GET", url: `${api}/rt/iuran/pengaturan`, cookies: sesiRt() });
+    expect(baca.statusCode).toBe(200);
+    expect(isi(baca).data, "PATCH parsial: field lama tidak tersentuh").toMatchObject({
+      modeTagihan: "manual",
+      hariGenerate: 5,
+    });
+
+    // Audit `sesudah` menyimpan kedua field baru (kunci camelCase, sama persis
+    // dengan objek yang disimpan server)
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        `SELECT count(*)::int AS n FROM audit_log
+          WHERE aksi = 'ubah_pengaturan_iuran' AND scope_id = $1
+            AND sesudah->>'modeTagihan' = 'manual' AND sesudah->>'hariGenerate' = '5'`,
+        [idRt04],
+      ),
+      "audit pengaturan membawa modeTagihan + hariGenerate",
+    ).toBe(1);
+
+    // Validasi ketat: hari di luar 1–28 dan mode di luar enum → 400, tanpa tulis
+    const nol = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/pengaturan`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { hariGenerate: 0 },
+    });
+    expect(nol.statusCode).toBe(400);
+    expect(isi(nol).error?.code).toBe("VALIDATION");
+    expect(isi(nol).error?.message).toMatch(/Hari generate minimal 1/);
+
+    const lebih = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/pengaturan`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { hariGenerate: 29 },
+    });
+    expect(lebih.statusCode).toBe(400);
+    expect(isi(lebih).error?.message).toMatch(/maksimal 28/);
+
+    const modeRusak = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/pengaturan`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { modeTagihan: "auto" },
+    });
+    expect(modeRusak.statusCode).toBe(400);
+
+    const setelah = await app.inject({ method: "GET", url: `${api}/rt/iuran/pengaturan`, cookies: sesiRt() });
+    expect(isi(setelah).data, "payload ditolak tidak mengubah pengaturan").toMatchObject({
+      modeTagihan: "manual",
+      hariGenerate: 5,
+    });
+
+    // Restore default (otomatis tgl 1) — keputusan desain 8 Okt 2026
+    const pulih = await app.inject({
+      method: "PATCH",
+      url: `${api}/rt/iuran/pengaturan`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { modeTagihan: "otomatis", hariGenerate: 1 },
+    });
+    expect(pulih.statusCode).toBe(200);
+    expect(isi(pulih).data).toMatchObject({ modeTagihan: "otomatis", hariGenerate: 1 });
+  });
+
+  it("tutup buku iuran: blokir generate periode setelahnya, guard ganda, buka kembali memulihkan", async () => {
+    const jml202611 = (): Promise<number> =>
+      hitung(
+        { level: "rt", id: idRt04 },
+        "SELECT count(*)::int AS n FROM tagihan WHERE rt_id = $1 AND periode = '2026-11'",
+        [idRt04],
+      );
+
+    // Guard permintaan: tanpa CSRF & sesi warga → 401
+    const tanpaCsrf = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tutup-buku`,
+      cookies: sesiRt(),
+      payload: {},
+    });
+    expect(tanpaCsrf.statusCode).toBe(401);
+    expect(isi(tanpaCsrf).error?.message).toMatch(/CSRF/);
+
+    const warga = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tutup-buku`,
+      cookies: { sid: sidWarga },
+      headers: { "x-csrf-token": "apa-saja" },
+      payload: {},
+    });
+    expect(warga.statusCode).toBe(401);
+
+    // Periode tutup melebihi bulan berjalan → 400 jujur
+    const depan = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tutup-buku`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { periodeTertutup: "2027-01" },
+    });
+    expect(depan.statusCode).toBe(400);
+    expect(isi(depan).error?.message).toMatch(/bulan berjalan/);
+
+    // GET tagihan sebelum tutup: buku terbuka, periode berjalan sudah dibuat (B9)
+    const awal = await app.inject({ method: "GET", url: `${api}/rt/iuran/tagihan`, cookies: sesiRt() });
+    expect(awal.statusCode).toBe(200);
+    expect(isi(awal).data, "belum ditutup → tutupBuku null").toMatchObject({ sudahDibuat: true, tutupBuku: null });
+
+    // Tutup buku (default = periode berjalan 2026-10) + alasan
+    const tutup = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tutup-buku`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { alasan: "Uji tutup buku batch 15" },
+    });
+    expect(tutup.statusCode).toBe(200);
+    const barisTutup = isi(tutup).data as { periodeTertutup: string; ditutupPada: string; alasan: string | null };
+    expect(barisTutup.periodeTertutup, "default = periode berjalan").toBe("2026-10");
+    expect(barisTutup.alasan).toBe("Uji tutup buku batch 15");
+    expect(typeof barisTutup.ditutupPada).toBe("string");
+
+    // GET tagihan sesudah tutup: status terbaca kedua portal
+    const sesudah = await app.inject({ method: "GET", url: `${api}/rt/iuran/tagihan`, cookies: sesiRt() });
+    expect(isi(sesudah).data).toMatchObject({
+      sudahDibuat: true,
+      tutupBuku: { periodeTertutup: "2026-10", alasan: "Uji tutup buku batch 15" },
+    });
+
+    // Tutup ulang saat masih aktif → 409 + tidak menulis audit tutup ke-2
+    const ulang = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tutup-buku`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {},
+    });
+    expect(ulang.statusCode).toBe(409);
+    expect(isi(ulang).error?.message).toMatch(/sudah ditutup/);
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'tutup_buku_iuran' AND scope_id = $1",
+        [idRt04],
+      ),
+      "percobaan tutup ulang gagal → tanpa audit baru",
+    ).toBe(1);
+
+    // Generate periode SETELAH tutup → 409, tanpa mutasi tagihan & tanpa audit
+    const auditSebelum = await hitung({ level: "rt", id: idRt04 }, auditGenerate, [idRt04]);
+    const tagihanSebelum = await jml202611();
+    const blok = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tagihan/generate`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { periode: "2026-11" },
+    });
+    expect(blok.statusCode).toBe(409);
+    expect(isi(blok).error?.message).toMatch(/ditutup per 2026-10/);
+    expect(await hitung({ level: "rt", id: idRt04 }, auditGenerate, [idRt04]), "409 tidak menulis audit").toBe(
+      auditSebelum,
+    );
+    expect(await jml202611(), "409 tidak membuat tagihan").toBe(tagihanSebelum);
+
+    // Periode ≤ periode tutup tetap boleh (backfill bulan yang ditutup) → 200
+    const bolos = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tagihan/generate`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {},
+    });
+    expect(bolos.statusCode).toBe(200);
+    expect((isi(bolos).data as { periode: string }).periode).toBe("2026-10");
+
+    // Buka kembali → generate periode berikutnya pulih
+    const buka = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tutup-buku/buka`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {},
+    });
+    expect(buka.statusCode).toBe(200);
+    expect((isi(buka).data as { periodeTertutup: string }).periodeTertutup).toBe("2026-10");
+
+    const terbuka = await app.inject({ method: "GET", url: `${api}/rt/iuran/tagihan`, cookies: sesiRt() });
+    expect(isi(terbuka).data, "sesudah dibuka → tutupBuku null").toMatchObject({ tutupBuku: null });
+
+    const buka2 = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tutup-buku/buka`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {},
+    });
+    expect(buka2.statusCode, "buka tanpa tutup aktif → 409 jujur").toBe(409);
+    expect(isi(buka2).error?.message).toMatch(/Tidak ada tutup buku/);
+
+    const pulih = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tagihan/generate`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { periode: "2026-11" },
+    });
+    expect(pulih.statusCode, "setelah dibuka, generate 2026-11 kembali 200").toBe(200);
+
+    // Tutup ulang dengan periode LAMPUAU (2026-09): generate periode berjalan
+    // ikut terblokir (2026-10 > 2026-09) — semantik ">" dipastikan
+    const tutupLampau = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tutup-buku`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { periodeTertutup: "2026-09", alasan: "Tutup lampau uji" },
+    });
+    expect(tutupLampau.statusCode, "tutup ulang SETELAH buka diperbolehkan").toBe(200);
+    const blok10 = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tagihan/generate`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {},
+    });
+    expect(blok10.statusCode).toBe(409);
+    expect(isi(blok10).error?.message).toMatch(/ditutup per 2026-09/);
+
+    // State akhir: buku TERBUKA lagi (deskripsikan ulang → tidak meninggalkan
+    // tutup aktif untuk tes/smoke berikutnya)
+    const bukaAkhir = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tutup-buku/buka`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: {},
+    });
+    expect(bukaAkhir.statusCode).toBe(200);
+
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'tutup_buku_iuran' AND scope_id = $1",
+        [idRt04],
+      ),
+      "dua tutup sukses = dua audit",
+    ).toBe(2);
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'buka_buku_iuran' AND scope_id = $1",
+        [idRt04],
+      ),
+      "dua buka sukses = dua audit",
+    ).toBe(2);
+  });
+
+  it("blokade auto tagihan (fungsi murni): mode manual, hari disetting WIB & tutup buku", async () => {
+    // Impor dinamis — lihat catatan di bagian atas berkas (urutan evaluasi modul).
+    const { blokadeAutoTagihan, tanggalJakarta } = await import("../src/plugins/autoTagihan.js");
+    const tutupAktif = { periodeTertutup: "2026-10", dibukaKembaliPada: null };
+    const tutupDibuka = { periodeTertutup: "2026-10", dibukaKembaliPada: new Date() };
+
+    // Mode manual → generate otomatis tidak pernah jalan (tombol Portal RT saja)
+    expect(
+      blokadeAutoTagihan({ mode: "manual", hari: 1, tanggalHariIni: 8, periode: "2026-10", tutup: null }),
+    ).toEqual({ alasan: "mode-manual" });
+
+    // Hari disetting 15, hari ini masih 8 → belum waktunya
+    expect(
+      blokadeAutoTagihan({ mode: "otomatis", hari: 15, tanggalHariIni: 8, periode: "2026-10", tutup: null }),
+    ).toEqual({ alasan: "belum-hari", hari: 15 });
+
+    // Tepat hari-H dan sudah lewat hari-H → boleh generate
+    expect(
+      blokadeAutoTagihan({ mode: "otomatis", hari: 1, tanggalHariIni: 1, periode: "2026-10", tutup: null }),
+    ).toBeNull();
+    expect(
+      blokadeAutoTagihan({ mode: "otomatis", hari: 1, tanggalHariIni: 8, periode: "2026-10", tutup: null }),
+    ).toBeNull();
+
+    // Buku ditutup per 2026-10: periode berikutnya (2026-11) terblokir,
+    // periode yang sama (2026-10) tetap boleh — semantik "setelahnya" saja
+    expect(
+      blokadeAutoTagihan({
+        mode: "otomatis",
+        hari: 1,
+        tanggalHariIni: 8,
+        periode: "2026-11",
+        tutup: tutupAktif,
+      }),
+    ).toEqual({ alasan: "tutup-buku", periodeTertutup: "2026-10" });
+    expect(
+      blokadeAutoTagihan({
+        mode: "otomatis",
+        hari: 1,
+        tanggalHariIni: 8,
+        periode: "2026-10",
+        tutup: tutupAktif,
+      }),
+    ).toBeNull();
+
+    // Buku sudah dibuka kembali → tidak ada blokade sama sekali
+    expect(
+      blokadeAutoTagihan({
+        mode: "otomatis",
+        hari: 1,
+        tanggalHariIni: 8,
+        periode: "2026-11",
+        tutup: tutupDibuka,
+      }),
+    ).toBeNull();
+
+    // Tanggal Asia/Jakarta wajar (1–31) — server boleh berjalan di zona mana pun
+    expect(tanggalJakarta()).toBeGreaterThanOrEqual(1);
+    expect(tanggalJakarta()).toBeLessThanOrEqual(31);
   });
 });
