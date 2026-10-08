@@ -4,6 +4,12 @@ import { tenant } from "../../lib/tenant";
 
 const PHONE_MIN = 10;
 const PHONE_MAX = 13;
+/** Kode RT/RW maksimal 3 digit — selaras kolom `kode_rt`/`kode_rw` VarChar(3). */
+const KODE_WILAYAH_MAKS = 3;
+/** Batas nama kecamatan/kelurahan — selaras kolom `nama` VarChar(120). */
+const NAMA_WILAYAH_MAKS = 120;
+/** Batas nama kota — selaras kolom `kota` VarChar(80). */
+const NAMA_KOTA_MAKS = 80;
 
 function onlyDigits(v: string): string {
   return v.replace(/\D/g, "");
@@ -17,6 +23,11 @@ export function RegistrationForm({ onNavigate }: RegistrationFormProps) {
   const [submitted, setSubmitted] = useState(false);
   const [whatsapp, setWhatsapp] = useState("");
   const [error, setError] = useState("");
+  // Kolom wilayah per level — input terpisah agar format baku & minim salah ketik.
+  const [rt, setRt] = useState("");
+  const [rw, setRw] = useState("");
+  const [errorRt, setErrorRt] = useState("");
+  const [errorRw, setErrorRw] = useState("");
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -33,6 +44,20 @@ export function RegistrationForm({ onNavigate }: RegistrationFormProps) {
       return;
     }
     setError("");
+
+    // Kode wilayah per kolom wajib terisi (saat mengetik sudah dibatasi onlyDigits).
+    let wilayahValid = true;
+    if (!rt) {
+      setErrorRt("Nomor RT wajib diisi (angka saja).");
+      wilayahValid = false;
+    }
+    if (!rw) {
+      setErrorRw("Nomor RW wajib diisi (angka saja).");
+      wilayahValid = false;
+    }
+    if (!wilayahValid) return;
+    setErrorRt("");
+    setErrorRw("");
     setSubmitted(true);
   }
 
@@ -50,8 +75,10 @@ export function RegistrationForm({ onNavigate }: RegistrationFormProps) {
               Daftarkan RT Anda Secara Mandiri
             </h2>
             <p className="text-slate-600 text-sm sm:text-base mt-2 leading-relaxed">
-              Setup mandiri dalam 2 menit. Portal RT Anda langsung siap pakai
-              tanpa perlu menunggu konfirmasi manual atau kartu kredit.
+              Kolom wilayah dipisah per level — RT, RW, Kecamatan, Kelurahan,
+              dan Kota — agar data terformat baku dan minim salah ketik.
+              Pendaftaran otomatis sedang disiapkan; data belum dikirim hingga
+              fitur onboarding self-service diluncurkan.
             </p>
           </div>
 
@@ -99,15 +126,75 @@ export function RegistrationForm({ onNavigate }: RegistrationFormProps) {
                   )}
                 </div>
                 <span className="text-[11px] text-slate-500 block">
-                  Link aktivasi instan akan dikirim via pesan WhatsApp
+                  Nomor ini akan dipakai untuk tautan aktivasi saat fitur
+                  pendaftaran diluncurkan
                 </span>
               </div>
             </div>
 
+            {/* Wilayah: kolom terpisah per level — RT, RW, Kecamatan, Kelurahan, Kota.
+                Mencegah input gabungan yang tak baku ("Pulo Gadung, Jakarta Timur", dsb). */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="space-y-2">
-                <label className="text-xs sm:text-sm font-bold text-slate-800 block">
-                  Nama &amp; Nomor Wilayah *
+                <label className="text-xs sm:text-sm font-bold text-slate-800 block" htmlFor="daftar-rt">
+                  Nomor RT *
+                </label>
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-3.5 top-3 text-slate-400 text-[20px]">
+                    home
+                  </span>
+                  <input
+                    className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent transition-all shadow-xs"
+                    id="daftar-rt"
+                    inputMode="numeric"
+                    maxLength={KODE_WILAYAH_MAKS}
+                    placeholder={`Contoh: ${tenant.rt}`}
+                    required
+                    type="text"
+                    value={rt}
+                    onChange={(e) => { setRt(onlyDigits(e.target.value)); setErrorRt(""); }}
+                  />
+                  {errorRt && (
+                    <span className="text-[11px] text-red-600 font-medium block mt-1">{errorRt}</span>
+                  )}
+                </div>
+                <span className="text-[11px] text-slate-500 block">
+                  Angka saja, maks. {KODE_WILAYAH_MAKS} digit
+                </span>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs sm:text-sm font-bold text-slate-800 block" htmlFor="daftar-rw">
+                  Nomor RW *
+                </label>
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-3.5 top-3 text-slate-400 text-[20px]">
+                    groups
+                  </span>
+                  <input
+                    className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent transition-all shadow-xs"
+                    id="daftar-rw"
+                    inputMode="numeric"
+                    maxLength={KODE_WILAYAH_MAKS}
+                    placeholder={`Contoh: ${tenant.rw}`}
+                    required
+                    type="text"
+                    value={rw}
+                    onChange={(e) => { setRw(onlyDigits(e.target.value)); setErrorRw(""); }}
+                  />
+                  {errorRw && (
+                    <span className="text-[11px] text-red-600 font-medium block mt-1">{errorRw}</span>
+                  )}
+                </div>
+                <span className="text-[11px] text-slate-500 block">
+                  Angka saja, maks. {KODE_WILAYAH_MAKS} digit
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="space-y-2">
+                <label className="text-xs sm:text-sm font-bold text-slate-800 block" htmlFor="daftar-kecamatan">
+                  Kecamatan *
                 </label>
                 <div className="relative">
                   <span className="material-symbols-outlined absolute left-3.5 top-3 text-slate-400 text-[20px]">
@@ -115,15 +202,17 @@ export function RegistrationForm({ onNavigate }: RegistrationFormProps) {
                   </span>
                   <input
                     className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent transition-all shadow-xs"
-                    placeholder={`Contoh: ${tenant.label}`}
+                    id="daftar-kecamatan"
+                    maxLength={NAMA_WILAYAH_MAKS}
+                    placeholder={`Contoh: ${tenant.kecamatan}`}
                     required
                     type="text"
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-xs sm:text-sm font-bold text-slate-800 block">
-                  Kelurahan / Desa &amp; Kota *
+                <label className="text-xs sm:text-sm font-bold text-slate-800 block" htmlFor="daftar-kelurahan">
+                  Kelurahan / Desa *
                 </label>
                 <div className="relative">
                   <span className="material-symbols-outlined absolute left-3.5 top-3 text-slate-400 text-[20px]">
@@ -131,7 +220,27 @@ export function RegistrationForm({ onNavigate }: RegistrationFormProps) {
                   </span>
                   <input
                     className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent transition-all shadow-xs"
-                    placeholder={`Contoh: ${tenant.kelurahan}, ${tenant.kota}`}
+                    id="daftar-kelurahan"
+                    maxLength={NAMA_WILAYAH_MAKS}
+                    placeholder={`Contoh: ${tenant.kelurahan}`}
+                    required
+                    type="text"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs sm:text-sm font-bold text-slate-800 block" htmlFor="daftar-kota">
+                  Kota *
+                </label>
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-3.5 top-3 text-slate-400 text-[20px]">
+                    apartment
+                  </span>
+                  <input
+                    className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent transition-all shadow-xs"
+                    id="daftar-kota"
+                    maxLength={NAMA_KOTA_MAKS}
+                    placeholder={`Contoh: ${tenant.kota}`}
                     required
                     type="text"
                   />
@@ -216,35 +325,38 @@ export function RegistrationForm({ onNavigate }: RegistrationFormProps) {
                 className="w-full bg-gradient-to-r from-[#005b34] to-[#137547] text-white font-bold text-base py-4 rounded-xl shadow-[0_6px_20px_rgba(0,91,52,0.28)] hover:shadow-[0_10px_28px_rgba(0,91,52,0.38)] hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 transition-all duration-200"
                 type="submit"
               >
-                <span>Daftarkan RT Saya Sekarang (Aktif Otomatis)</span>
+                <span>Daftarkan RT Saya Sekarang</span>
                 <span className="material-symbols-outlined text-[20px]">
                   rocket_launch
                 </span>
               </button>
               <p className="text-xs text-center text-slate-500 mt-3">
-                Tanpa kartu kredit. Setup mandiri dalam 2 menit. Pembatalan
-                mudah sewaktu-waktu.
+                Tanpa kartu kredit. Isi sesuai format baku agar data wilayah
+                mudah diverifikasi saat fitur pendaftaran diluncurkan.
               </p>
             </div>
           </form>
 
-          {/* Success Alert */}
+          {/* Status jujur: belum ada endpoint pendaftaran (Fase 5 PRD) — data
+              TIDAK pernah diklaim terkirim/tersimpan. */}
           {submitted && (
-            <div className="mt-6 p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 shadow-md">
+            <div className="mt-6 p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 shadow-md">
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center flex-shrink-0">
                   <span className="material-symbols-outlined text-[24px]">
-                    check_circle
+                    info
                   </span>
                 </div>
                 <div>
-                  <h4 className="text-base font-bold text-emerald-950">
-                    Pendaftaran Berhasil Diproses
+                  <h4 className="text-base font-bold text-amber-950">
+                    Data Terisi Lengkap — Belum Terkirim
                   </h4>
-                  <p className="text-xs sm:text-sm text-emerald-800 mt-0.5">
-                    Tautan akses tenant khusus RT Anda sedang dikirimkan via
-                    WhatsApp. Silakan periksa pesan Anda sekarang untuk mulai
-                    mengundang warga.
+                  <p className="text-xs sm:text-sm text-amber-800 mt-0.5">
+                    Formulir ini belum terhubung ke sistem pendaftaran, sehingga
+                    data yang Anda isi belum dikirim maupun tersimpan di server.
+                    Pendaftaran mandiri otomatis masih disiapkan — silakan
+                    gunakan kembali formulir ini setelah fitur tersebut
+                    diluncurkan.
                   </p>
                 </div>
               </div>
