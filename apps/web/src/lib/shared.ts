@@ -1017,6 +1017,18 @@ export interface WargaRt {
   tglKawin?: string;
   hubungan?: string;
   wargaNegara?: string;
+  /**
+   * Batch 14 — ISO `kartu_keluarga.created_at` (dasar KPI "KK Masuk" =
+   * KK terdaftar bulan berjalan). Baris demo OFFLINE tidak memilikinya.
+   */
+  kkCreatedAt?: string;
+  /**
+   * Batch 14 — `status_demografis` server (`aktif|pindah|meninggal|nonaktif`);
+   * dasar KPI "KK Keluar" (KK yang semua anggotanya pindah/meninggal).
+   * Baris demo OFFLINE tidak memilikinya — diperlakukan sebagai `aktif`
+   * (tidak pernah dihitung keluar — konservatif, tanpa asumsi keliru).
+   */
+  statusDemografis?: string;
 }
 
 export const wargaRtDefault: WargaRt[] = [

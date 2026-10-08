@@ -94,7 +94,7 @@ const PilihBaris = {
   wargaNegara: true,
   statusAkses: true,
   statusDemografis: true,
-  kk: { select: { id: true, noKk: true, alamat: true, kepalaKeluarga: true } },
+  kk: { select: { id: true, noKk: true, alamat: true, kepalaKeluarga: true, createdAt: true } },
   rumah: { select: { statusHuni: true } },
 } as const;
 
@@ -116,7 +116,7 @@ type BarisTerpilih = {
   wargaNegara: string | null;
   statusAkses: string;
   statusDemografis: string;
-  kk: { id: string; noKk: string; alamat: string; kepalaKeluarga: string };
+  kk: { id: string; noKk: string; alamat: string; kepalaKeluarga: string; createdAt: Date };
   rumah: { statusHuni: string } | null;
 };
 
@@ -146,6 +146,8 @@ function jsonBaris(b: BarisTerpilih) {
       noKk: maskNoKk(b.kk.noKk),
       alamat: b.kk.alamat,
       kepala: b.kk.kepalaKeluarga,
+      // ISO — dasar KPI "KK Masuk" (pendaftaran KK bulan berjalan) di FE.
+      createdAt: b.kk.createdAt.toISOString(),
     },
   };
 }

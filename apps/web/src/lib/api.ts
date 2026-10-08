@@ -1288,9 +1288,9 @@ export interface BarisWargaRtServer {
   tanggalPerkawinan: string | null;
   wargaNegara: "WNI" | "WNA" | null;
   statusAkses: StatusAksesServer;
-  statusDemografis: "aktif" | "meninggal" | "pindah";
+  statusDemografis: "aktif" | "meninggal" | "pindah" | "nonaktif";
   statusHuni: string | null;
-  kk: { id: string; noKk: string; alamat: string; kepala: string };
+  kk: { id: string; noKk: string; alamat: string; kepala: string; createdAt: string };
 }
 
 /** Anggota `POST /rt/warga` — label FE sudah dikonversi ke enum DB. */
@@ -1691,6 +1691,9 @@ export function barisServerKeWargaRt(b: BarisWargaRtServer): WargaRt {
     tglKawin: b.tanggalPerkawinan ? isoKeTgl(b.tanggalPerkawinan) : "",
     hubungan,
     wargaNegara: b.wargaNegara ?? "",
+    // Batch 14 — dasar KPI Data Warga: pendaftaran KK (ISO) & status demografis.
+    kkCreatedAt: b.kk.createdAt,
+    statusDemografis: b.statusDemografis,
   };
 }
 

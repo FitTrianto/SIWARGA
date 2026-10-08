@@ -3809,7 +3809,8 @@ describe("B13 · CRUD Data Warga Portal RT (/rt/warga · §5.4)", () => {
         nikMasked: string | null;
         statusKawin: string | null;
         tanggalLahir: string | null;
-        kk: { noKk: string; alamat: string };
+        statusDemografis: string;
+        kk: { noKk: string; alamat: string; createdAt: string };
       }[];
       keluarga: {
         kk: { id: string; noKk: string; kepala: string; jumlahAnggota: number };
@@ -3824,6 +3825,10 @@ describe("B13 · CRUD Data Warga Portal RT (/rt/warga · §5.4)", () => {
     expect(dimas.statusKawin, "status nikah Dimas = ground truth DB").toBe("Belum Menikah");
     expect(dimas.tanggalLahir).toBe("2013-11-02");
     expect(dimas.kk.noKk).toBe("3171-xxxx-xxxx-0002");
+    // Batch 14 — dasar KPI Data Warga: `kk.createdAt` ISO valid &
+    // `statusDemografis` ikut terkirim (kk keluar = semua anggota pindah/meninggal).
+    expect(Number.isNaN(Date.parse(dimas.kk.createdAt)), "kk.createdAt ISO valid").toBe(false);
+    expect(["aktif", "pindah", "meninggal", "nonaktif"]).toContain(dimas.statusDemografis);
 
     const kkBambang = data.keluarga.find((k) => k.kk.noKk === "3171-xxxx-xxxx-0002");
     expect(kkBambang, "KK Bambang terbaca lewat rute RT").toBeTruthy();

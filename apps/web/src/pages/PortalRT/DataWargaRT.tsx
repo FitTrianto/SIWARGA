@@ -26,6 +26,7 @@ import {
   terapkanDetailKeMember,
   tglKeIso,
   isoKeTgl,
+  usiaDariTgl,
   AnggotaBaru,
   anggotaKosong,
   anggotaTerisi,
@@ -1351,11 +1352,65 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
     }
   };
 
-  const kpiData = [
-    { label: "Total Warga", value: String(rows.length), icon: "groups", color: "bg-primary-container text-on-primary-container" },
-    { label: "KK Terdaftar", value: String(new Set(rows.map((r) => noKkNorm(r.noKk))).size), icon: "badge", color: "bg-secondary-container text-on-secondary-container" },
-    { label: "Warga Aktif Portal", value: String(rows.filter((r) => r.statusPortal === "Aktif").length), icon: "smartphone", color: "bg-tertiary-container text-on-tertiary-container" },
-    { label: "Undangan Terkirim", value: String(rows.filter((r) => r.statusPortal === "Undangan Dikirim").length), icon: "mail", color: "bg-error-container/40 text-on-error-container" },
+  // -------------------------------------------------------------------------
+  // KPI kependudukan (batch 14, 8 Okt 2026 — masukan pengurus): lansia, balita,
+  // KK masuk & keluar. Semua dihitung jujur dari baris yang ada:
+  //  · Lansia  = usia ≥ 60 tahun (patokan UU; hanya warga ber-tanggal lahir).
+  //  · Balita  = usia < 5 tahun  (bawah lima tahun; sama — tanpa tgl lahir
+  //              tidak dihitung, dicatat pada tooltip berapa yang tersisa).
+  //  · KK Masuk  = KK yang didaftarkan bulan berjalan (`kartu_keluarga.created_at`).
+  //  · KK Keluar = KK yang SELURUH anggotanya ber-status `pindah`/`meninggal`
+  //              (kumulatif; baris demo tanpa status → dianggap `aktif`).
+  // -------------------------------------------------------------------------
+  /** Usia warga (tahun) bila tanggal lahir terisi & masuk akal; selain itu `null`. */
+  function usiaWarga(r: WargaRt): number | null {
+    if (!r.tglLahir) return null;
+    const u = usiaDariTgl(r.tglLahir);
+    return u >= 0 ? u : null;
+  }
+
+  const tanpaTglLahir = rows.filter((r) => !r.tglLahir).length;
+  const lansia = rows.filter((r) => (usiaWarga(r) ?? -1) >= 60).length;
+  const balita = rows.filter((r) => {
+    const u = usiaWarga(r);
+    return u !== null && u < 5;
+  }).length;
+
+  /** KK unik (No. KK ternormalisasi) yang didaftarkan bulan berjalan. */
+  const kkMasuk = new Set(
+    rows
+      .filter((r) => {
+        if (!r.kkCreatedAt) return false;
+        const d = new Date(r.kkCreatedAt);
+        const now = new Date();
+        return !Number.isNaN(d.getTime()) && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      })
+      .map((r) => noKkNorm(r.noKk)),
+  ).size;
+
+  /** KK unik yang seluruh anggotanya sudah `pindah`/`meninggal`. */
+  const kkKeluar = (() => {
+    const perKk = new Map<string, { total: number; keluar: number }>();
+    for (const r of rows) {
+      const kunci = noKkNorm(r.noKk);
+      const s = perKk.get(kunci) ?? { total: 0, keluar: 0 };
+      s.total += 1;
+      if (r.statusDemografis === "pindah" || r.statusDemografis === "meninggal") s.keluar += 1;
+      perKk.set(kunci, s);
+    }
+    return Array.from(perKk.values()).filter((s) => s.total > 0 && s.keluar === s.total).length;
+  })();
+
+  const ketUsia = tanpaTglLahir > 0 ? ` (${tanpaTglLahir} warga tanpa tanggal lahir tidak dihitung)` : "";
+  const kpiData: { label: string; value: string; icon: string; color: string; title: string }[] = [
+    { label: "Total Warga", value: String(rows.length), icon: "groups", color: "bg-primary-container text-on-primary-container", title: "Seluruh warga terdaftar pada RT ini" },
+    { label: "KK Terdaftar", value: String(new Set(rows.map((r) => noKkNorm(r.noKk))).size), icon: "badge", color: "bg-secondary-container text-on-secondary-container", title: "Jumlah No. KK unik milik warga terdaftar" },
+    { label: "Warga Aktif Portal", value: String(rows.filter((r) => r.statusPortal === "Aktif").length), icon: "smartphone", color: "bg-tertiary-container text-on-tertiary-container", title: "Warga ber-status portal Aktif" },
+    { label: "Undangan Terkirim", value: String(rows.filter((r) => r.statusPortal === "Undangan Dikirim").length), icon: "mail", color: "bg-error-container/40 text-on-error-container", title: "Warga ber-status Undangan Dikirim" },
+    { label: "Lansia", value: String(lansia), icon: "elderly", color: "bg-secondary-container text-on-secondary-container", title: `Warga berusia 60 tahun ke atas${ketUsia}` },
+    { label: "Balita", value: String(balita), icon: "child_care", color: "bg-primary-container text-on-primary-container", title: `Warga berusia di bawah 5 tahun${ketUsia}` },
+    { label: "KK Masuk", value: String(kkMasuk), icon: "login", color: "bg-tertiary-container text-on-tertiary-container", title: "KK baru yang didaftarkan bulan ini (tanggal pendaftaran KK)" },
+    { label: "KK Keluar", value: String(kkKeluar), icon: "logout", color: "bg-error-container/40 text-on-error-container", title: "KK yang SELURUH anggotanya sudah ber-status pindah/meninggal" },
   ];
 
   return (
@@ -1433,7 +1488,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiData.map((kpi) => (
-          <div key={kpi.label} className="bg-surface-container-lowest rounded-xl p-5 shadow-sm flex flex-col justify-between">
+          <div key={kpi.label} className="bg-surface-container-lowest rounded-xl p-5 shadow-sm flex flex-col justify-between" title={kpi.title}>
             <div className="flex items-start justify-between">
               <span className="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">{kpi.label}</span>
               <div className={`w-10 h-10 rounded-full ${kpi.color} flex items-center justify-center`}>
@@ -1672,7 +1727,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                     <td className="py-3 px-4">
                       <span
                         className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary-container/60 text-on-primary-container text-xs font-bold whitespace-nowrap"
-                        title={`${anggotaSemua.length} anggota terdaftar pada KK ini — klik "Keluarga" untuk mengelolanya`}
+                        title={`${anggotaSemua.length} anggota terdaftar pada KK ini — klik "Edit" untuk membuka daftar & mengelola anggota`}
                       >
                         <span className="material-symbols-outlined text-[14px]">group</span>
                         {anggotaSemua.length} anggota
@@ -1701,13 +1756,16 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                     </td>
                     <td className="py-3 px-6 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {/* Batch 14 — "Edit" baris keluarga membuka daftar anggota:
+                            dari sana Kepala, Istri, Anak, Mertua, … semuanya bisa
+                            diubah (bukan hanya kepala seperti sebelumnya). */}
                         <button
                           className="h-8 px-3 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary hover:text-on-primary text-xs font-bold inline-flex items-center gap-1 transition-colors"
-                          title={`Kelola anggota keluarga ${kk.kepala || ""} — tambah, ubah, atau hapus anggota`}
+                          title={`Edit data keluarga ${kk.kepala || ""} — pilih anggota (Kepala, Istri, Anak, Mertua, …) untuk diubah`}
                           onClick={() => setKkKeluarga(kk)}
                         >
-                          <span className="material-symbols-outlined text-[14px]">groups</span>
-                          Keluarga
+                          <span className="material-symbols-outlined text-[14px]">edit</span>
+                          Edit
                         </button>
                         <button
                           className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
@@ -1717,16 +1775,6 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                           <span className="material-symbols-outlined text-[14px]">person_add</span>
                           Tambah Anggota
                         </button>
-                        {kepalaBaris && (
-                          <button
-                            className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                            title={`Edit ${kepalaBaris.nama} & data KK`}
-                            onClick={() => openEdit(kepalaBaris)}
-                          >
-                            <span className="material-symbols-outlined text-[14px]">edit</span>
-                            Edit
-                          </button>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -1841,6 +1889,10 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
             </div>
 
             <div className="p-5 overflow-y-auto flex flex-col gap-2">
+              <p className="text-xs text-on-surface-variant mb-1">
+                Pilih anggota (Kepala, Istri, Anak, Mertua, …) lalu <span className="font-bold text-on-surface">Edit</span> — atau
+                tambah / hapus anggota di sini.
+              </p>
               {anggotaKeluarga.map((w) => (
                 <div
                   key={w.id}
