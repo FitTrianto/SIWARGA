@@ -7160,7 +7160,7 @@ describe("Data Hunian Portal RT (GET/POST /rt/hunian · §5.4/§6.1)", () => {
       url: `${api}/rt/hunian`,
       cookies: sesiRt(),
       headers: csrfRtHeader(),
-      payload: { kodeRumah: "U77", alamat: "Blok Uji No. 77", statusHuni: "milik" },
+      payload: { kodeRumah: "U77", alamat: "Blok Uji No. 77", statusHuni: "milik", unitKendaraanR4: 2 },
     });
     expect(tambah.statusCode).toBe(200);
     const balas = isi(tambah).data as { hunian: BarisHunian };
@@ -7169,6 +7169,7 @@ describe("Data Hunian Portal RT (GET/POST /rt/hunian · §5.4/§6.1)", () => {
       alamat: "Blok Uji No. 77",
       alamatPendek: "Blok Uji No. 77",
       statusHuni: "milik",
+      unitKendaraanR4: 2,
       jumlahKk: 1,
     });
     expect(balas.hunian.penghuni, "turunan penghuni dari KK tertaut").toEqual(["Uji Hunian Penghuni"]);
@@ -7179,7 +7180,8 @@ describe("Data Hunian Portal RT (GET/POST /rt/hunian · §5.4/§6.1)", () => {
       await hitung(
         PLATFORM,
         `SELECT count(*)::int AS n FROM rumah
-          WHERE id = $1 AND rt_id = $2 AND kode_rumah = 'U77' AND alamat_pendek = 'Blok Uji No. 77'`,
+          WHERE id = $1 AND rt_id = $2 AND kode_rumah = 'U77' AND alamat_pendek = 'Blok Uji No. 77'
+            AND unit_kendaraan_r4 = 2`,
         [idHunian, idRt04],
       ),
       "baris rumah masuk tabel",
@@ -7417,13 +7419,14 @@ describe("Data Hunian Portal RT (GET/POST /rt/hunian · §5.4/§6.1)", () => {
       url: `${api}/rt/hunian/${idHunian}`,
       cookies: sesiRt(),
       headers: csrfRtHeader(),
-      payload: { kodeRumah: "U77B", statusHuni: "sewa" },
+      payload: { kodeRumah: "U77B", statusHuni: "sewa", unitKendaraanR4: 3 },
     });
     expect(ubah.statusCode).toBe(200);
     expect(isi(ubah).data.hunian).toMatchObject({
       id: idHunian,
       kodeRumah: "U77B",
       statusHuni: "sewa",
+      unitKendaraanR4: 3,
       jumlahKk: 1,
     });
     expect(
@@ -7542,6 +7545,134 @@ describe("Data Hunian Portal RT (GET/POST /rt/hunian · §5.4/§6.1)", () => {
     expect(
       await hitung({ level: "rt", id: idRt04 }, "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'hapus_hunian'", []),
     ).toBeGreaterThanOrEqual(2);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Batch 15 (Okt 2026) — "portal warga dapat meng-update jumlah kendaraan
+  // roda 4": GET/PATCH /warga/hunian menjaga hunian MILIK SENDIRI saja (tanpa
+  // rumah_id di body), whitelist integer 0–99, warga tanpa tautan hunian →
+  // 409 jujur, dan setiap simpan tercatat audit ber-diff actor warga.
+  // ---------------------------------------------------------------------------
+  it("Batch 15 · GET/PATCH /warga/hunian: unit R4 milik sendiri — guard sesi, whitelist 0–99, tanpa tautan → 409, audit", async () => {
+    type HunianWarga = {
+      kodeRumah: string;
+      alamat: string;
+      alamatPendek: string;
+      statusHuni: string;
+      unitKendaraanR4: number;
+    };
+    const q = async (sql: string, params: unknown[]): Promise<Record<string, unknown>[]> => {
+      const r = await denganScope(PLATFORM, (c) => c.query(sql, params));
+      return r.rows as Record<string, unknown>[];
+    };
+
+    // ---- guard: tanpa sesi / sesi RT → 401 (rute murni milik warga, tanpa CSRF §5.6)
+    const tanpa = await app.inject({ method: "GET", url: `${api}/warga/hunian` });
+    expect(tanpa.statusCode).toBe(401);
+    const olehRt = await app.inject({ method: "GET", url: `${api}/warga/hunian`, cookies: { sid: sidRt } });
+    expect(olehRt.statusCode, "sesi RT tidak boleh memakai rute warga").toBe(401);
+
+    // ---- fixture: warga uji (081234567890) tertaut satu unit rumah
+    const diri = await q("SELECT id, rumah_id FROM warga WHERE no_hp = $1", ["081234567890"]);
+    const wargaUji = diri[0] as { id: string; rumah_id: string } | undefined;
+    expect(wargaUji?.rumah_id, "fixture: warga uji tertaut hunian (Batch 15)").toBeTruthy();
+    const rumahId = wargaUji!.rumah_id;
+    const nilaiDbAwal = Number((await q("SELECT unit_kendaraan_r4 FROM rumah WHERE id = $1", [rumahId]))[0].unit_kendaraan_r4);
+
+    // ---- GET milik sendiri = unit rumahnya (nilai sama dengan DB)
+    const baca = await app.inject({ method: "GET", url: `${api}/warga/hunian`, cookies: { sid: sidWarga } });
+    expect(baca.statusCode).toBe(200);
+    const hunian = (isi(baca).data as { hunian: HunianWarga | null }).hunian;
+    expect(hunian, "warga uji punya hunian").not.toBeNull();
+    expect(hunian!.unitKendaraanR4).toBe(nilaiDbAwal);
+
+    // ---- whitelist: di luar 0–99 / bukan integer → 400 tanpa jejak tulis
+    for (const nilai of [-1, 100, 1.5, "3"] as unknown[]) {
+      const tolak = await app.inject({
+        method: "PATCH",
+        url: `${api}/warga/hunian`,
+        cookies: { sid: sidWarga },
+        payload: { unitKendaraanR4: nilai },
+      });
+      expect(tolak.statusCode, `nilai tak sah: ${String(nilai)}`).toBe(400);
+    }
+    expect(
+      await q("SELECT unit_kendaraan_r4 FROM rumah WHERE id = $1", [rumahId]),
+      "percobaan tak sah tidak mengubah nilai",
+    ).toEqual([{ unit_kendaraan_r4: nilaiDbAwal }]);
+
+    // ---- PATCH tanpa sesi / sesi RT → 401
+    const tanpaSesi = await app.inject({ method: "PATCH", url: `${api}/warga/hunian`, payload: { unitKendaraanR4: 2 } });
+    expect(tanpaSesi.statusCode).toBe(401);
+    const olehRtPatch = await app.inject({
+      method: "PATCH",
+      url: `${api}/warga/hunian`,
+      cookies: { sid: sidRt },
+      payload: { unitKendaraanR4: 2 },
+    });
+    expect(olehRtPatch.statusCode, "sesi RT tidak menulis hunian lewat rute warga").toBe(401);
+
+    // ---- PATCH sukses: nilai berubah di respons, DB, dan bacaan ulang
+    const nilaiBaru = nilaiDbAwal === 5 ? 6 : 5;
+    const ubah = await app.inject({
+      method: "PATCH",
+      url: `${api}/warga/hunian`,
+      cookies: { sid: sidWarga },
+      payload: { unitKendaraanR4: nilaiBaru },
+    });
+    expect(ubah.statusCode).toBe(200);
+    expect((isi(ubah).data as { hunian: HunianWarga }).hunian).toMatchObject({ unitKendaraanR4: nilaiBaru });
+    expect(await q("SELECT unit_kendaraan_r4 FROM rumah WHERE id = $1", [rumahId])).toEqual([
+      { unit_kendaraan_r4: nilaiBaru },
+    ]);
+    const ulang = await app.inject({ method: "GET", url: `${api}/warga/hunian`, cookies: { sid: sidWarga } });
+    expect((isi(ulang).data as { hunian: HunianWarga | null }).hunian?.unitKendaraanR4).toBe(nilaiBaru);
+
+    // ---- nilai sama → 400 "Tidak ada perubahan" (konsisten pola skemaUbah RT)
+    const dobel = await app.inject({
+      method: "PATCH",
+      url: `${api}/warga/hunian`,
+      cookies: { sid: sidWarga },
+      payload: { unitKendaraanR4: nilaiBaru },
+    });
+    expect(dobel.statusCode).toBe(400);
+    expect(isi(dobel).error?.message).toMatch(/Tidak ada perubahan/);
+
+    // ---- kembalikan nilai awal (unit rumah ini dipakai tes lain)
+    const pulih = await app.inject({
+      method: "PATCH",
+      url: `${api}/warga/hunian`,
+      cookies: { sid: sidWarga },
+      payload: { unitKendaraanR4: nilaiDbAwal },
+    });
+    expect(pulih.statusCode).toBe(200);
+
+    // ---- warga TANPA tautan hunian: GET → null; PATCH → 409 jujur (bukan sukses)
+    await q("UPDATE warga SET rumah_id = NULL WHERE id = $1", [wargaUji!.id]);
+    const tanpaTaut = await app.inject({ method: "GET", url: `${api}/warga/hunian`, cookies: { sid: sidWarga } });
+    expect(tanpaTaut.statusCode).toBe(200);
+    expect((isi(tanpaTaut).data as { hunian: null }).hunian).toBeNull();
+    const konflik = await app.inject({
+      method: "PATCH",
+      url: `${api}/warga/hunian`,
+      cookies: { sid: sidWarga },
+      payload: { unitKendaraanR4: 1 },
+    });
+    expect(konflik.statusCode).toBe(409);
+    expect(isi(konflik).error?.message).toMatch(/belum terhubung/);
+    await q("UPDATE warga SET rumah_id = $2 WHERE id = $1", [wargaUji!.id, rumahId]);
+
+    // ---- audit: actor warga, modul data_hunian, diff sebelum/sesudah (2 PATCH sukses)
+    expect(
+      await hitung(
+        { level: "rt", id: idRt04 },
+        `SELECT count(*)::int AS n FROM audit_log
+          WHERE aksi = 'warga_ubah_kendaraan_r4' AND actor_role = 'warga'
+            AND actor_id = $1 AND portal = 'warga' AND sebelum IS NOT NULL AND sesudah IS NOT NULL`,
+        [wargaUji!.id],
+      ),
+      "dua PATCH sukses (ubah + pulih) tercatat audit",
+    ).toBe(2);
   });
 });
 

@@ -29,6 +29,7 @@ import {
   hapusHunianRt,
   hapusWargaRt,
   hunianServerKeHunian,
+  hunianWarga,
   imporWargaRt,
   inspeksiUndanganRt,
   kategoriIuranRt,
@@ -67,6 +68,7 @@ import {
   ubahAksesWargaRt,
   ubahHunianRt,
   ubahKategoriRt,
+  ubahKendaraanR4Warga,
   ubahWargaRt,
   undanganServerKeUndangan,
   verifikasiAjuanPerubahanRt,
@@ -679,6 +681,17 @@ export default function App() {
           if (tanganiSesiHabis(e)) return;
           console.info("[keluarga] memakai data demo:", e instanceof GalatApi ? e.code : e);
         }
+        // Batch 15 · jumlah kendaraan R4 dari hunian milik sendiri —
+        // OFFLINE / belum tertaut hunian → nilai awal dipertahankan (layar
+        // tetap utuh; tidak pernah mengaku angka server yang tak terbaca).
+        try {
+          const h = await hunianWarga();
+          if (batal) return;
+          if (h.hunian) setKendaraanR4Count(h.hunian.unitKendaraanR4);
+        } catch (e) {
+          if (tanganiSesiHabis(e)) return;
+          console.info("[hunian-warga] memakai nilai awal:", e instanceof GalatApi ? e.code : e);
+        }
         try {
           const [riwayat, tagihan] = await Promise.all([riwayatIuran(), tagihanIuran()]);
           if (batal) return;
@@ -1067,6 +1080,26 @@ export default function App() {
         }),
       })),
     );
+  };
+
+  // Batch 15 · unit kendaraan roda 4 milik sendiri (`PATCH /warga/hunian`) —
+  // API-first: sukses → nilai server; OFFLINE → nilai lokal + `false` (halaman
+  // menampilkan pesan jujur "hanya layar ini"); galat lain (validasi, 409
+  // belum tertaut, sesi habis) DITERUSKAN → tombol menampilkan gagal — tidak
+  // pernah sukses palsu.
+  const simpanKendaraanR4Warga = async (count: number): Promise<boolean> => {
+    try {
+      await ubahKendaraanR4Warga(count);
+      setKendaraanR4Count(count);
+      return true;
+    } catch (e) {
+      if (e instanceof GalatApi && e.code === "OFFLINE") {
+        setKendaraanR4Count(count);
+        return false;
+      }
+      tanganiSesiHabis(e);
+      throw e;
+    }
   };
 
   // B13 · CRUD Data Warga Portal RT (§5.4) — API-first TIPIS: meneruskan
@@ -2050,7 +2083,7 @@ export default function App() {
             ajuan={ajuanWarga}
             onAjukan={ajukanPerubahanAnggota}
             kendaraanR4Count={kendaraanR4Count}
-            onKendaraanR4Change={setKendaraanR4Count}
+            onKendaraanR4Change={simpanKendaraanR4Warga}
           />
         </PortalWargaLayout>
       );

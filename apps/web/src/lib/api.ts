@@ -1454,6 +1454,12 @@ export interface TambahHunianRtPayload {
   kodeRumah: string;
   alamat: string;
   statusHuni: "milik" | "sewa" | "kontrak" | "kos";
+  /**
+   * Batch 15 (Okt 2026) · jumlah kendaraan roda 4 unit (0–99). Opsional di
+   * POST (DB `@default(1)`); belum menjadi dasar generate tagihan iuran —
+   * "data dulu, billing nanti" (keputusan desain 8 Okt 2026).
+   */
+  unitKendaraanR4?: number;
 }
 
 /**
@@ -1505,6 +1511,35 @@ export function hapusBanyakHunianRt(ids: string[]): Promise<HasilHapusHunian> {
   return minta("/rt/hunian", { method: "DELETE", body: { ids }, csrf: true });
 }
 
+// ===========================================================================
+// HUNIAN MILIK WARGA (Batch 15 · Okt 2026) — portal warga membaca & meng-upde
+// jumlah kendaraan roda 4 huniannya sendiri (persiapan dasar iuran kendaraan).
+// ===========================================================================
+
+/** Satu baris `GET /warga/hunian` — unit rumah milik sesi warga. */
+export interface HunianWargaServer {
+  kodeRumah: string;
+  alamat: string;
+  alamatPendek: string;
+  statusHuni: "milik" | "sewa" | "kontrak" | "kos";
+  unitKendaraanR4: number;
+}
+
+/** GET /warga/hunian — `null` bila warga belum tertaut unit hunian. */
+export function hunianWarga(): Promise<{ hunian: HunianWargaServer | null }> {
+  return minta("/warga/hunian");
+}
+
+/**
+ * PATCH /warga/hunian — perbarui unit kendaraan roda 4 (integer 0–99) milik
+ * sesi warga; tanpa CSRF (§5.6, pola rute warga lain). Galat `CONFLICT` (409)
+ * bila warga belum tertaut hunian — halaman menampilkan pesan jujur, bukan
+ * sukses palsu.
+ */
+export function ubahKendaraanR4Warga(unitKendaraanR4: number): Promise<{ hunian: HunianWargaServer }> {
+  return minta("/warga/hunian", { method: "PATCH", body: { unitKendaraanR4 } });
+}
+
 /**
  * Pemetaan dua select form FE → enum `status_huni` (PRD §6.1) — aturan
  * gabungan: jenis "Rumah Kos" → `kos`, "Rumah Sewa" → `sewa`, status
@@ -1552,6 +1587,7 @@ export function hunianServerKeHunian(h: HunianServer): HunianRumah {
     status,
     kkTerdaftar: h.jumlahKk,
     penghuni: h.penghuni,
+    unitKendaraanR4: h.unitKendaraanR4,
   };
 }
 

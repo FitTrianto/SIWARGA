@@ -104,6 +104,9 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
     alamat: "",
     jenis: "Rumah Tinggal",
     status: "Dihuni Pemilik",
+    // Batch 15 · unit kendaraan roda 4 (0–99) — string agar konsisten dengan
+    // field form lain; hanya digit yang diterima saat diketik.
+    kendaraanR4: "1",
   });
   const [simpanSedang, setSimpanSedang] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -141,6 +144,9 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
       // didaftarkan lewat menu Data Warga — bukan unit hunian baru.
       errors.alamat = `Alamat sudah terdaftar sebagai unit Hunian ${alamatMatch.blok} — daftarkan KK baru lewat menu Data Warga.`;
     }
+    if (!/^\d{1,2}$/.test(formHunian.kendaraanR4)) {
+      errors.kendaraanR4 = "Isi jumlah kendaraan roda 4 (angka 0–99)";
+    }
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -154,6 +160,7 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
           kodeRumah: blokBaru,
           alamat: alamatBaru,
           statusHuni: statusHuniDariForm(formHunian.jenis, formHunian.status),
+          unitKendaraanR4: Number(formHunian.kendaraanR4),
         });
         if (hasil) {
           const baris = hunianServerKeHunian(hasil);
@@ -174,6 +181,7 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
         status: formHunian.status,
         kkTerdaftar: formHunian.status === "Kosong" ? 0 : 1,
         penghuni: [],
+        unitKendaraanR4: Number(formHunian.kendaraanR4),
       };
       onHunianChange([...rumahList, newRumah]);
       flash(
@@ -189,7 +197,7 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
 
   function resetForm() {
     setShowAddHunianModal(false);
-    setFormHunian({ blok: "", alamat: "", jenis: "Rumah Tinggal", status: "Dihuni Pemilik" });
+    setFormHunian({ blok: "", alamat: "", jenis: "Rumah Tinggal", status: "Dihuni Pemilik", kendaraanR4: "1" });
     setFormErrors({});
   }
 
@@ -200,7 +208,13 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
     setFormErrors({});
     // Salin nilai baris ke form (status boleh berupa turunan "Multi-KK"/"Kos" —
     // opsi select selalu menyertakan nilai saat ini agar tak pernah kosong).
-    setFormHunian({ blok: r.blok, alamat: r.alamat, jenis: r.jenis, status: r.status });
+    setFormHunian({
+      blok: r.blok,
+      alamat: r.alamat,
+      jenis: r.jenis,
+      status: r.status,
+      kendaraanR4: String(r.unitKendaraanR4 ?? 1),
+    });
     setEditTarget(r);
   }
 
@@ -242,6 +256,9 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
     if (formHunian.status !== "Kosong" && count === 0) {
       errors.status = `Unit ini belum punya KK — status tampil "Kosong" sampai ada KK terdaftar (Data Warga).`;
     }
+    if (!/^\d{1,2}$/.test(formHunian.kendaraanR4)) {
+      errors.kendaraanR4 = "Isi jumlah kendaraan roda 4 (angka 0–99)";
+    }
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -254,6 +271,9 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
     const enumLama = statusHuniDariForm(editTarget.jenis, editTarget.status);
     const enumBaru = statusHuniDariForm(formHunian.jenis, formHunian.status);
     if (enumBaru !== enumLama) patch.statusHuni = enumBaru;
+    if (Number(formHunian.kendaraanR4) !== (editTarget.unitKendaraanR4 ?? 1)) {
+      patch.unitKendaraanR4 = Number(formHunian.kendaraanR4);
+    }
     if (Object.keys(patch).length === 0) {
       setEditTarget(null);
       flash("Tidak ada perubahan untuk disimpan.");
@@ -289,6 +309,7 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
             : count > 1
               ? "Multi-KK"
               : (LABEL_FORM[enumBaru] ?? formHunian.status),
+        unitKendaraanR4: Number(formHunian.kendaraanR4),
       };
       onHunianChange(rumahList.map((r) => (r.id === editTarget.id ? barisLokal : r)));
       setEditTarget(null);
@@ -587,6 +608,7 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
                 <th className="py-3 px-4">Jenis Hunian</th>
                 <th className="py-3 px-4 text-center">KK Terdaftar</th>
                 <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4 text-center">Kendaraan R4</th>
                 <th className="py-3 px-6 text-right">Aksi</th>
               </tr>
             </thead>
@@ -646,6 +668,15 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
                         {effStatus}
                       </button>
                     </td>
+                    <td className="py-4 px-4 text-center">
+                      <span
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-surface-container-low text-on-surface hover:bg-surface-container-high transition-colors"
+                        title="Jumlah kendaraan roda 4 unit ini — dasar iuran kendaraan bila diaktifkan (perhitungan tagihan belum memakai nilai ini)"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">directions_car</span>
+                        {rumah.unitKendaraanR4 ?? 1} unit
+                      </span>
+                    </td>
                     <td className="py-4 px-6 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {/* Edit per baris (Okt 2026 — disembunyikan di mode hapus agar fokus pilih). */}
@@ -689,7 +720,7 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={modeHapus ? 7 : 6} className="py-4">
+                  <td colSpan={modeHapus ? 8 : 7} className="py-4">
                     <EmptyState
                       icon="home_work"
                       judul="Data hunian tidak ditemukan"
@@ -797,6 +828,24 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
                   <option value="Sewa/Kontrak">Sewa/Kontrak</option>
                   <option value="Kosong">Kosong</option>
                 </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[16px] text-on-surface-variant">directions_car</span>
+                  Jumlah Kendaraan Roda 4
+                </label>
+                <input
+                  className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.kendaraanR4 ? "ring-2 ring-error" : ""}`}
+                  placeholder="Contoh: 2"
+                  inputMode="numeric"
+                  maxLength={2}
+                  value={formHunian.kendaraanR4}
+                  onChange={(e) => setFormHunian({ ...formHunian, kendaraanR4: e.target.value.replace(/\D/g, "") })}
+                />
+                {formErrors.kendaraanR4 && <span className="text-xs text-error font-semibold">{formErrors.kendaraanR4}</span>}
+                <span className="text-[11px] text-on-surface-variant leading-snug">
+                  0–99 unit — dicatat untuk keperluan iuran kendaraan bila diaktifkan; perhitungan tagihan iuran belum memakai nilai ini.
+                </span>
               </div>
               <div className="p-3 rounded-xl bg-secondary-container/20 flex items-start gap-2">
                 <span className="material-symbols-outlined text-secondary text-[16px] mt-0.5">person</span>
@@ -947,6 +996,24 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
                           : "Status mengikuti jenis hunian (Rumah Sewa / Rumah Kos) — ubah jenis bila perlu."}
                     </span>
                   )}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-on-surface flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-on-surface-variant">directions_car</span>
+                    Jumlah Kendaraan Roda 4
+                  </label>
+                  <input
+                    className={`w-full h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all ${formErrors.kendaraanR4 ? "ring-2 ring-error" : ""}`}
+                    placeholder="Contoh: 2"
+                    inputMode="numeric"
+                    maxLength={2}
+                    value={formHunian.kendaraanR4}
+                    onChange={(e) => setFormHunian({ ...formHunian, kendaraanR4: e.target.value.replace(/\D/g, "") })}
+                  />
+                  {formErrors.kendaraanR4 && <span className="text-xs text-error font-semibold">{formErrors.kendaraanR4}</span>}
+                  <span className="text-[11px] text-on-surface-variant leading-snug">
+                    0–99 unit — warga Portal Warga juga dapat memperbarui nilai ini untuk huniannya; perhitungan tagihan iuran belum memakai nilai ini.
+                  </span>
                 </div>
                 <div className="p-3 rounded-xl bg-secondary-container/20 flex items-start gap-2">
                   <span className="material-symbols-outlined text-secondary text-[16px] mt-0.5">info</span>
@@ -1102,6 +1169,13 @@ export function DataHunianRT({ onNavigate, kkList, hunian, onHunianChange, onTam
                   <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${badgeFor(effStatus)}`}>
                     <span className="w-2 h-2 rounded-full bg-current opacity-60" />
                     {effStatus}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-surface-container-low">
+                  <span className="text-sm text-on-surface-variant">Kendaraan Roda 4</span>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-surface-container text-on-surface">
+                    <span className="material-symbols-outlined text-[14px]">directions_car</span>
+                    {rumah.unitKendaraanR4 ?? 1} unit
                   </span>
                 </div>
                 <div className="p-3 rounded-lg bg-surface-container-low flex flex-col gap-1.5">

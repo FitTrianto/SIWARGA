@@ -1305,6 +1305,12 @@ export interface HunianRumah {
   kkTerdaftar: number;
   /** Nama kepala/penghuni KK yang ditambahkan manual lewat form. */
   penghuni: string[];
+  /**
+   * Batch 15 · unit kendaraan roda 4 (0–99, opsional — data demo tanpa nilai
+   * tampil memakai default 1). Dasar iuran kendaraan bila diaktifkan; belum
+   * dipakai perhitungan tagihan.
+   */
+  unitKendaraanR4?: number;
 }
 
 export const hunianDefault: HunianRumah[] = [

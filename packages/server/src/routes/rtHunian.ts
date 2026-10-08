@@ -81,10 +81,20 @@ function pendekDari(alamat: string): string {
   return alamat.split(",")[0].trim();
 }
 
+/**
+ * Unit kendaraan roda 4 (Batch 15 · Okt 2026 — "jumlah kendaraan roda 4 di
+ * Data Hunian"): 0–99, opsional di POST (DB `@default(1)` bila tak dikirim).
+ * Kolom ini BELUM menjadi dasar generate tagihan (keputusan desain 8 Okt 2026:
+ * "data dulu, billing nanti") — sumber unit tagihan tetap Profil Iuran sampai
+ * iuran kendaraan diaktifkan.
+ */
+const unitKendaraanR4 = z.number().int().min(0, "Minimal 0 unit.").max(99, "Maksimal 99 unit.");
+
 const skemaTambah = z.object({
   kodeRumah: z.string().trim().min(1, "Blok wajib diisi.").max(20, "Blok maksimal 20 karakter."),
   alamat: z.string().trim().min(1, "Alamat wajib diisi.").max(160, "Alamat maksimal 160 karakter."),
   statusHuni: z.enum(["milik", "sewa", "kontrak", "kos"]).default("milik"),
+  unitKendaraanR4: unitKendaraanR4.optional(),
 });
 
 /** Patch sebagian `PATCH /rt/hunian/:id` — `undefined` = tidak diubah. */
@@ -93,6 +103,7 @@ const skemaUbah = z
     kodeRumah: z.string().trim().min(1, "Blok wajib diisi.").max(20, "Blok maksimal 20 karakter.").optional(),
     alamat: z.string().trim().min(1, "Alamat wajib diisi.").max(160, "Alamat maksimal 160 karakter.").optional(),
     statusHuni: z.enum(["milik", "sewa", "kontrak", "kos"]).optional(),
+    unitKendaraanR4: unitKendaraanR4.optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: "Tidak ada perubahan yang dikirim.",
@@ -181,6 +192,7 @@ export const ruteRtHunian: FastifyPluginAsync = async (app) => {
           alamat: body.alamat,
           alamatPendek,
           statusHuni: body.statusHuni,
+          ...(body.unitKendaraanR4 !== undefined ? { unitKendaraanR4: body.unitKendaraanR4 } : {}),
         },
         select: { id: true },
       });
@@ -226,6 +238,7 @@ export const ruteRtHunian: FastifyPluginAsync = async (app) => {
             kodeRumah: body.kodeRumah,
             alamat: body.alamat,
             statusHuni: body.statusHuni,
+            ...(body.unitKendaraanR4 !== undefined ? { unitKendaraanR4: body.unitKendaraanR4 } : {}),
           },
           ringkasan:
             `Tambah hunian ${body.kodeRumah} — ${body.alamat}` +
@@ -304,6 +317,7 @@ export const ruteRtHunian: FastifyPluginAsync = async (app) => {
           ? { alamat: body.alamat, alamatPendek: alamatPendekBaru as string }
           : {}),
         ...(body.statusHuni !== undefined ? { statusHuni: body.statusHuni } : {}),
+        ...(body.unitKendaraanR4 !== undefined ? { unitKendaraanR4: body.unitKendaraanR4 } : {}),
       };
       await tx.rumah.update({ where: { id }, data });
 
@@ -337,8 +351,8 @@ export const ruteRtHunian: FastifyPluginAsync = async (app) => {
       const baris = await tx.rumah.findUnique({ where: { id }, select: PilihRumah });
       if (!baris) throw new GalatTolak("NOT_FOUND", "Hunian tidak ditemukan setelah diubah.");
 
-      const sebelum: Record<string, string> = {};
-      const sesudah: Record<string, string> = {};
+      const sebelum: Record<string, string | number> = {};
+      const sesudah: Record<string, string | number> = {};
       if (body.kodeRumah !== undefined) {
         sebelum.kodeRumah = lama.kodeRumah;
         sesudah.kodeRumah = body.kodeRumah;
@@ -350,6 +364,10 @@ export const ruteRtHunian: FastifyPluginAsync = async (app) => {
       if (body.statusHuni !== undefined) {
         sebelum.statusHuni = lama.statusHuni;
         sesudah.statusHuni = body.statusHuni;
+      }
+      if (body.unitKendaraanR4 !== undefined) {
+        sebelum.unitKendaraanR4 = lama.unitKendaraanR4;
+        sesudah.unitKendaraanR4 = body.unitKendaraanR4;
       }
 
       await catatAudit(

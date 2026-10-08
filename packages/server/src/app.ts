@@ -32,6 +32,7 @@ import { ruteRtDataWarga } from "./routes/rtDataWarga.js";
 import { ruteRtHunian } from "./routes/rtHunian.js";
 import { ruteRtSurat } from "./routes/rtSurat.js";
 import { ruteWargaKeluarga } from "./routes/wargaKeluarga.js";
+import { ruteWargaHunian } from "./routes/wargaHunian.js";
 import type { KodeApi } from "./types.js";
 
 export const PREFIX_API = "/api/v1";
@@ -94,6 +95,7 @@ export async function buatAplikasi(): Promise<FastifyInstance> {
   // F-6: data keluarga portal warga (baca KK + simpan kontak langsung — §5.3,
   // deviasi terdokumentasi atas jalur ajuan B11, lihat routes/wargaKeluarga.ts)
   await app.register(ruteWargaKeluarga, { prefix: PREFIX_API });
+  await app.register(ruteWargaHunian, { prefix: PREFIX_API });
 
   // F-5 · B11/B20: antrean & verifikasi ajuan perubahan data warga (Portal RT)
   await app.register(ruteRtAjuanPerubahan, { prefix: PREFIX_API });

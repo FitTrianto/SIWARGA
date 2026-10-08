@@ -54,7 +54,15 @@ interface DataKeluargaProps {
     keterangan: string;
   }) => Promise<boolean>;
   kendaraanR4Count?: number;
-  onKendaraanR4Change?: (v: number) => void;
+  /**
+   * Batch 15 · simpan unit kendaraan roda 4 hunian milik sendiri via API
+   * (`PATCH /warga/hunian`). Induk (App) menangani API-first + fallback
+   * OFFLINE; mengembalikan `true` bila TERSIMPAN di server dan `false` bila
+   * hanya lokal (server tidak terjangkau) — pemanggil wajib membedakan agar
+   * pesan sukses tidak pernah palsu. Galat lain (validasi, 409 belum tertaut,
+   * sesi habis) DITERUSKAN → tombol menampilkan gagal.
+   */
+  onKendaraanR4Change?: (v: number) => Promise<boolean>;
 }
 
 const defaultKkList: KkData[] = [
@@ -302,6 +310,8 @@ export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSim
   const [kirimAjuanSedang, setKirimAjuanSedang] = useState(false);
   const [kendaraanR4, setKendaraanR4] = useState(String(kendaraanR4Count));
   const [kendaraanR4Custom, setKendaraanR4Custom] = useState("");
+  /** Batch 15 · kunci tombol simpan unit R4 saat PATCH /warga/hunian berjalan. */
+  const [r4Sedang, setR4Sedang] = useState(false);
   const { flash, toast } = useFlash();
 
   useEffect(() => {
@@ -1239,21 +1249,41 @@ export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSim
                 Tutup
               </button>
               <button
-                className="flex-1 h-11 rounded-xl bg-primary hover:bg-primary-container text-on-primary text-sm font-bold shadow-md"
-                onClick={() => {
+                className="flex-1 h-11 rounded-xl bg-primary hover:bg-primary-container text-on-primary text-sm font-bold shadow-md disabled:opacity-60 disabled:cursor-wait"
+                disabled={r4Sedang}
+                onClick={async () => {
                   const count = kendaraanR4 === "Lainnya" ? parseInt(kendaraanR4Custom) || 0 : parseInt(kendaraanR4);
-                  onKendaraanR4Change?.(count);
-                  // Jujur: data hunian (termasuk unit R4) dikelola Pengurus RT;
-                  // Portal Warga tidak punya endpoint untuk menyimpannya, jadi
-                  // perubahan ini hanya menghitung ulang tampilan sesi ini.
-                  flash(
-                    "Perubahan unit R4 hanya berlaku di layar ini — TIDAK tersimpan di server. " +
-                      "Data hunian dikelola Pengurus RT.",
-                  );
-                  setShowDetailRumah(false);
+                  if (count < 0 || count > 99) {
+                    flash("Jumlah kendaraan roda 4 harus 0–99 unit.");
+                    return;
+                  }
+                  setR4Sedang(true);
+                  try {
+                    // API-first (Batch 15): `true` = tersimpan di server,
+                    // `false` = OFFLINE/baris lokal — pesan dibedakan jujur.
+                    const tersimpan = await onKendaraanR4Change?.(count);
+                    if (tersimpan) {
+                      flash("Jumlah kendaraan roda 4 tersimpan di server.");
+                    } else if (onKendaraanR4Change) {
+                      flash(
+                        "Mode offline (server tidak terjangkau) — unit R4 hanya tampil di layar ini, TIDAK tersimpan di server.",
+                      );
+                    } else {
+                      flash("Perubahan TIDAK tersimpan — muat ulang halaman lalu coba lagi.");
+                    }
+                    setShowDetailRumah(false);
+                  } catch (e) {
+                    // Galat server (validasi, 409 belum tertaut, sesi habis):
+                    // tampilkan jujur — jangan pernah menutup modal seolah sukses.
+                    flash(
+                      `Gagal menyimpan: ${e instanceof Error ? e.message : "periksa koneksi"} — perubahan TIDAK tersimpan.`,
+                    );
+                  } finally {
+                    setR4Sedang(false);
+                  }
                 }}
               >
-                Terapkan di Layar Ini
+                {r4Sedang ? "Menyimpan…" : "Simpan Perubahan"}
               </button>
             </div>
           </div>
