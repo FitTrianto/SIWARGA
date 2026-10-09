@@ -190,11 +190,39 @@ export const ruteAuthWarga: FastifyPluginAsync = async (app) => {
     }
     const warga = await cariScopeWarga(req.sesi.subjekId);
     if (!warga) return reply.gagal("UNAUTHORIZED", "Sesi tidak valid.");
+    // Batch 18 · multi-tenant tampilan — identitas RT pemilik data warga
+    // (bukan konstanta FE hardcode). `kota` hanya tercatat pada pendaftaran
+    // mandiri (deviasi desain DB) → null untuk RT seed (FE menampilkan "—").
+    const rt = await denganScope("rt", warga.rtId, (tx) =>
+      tx.rt.findUnique({
+        where: { id: warga.rtId },
+        select: {
+          kodeRt: true,
+          // Nama ketua — penandatangan blok TTD surat di Portal Warga.
+          ketuaRt: { select: { nama: true } },
+          rw: { select: { kodeRw: true } },
+          kelurahan: {
+            select: { nama: true, kecamatan: { select: { nama: true } } },
+          },
+          pendaftaran: { select: { kota: true } },
+        },
+      }),
+    );
     return reply.ok({
       peran: "warga" as const,
       nama: warga.nama,
       sisaDetik: sisaWaktuSesi(req.sesi),
       kedaluwarsaPada: req.sesi.kedaluwarsaPada.toISOString(),
+      rt: rt
+        ? {
+            kodeRt: rt.kodeRt,
+            kodeRw: rt.rw.kodeRw,
+            kelurahan: rt.kelurahan.nama,
+            kecamatan: rt.kelurahan.kecamatan.nama,
+            kota: rt.pendaftaran?.kota ?? null,
+            namaKetuaRt: rt.ketuaRt?.nama ?? null,
+          }
+        : null,
     });
   });
 

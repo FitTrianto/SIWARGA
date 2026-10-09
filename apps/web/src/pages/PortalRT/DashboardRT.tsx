@@ -6,6 +6,7 @@ import {
   KasRt,
   KategoriIuran,
   Pembayaran,
+  Pengurus,
   Surat,
   TagihanTambahan,
   hitungPopulasi,
@@ -33,6 +34,8 @@ interface DashboardRTProps {
   pembayaran: Pembayaran[];
   surat: Surat[];
   tagihanTambahan: TagihanTambahan[];
+  /** Pengurus tercatat RT login (`GET /rt/profil`, Batch 18) — kosong = belum ada. */
+  pengurus: Pengurus[];
 }
 
 export function DashboardRT({
@@ -45,6 +48,7 @@ export function DashboardRT({
   kategoriIuran,
   pembayaran,
   surat,
+  pengurus,
 }: DashboardRTProps) {
   const { flash, toast } = useFlash();
 
@@ -80,6 +84,28 @@ export function DashboardRT({
 
   const suratMenungguRt = surat.filter((s) => s.status === "Menunggu RT");
   const suratUtama = suratMenungguRt[0];
+
+  // Batch 18 · jajaran dari data TERCATAT (GET /rt/profil) — Ketua RT yang
+  // login tidak ikut (dia sudah tampil di header); Ketua RW dari baris RW.
+  // Tanpa baris = blok menampilkan keadaan kosong jujur, bukan nama karangan.
+  const jajaran = [
+    ...pengurus
+      .filter((p) => !/ketua/i.test(p.jabatan))
+      .map((p) => ({
+        nama: p.nama,
+        jabatan: p.jabatan,
+        initials: p.initials,
+        kelas: `${p.bgColor} ${p.textColor}`,
+      })),
+    ...(tenant.ketuaRw
+      ? [{
+          nama: tenant.ketuaRw,
+          jabatan: `Ketua ${tenant.rwFull}`,
+          initials: tenant.ketuaRw.replace(/[^A-Za-z ]/g, "").trim().split(/\s+/).map((k) => k[0] ?? "").slice(-2).join("").toUpperCase() || "?",
+          kelas: "bg-tertiary-container text-on-tertiary-container",
+        }]
+      : []),
+  ];
 
   const pendingPembayaran = pembayaran.filter((p) => p.status === "Menunggu Verifikasi");
   const pendingTotal = pendingPembayaran.reduce((sum, p) => sum + p.jumlah, 0);
@@ -647,60 +673,33 @@ export function DashboardRT({
               <span className="material-symbols-outlined text-primary text-[22px]">diversity_3</span>
             </div>
             <div className="space-y-3">
-              <div className="p-3 rounded-lg bg-surface-container-low flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container font-bold text-xs">
-                    RH
+              {jajaran.map((j) => (
+                <div key={j.nama} className="p-3 rounded-lg bg-surface-container-low flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full ${j.kelas} flex items-center justify-center font-bold text-xs`}>
+                      {j.initials}
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-on-surface">{j.nama}</div>
+                      <div className="text-[11px] text-on-surface-variant">{j.jabatan}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-sm font-bold text-on-surface">Rahmat Hidayat</div>
-                    <div className="text-[11px] text-on-surface-variant">Sekretaris {tenant.rtFull}</div>
-                  </div>
+                  <button
+                    className="inline-flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-[11px] font-bold transition-all"
+                    onClick={() => flash(`Membuka chat WhatsApp dengan ${j.nama} (${j.jabatan})...`)}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">chat</span>
+                    Chat
+                  </button>
                 </div>
-                <button
-                  className="inline-flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-[11px] font-bold transition-all"
-                  onClick={() => flash("Membuka chat WhatsApp dengan Rahmat Hidayat (Sekretaris " + tenant.rtFull + ")...")}
-                >
-                  <span className="material-symbols-outlined text-[16px]">chat</span>
-                  Chat
-                </button>
-              </div>
-              <div className="p-3 rounded-lg bg-surface-container-low flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-xs">
-                    SR
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold text-on-surface">Hj. Siti Rahmawati</div>
-                    <div className="text-[11px] text-on-surface-variant">Bendahara {tenant.rtFull}</div>
-                  </div>
-                </div>
-                <button
-                  className="inline-flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-[11px] font-bold transition-all"
-                  onClick={() => flash("Membuka chat WhatsApp dengan Hj. Siti Rahmawati (Bendahara " + tenant.rtFull + ")...")}
-                >
-                  <span className="material-symbols-outlined text-[16px]">chat</span>
-                  Chat
-                </button>
-              </div>
-              <div className="p-3 rounded-lg bg-surface-container-low flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-tertiary-container flex items-center justify-center text-on-tertiary-container font-bold text-xs">
-                    HS
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold text-on-surface">Bpk. H. Subaidi</div>
-                    <div className="text-[11px] text-on-surface-variant">Ketua {tenant.rwFull}</div>
-                  </div>
-                </div>
-                <button
-                  className="inline-flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-[11px] font-bold transition-all"
-                  onClick={() => flash("Membuka chat WhatsApp dengan Bpk. H. Subaidi (Ketua " + tenant.rwFull + ")...")}
-                >
-                  <span className="material-symbols-outlined text-[16px]">chat</span>
-                  Chat
-                </button>
-              </div>
+              ))}
+              {jajaran.length === 0 && (
+                <EmptyState
+                  icon="diversity_3"
+                  judul="Belum ada jajaran tercatat"
+                  pesan="Sekretaris/Bendahara tampil di sini setelah ditambahkan, dan Ketua RW tampil setelah nama ketua RW tercatat pada data RW."
+                />
+              )}
             </div>
           </section>
 

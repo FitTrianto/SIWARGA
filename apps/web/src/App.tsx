@@ -7,6 +7,7 @@ import {
   ajukanSuratWarga,
   ambilKeluargaWarga,
   anggotaKeFamilyMember,
+  auditLogRt,
   barisKePembayaran,
   barisServerKeWargaRt,
   barisSuratServerKeFe,
@@ -52,9 +53,12 @@ import {
   pengaturanIuranRt,
   pengaturanSuratRt,
   profilIuranRt,
+  profilRt,
   prosesSuratRt,
   riwayatIuran,
   riwayatLoginWarga,
+  serverKeKategori,
+  sesiWarga,
   setujuiPembayaranRt,
   simpanKontakKeluarga,
   simpanPengaturanIuranRt,
@@ -79,6 +83,7 @@ import {
   verifikasiAjuanPerubahanRt,
   type AksiSuratRt,
   type AnggotaBaruServer,
+  type BarisAuditServer,
   type BarisProfilIuran,
   type BarisSuratServer,
   type BarisWargaRtServer,
@@ -141,7 +146,7 @@ import { SistemAdmin } from "./pages/Admin/SistemAdmin";
 import { UndanganPage } from "./pages/Undangan/UndanganPage";
 import { VerifikasiSuratPage } from "./pages/VerifikasiSuratPage";
 import { AktivasiRtPage } from "./pages/AktivasiRtPage";
-import { tenant } from "./lib/tenant";
+import { tenant, setTenantSesi, kembalikanTenantContoh } from "./lib/tenant";
 import {
   Tenant, tenantDefault,
   TransaksiLangganan, transaksiLanggananDefault,
@@ -332,6 +337,64 @@ function perbaruiSuratServer(prev: Surat[], idLokal: string, b: BarisSuratServer
   });
 }
 
+// --- Batch 18 · multi-tenant tampilan ---------------------------------------
+
+/** Kata kode `aksi` audit DB → label tampilan ("aktivasi_pendaftaran" → "Aktivasi Pendaftaran"). */
+function labelAksiAudit(aksi: string): string {
+  return aksi
+    .split("_")
+    .map((k) => (k ? k[0].toUpperCase() + k.slice(1) : k))
+    .join(" ");
+}
+
+/** Kategori badge Audit Log (tampilan/ekspor) dari kolom `modul` server. */
+function kategoriAuditDariModul(modul: string): AuditEntry["kategori"] {
+  if (/kas|alokasi|tutup_buku|iuran|pembayaran/.test(modul)) return "kas";
+  if (/surat/.test(modul)) return "surat";
+  if (/undangan|akses|auth|aktivasi|pendaftaran/.test(modul)) return "akses";
+  return "data";
+}
+
+/** Baris `GET /rt/audit-log` (server, scope RT login) → baris tampilan FE. */
+function barisAuditKeEntri(b: BarisAuditServer): AuditEntry {
+  const aksi = labelAksiAudit(b.aksi);
+  return {
+    id: b.id,
+    waktu: new Date(b.waktu).toLocaleString("id-ID", {
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    }),
+    user: b.aktor.nama ?? b.aktor.email ?? b.aktor.peran,
+    aksi,
+    aksiBadge: b.aksiBadge ?? badgeAksi(aksi),
+    dataDiakses: b.modul,
+    detail: b.ringkasan ?? "-",
+    ipAddress: b.ip ?? "-",
+    portal: b.portal === "rw" || b.portal === "warga" ? b.portal : "rt",
+    kategori: kategoriAuditDariModul(b.modul),
+  };
+}
+
+/** Inisial 2 huruf untuk avatar pengurus (dari nama tercatat). */
+function inisialDariNama(nama: string): string {
+  const bagian = nama.trim().split(/\s+/).filter(Boolean);
+  if (!bagian.length) return "?";
+  if (bagian.length === 1) return bagian[0].slice(0, 2).toUpperCase();
+  return (bagian[0][0] + bagian[1][0]).toUpperCase();
+}
+
+/** Baris pengurus `GET /rt/profil` → state `Pengurus` FE (warna avatar deterministik). */
+function pengurusServerKeFe(p: { id: string; nama: string; jabatan: string }, i: number): Pengurus {
+  const pasangan = [
+    ["bg-primary-container", "text-on-primary-container"],
+    ["bg-secondary-container", "text-on-secondary-container"],
+    ["bg-tertiary-container", "text-on-tertiary-container"],
+  ] as const;
+  const [bgColor, textColor] = pasangan[i % pasangan.length];
+  const label =
+    p.jabatan === "ketua" ? "Ketua RT" : p.jabatan.charAt(0).toUpperCase() + p.jabatan.slice(1);
+  return { id: p.id, nama: p.nama, jabatan: label, status: "active", initials: inisialDariNama(p.nama), bgColor, textColor };
+}
+
 export default function App() {
   // Portal System Admin hanya dapat diakses dengan menambahkan path /admin
   // di URL — tidak ada tautan ke portal ini dari halaman mana pun (§8).
@@ -382,6 +445,11 @@ export default function App() {
   // hanya berjalan selama ini `true`; OFFLINE → `false` & polling berhenti
   // supaya mode demo tidak membanjiri server/jaringan dengan galat percuma.
   const rtServerSehatRef = useRef(true);
+  // Batch 18 · multi-tenant tampilan — penanda identitas tenant sesi sudah
+  // diisi. Sesi daring: App memuat `GET /rt/profil` / `GET /auth/warga/sesi`
+  // SEBELUM portal dirender (gerbang `tenantSesiDimuat`), sehingga halaman
+  // tidak pernah sempat menampilkan identitas contoh (RT 04 / Melati).
+  const [tenantSesiDimuat, setTenantSesiDimuat] = useState(true);
   const [kkList, setKkList] = useState<KkData[]>(initialKkList);
   const [kendaraanR4Count, setKendaraanR4Count] = useState(1);
 
@@ -475,6 +543,105 @@ export default function App() {
   const ketuaRt =
     pengurus.find((p) => p.jabatan.toLowerCase().includes("ketua")) ?? pengurus[0];
 
+  // --- Batch 18 · multi-tenant tampilan -------------------------------------
+
+  /**
+   * Kosongkan SELURUH state portal (tanpa mengembalikan baris contoh) —
+   * dipanggil saat sesi DARING dimulai. Tanpa ini, RT hasil pendaftaran
+   * mandiri melihat baris contoh milik RT lain (laporan bug Okt 2026:
+   * "Iuran/Surat/Laporan/Audit Log sudah ada data, harusnya kosong").
+   * Mode demo OFFLINE sengaja TIDAK memanggil ini — banner MODE DEMO sudah
+   * jujur menandai bahwa layar memuat data contoh di memori.
+   */
+  const bersihkanContohSesi = () => {
+    setKkList([]);
+    setKategoriIuran([]);
+    setPembayaran([]);
+    setPengurus([]);
+    setSuratList([]);
+    setAksesList([]);
+    setKasRwList([]);
+    setAuditEntries([]);
+    setUndanganList([]);
+    setWargaRtList([]);
+    setHunianList([]);
+    setKasRtList([]);
+    setAjuanWarga([]);
+    setAjuanRt([]);
+    setTagihanTambahanList([]);
+    setRingkasTagihanWarga(null);
+    // Langganan netral (tanpa tanggal contoh) — muatTenantSesi mengisinya
+    // dari `GET /rt/profil` sesaat lagi; bila gagal, tampil "-" (bukan Pro palsu).
+    setLangganan({ paket: "Free", mulai: "-", aktifSampai: "-" });
+  };
+
+  /**
+   * Isi identitas tenant (`lib/tenant`) dari server sesuai peran — DARING
+   * saja; PORTAL RW belum punya backend tenant (belum ada rute `/rw/**`)
+   * sehingga tetap memakai identitas contoh sampai batch server RW dikerjakan
+   * (dicatat jujur di laporan batch 18). Galat/OFFLINE di tengah jalan:
+   * pertahankan identitas contoh + pesan konsol (tanpa menyamar sukses).
+   */
+  const muatTenantSesi = async (peran: "warga" | "rt" | "rw"): Promise<void> => {
+    try {
+      if (peran === "rt") {
+        const p = await profilRt();
+        setTenantSesi({
+          rt: p.rt.kodeRt,
+          rw: p.rt.kodeRw,
+          kelurahan: p.rt.kelurahan,
+          kecamatan: p.rt.kecamatan,
+          kota: p.rt.kota,
+          perumahan: p.rt.perumahan,
+          ketuaRw: p.rt.ketuaRw,
+        });
+        // Pengurus tercatat (ketua/sekretaris/bendahara) — dasbor & TTD surat.
+        setPengurus(p.rt.pengurus.map(pengurusServerKeFe));
+        if (p.rt.langganan) {
+          const fmt = (iso: string | null) =>
+            iso
+              ? new Date(iso).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })
+              : "Tanpa batas";
+          const paketKapital = p.rt.langganan.paket.charAt(0).toUpperCase() + p.rt.langganan.paket.slice(1);
+          setLangganan({
+            paket: (paketKapital === "Pro" || paketKapital === "Max" ? paketKapital : "Free") as Langganan["paket"],
+            mulai: fmt(p.rt.langganan.mulai),
+            aktifSampai: fmt(p.rt.langganan.aktifSampai),
+          });
+        } else {
+          // Baris langganan tidak ada (anomali) — tampil netral, bukan contoh.
+          setLangganan({ paket: "Free", mulai: "-", aktifSampai: "-" });
+        }
+      } else if (peran === "warga") {
+        const s = await sesiWarga();
+        if (s.rt) {
+          setTenantSesi({
+            rt: s.rt.kodeRt,
+            rw: s.rt.kodeRw,
+            kelurahan: s.rt.kelurahan,
+            kecamatan: s.rt.kecamatan,
+            kota: s.rt.kota,
+          });
+          // Ketua RT penandatangan blok TTD surat — dari baris RT milik warga.
+          setPengurus(
+            s.rt.namaKetuaRt
+              ? [pengurusServerKeFe({ id: "sesi-warga", nama: s.rt.namaKetuaRt, jabatan: "ketua" }, 0)]
+              : [],
+          );
+        } else {
+          kembalikanTenantContoh();
+        }
+      } else {
+        // Portal RW: identitas contoh dipertahankan (belum ada backend tenant).
+        kembalikanTenantContoh();
+      }
+    } catch (e) {
+      console.info("[tenant] memakai identitas contoh:", e instanceof GalatApi ? e.code : e);
+      kembalikanTenantContoh();
+    }
+    setTenantSesiDimuat(true);
+  };
+
   /**
    * Galat `UNAUTHORIZED` dari API = sesi sudah habis/ditolak server (bukan
    * OFFLINE, bukan salah peran — gerbang peran di bawah menutup itu). Jangan
@@ -486,6 +653,8 @@ export default function App() {
     setPesanSesi("Sesi Anda telah berakhir — silakan masuk kembali.");
     setPeranMasuk(null);
     setProfilSesi(null);
+    kembalikanTenantContoh();
+    setTenantSesiDimuat(true);
     setPage("login");
     return true;
   };
@@ -507,6 +676,8 @@ export default function App() {
     setPeranMasuk(null);
     setProfilSesi(null);
     setPeringatanSesi(false);
+    kembalikanTenantContoh();
+    setTenantSesiDimuat(true);
     setPage("login");
   };
 
@@ -671,6 +842,28 @@ export default function App() {
       tandaiOffline(e);
       if (tanganiSesiHabis(e)) return;
       console.info("[surat] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+    // Batch 18 · master kategori iuran dari server — RT baru KOSONG (tanpa
+    // kategori contoh milik RT lain); OFFLINE → state tetap (mode demo).
+    try {
+      const k = await kategoriIuranRt();
+      if (batal()) return;
+      setKategoriIuran(k.kategori.map(serverKeKategori));
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      console.info("[kategori-iuran] memakai data demo:", e instanceof GalatApi ? e.code : e);
+    }
+    // Batch 18 · Audit Log = baris `audit_log` scope RT login (server) —
+    // pengganti entri contoh; RT baru hanya melihat aktivitas miliknya sendiri.
+    try {
+      const a = await auditLogRt(100);
+      if (batal()) return;
+      setAuditEntries(a.baris.map(barisAuditKeEntri));
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      console.info("[audit] memakai data demo:", e instanceof GalatApi ? e.code : e);
     }
   };
 
@@ -1682,6 +1875,10 @@ export default function App() {
   };
 
   const catatAudit = (e: Omit<AuditEntry, "id" | "waktu" | "aksiBadge" | "ipAddress"> & { ipAddress?: string }) => {
+    // Batch 18 · Audit Log daring RT/Warga = baris server (`audit_log`, append-
+    // only) — entri lokal hanya untuk mode demo & Portal RW (backend audit RW
+    // belum ada). Tanpa gerbang ini, sesi daring menyisipkan aktivitas palsu.
+    if (!profilSesi?.modeDemo && e.portal !== "rw") return;
     setAuditEntries((prev) => [
       { ipAddress: "192.168.1.50", ...e, id: `ax${Date.now()}`, waktu: waktuSekarang(), aksiBadge: badgeAksi(e.aksi) },
       ...prev,
@@ -2048,6 +2245,10 @@ export default function App() {
     setPeranMasuk(null);
     setProfilSesi(null);
     setPeringatanSesi(false);
+    // Batch 18 · sesi berakhir → identitas tenant kembali ke contoh pemasaran
+    // (Landing Page tidak boleh menampilkan identitas RT yang baru saja keluar).
+    kembalikanTenantContoh();
+    setTenantSesiDimuat(true);
     // Keluar dari konsol admin juga menghapus path /admin dari URL.
     if (pathAdmin() && typeof window !== "undefined") {
       window.history.pushState({}, "", dasarDeploy());
@@ -2064,6 +2265,19 @@ export default function App() {
     // Render guard: satu frame pun halaman portal yang tidak berhak tidak boleh
     // tampil — gerbang peran di atas menyelesaikan pengalihan lebih dulu.
     if (PORTAL_HALAMAN[page] && peranMasuk !== PORTAL_HALAMAN[page]) return null;
+    // Batch 18 · gerbang multi-tenant — portal baru dirender setelah identitas
+    // tenant sesi diisi dari server (sesi daring); tanpa ini, satu frame pun
+    // identitas contoh (RT 04 / Melati) tidak boleh tampil di sesi nyata.
+    if (peranMasuk && !tenantSesiDimuat) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-surface">
+          <div className="flex items-center gap-3 text-on-surface-variant">
+            <span className="material-symbols-outlined animate-spin text-[22px]">progress_activity</span>
+            <span className="text-sm font-semibold">Memuat data sesi…</span>
+          </div>
+        </div>
+      );
+    }
 
     if (page === "verifikasi-surat") {
       // Halaman publik /q/<token> (§5.7) — tanpa sesi, tanpa layout portal;
@@ -2085,7 +2299,7 @@ export default function App() {
           token={tokenUndangan ?? ""}
           undangan={undanganList}
           onKonfirmasi={konfirmasiUndangan}
-          onMasukPortal={(aktif) => {
+          onMasukPortal={async (aktif) => {
             // Mode produksi: aktivasi API berhasil — server sudah menanam sesi
             // warga. Sinkronkan daftar demo (status baris Data Warga) + audit lokal
             // agar tampilan Portal RT konsisten (audit resmi tercatat di server).
@@ -2114,6 +2328,16 @@ export default function App() {
             const namaDemo = tokenUndangan
               ? undanganList.find((u) => u.token === tokenUndangan)?.nama
               : undefined;
+            if (aktif) {
+              // Batch 18 · sesi daring: baris contoh dibuang + identitas RT
+              // diisi dari `GET /auth/warga/sesi` sebelum portal dirender.
+              bersihkanContohSesi();
+              setTenantSesiDimuat(false);
+              await muatTenantSesi("warga");
+            } else {
+              kembalikanTenantContoh();
+              setTenantSesiDimuat(true);
+            }
             setProfilSesi(
               aktif
                 ? { peran: "warga", nama: aktif.nama }
@@ -2274,6 +2498,7 @@ export default function App() {
         pembayaran={pembayaran}
         surat={suratList}
         tagihanTambahan={tagihanTambahanList}
+        pengurus={pengurus}
       />,
       "data-hunian-rt": <DataHunianRT
         onNavigate={navigate}
@@ -2505,8 +2730,19 @@ export default function App() {
           pesanAwal={pesanSesi}
           onBack={() => setPage("landing")}
           onNavigate={navigate}
-          onLogin={(role, profil) => {
+          onLogin={async (role, profil) => {
             setPesanSesi(null);
+            if (profil?.modeDemo) {
+              // Masuk OFFLINE → mode demo jujur (banner + identitas contoh).
+              kembalikanTenantContoh();
+              setTenantSesiDimuat(true);
+            } else {
+              // Masuk DARING → Baris contoh dibuang dulu, identitas tenant
+              // diisi dari server SEBELUM portal dirender (Batch 18).
+              bersihkanContohSesi();
+              setTenantSesiDimuat(false);
+              await muatTenantSesi(role);
+            }
             setPeranMasuk(role);
             // Profil login = rujukan nama/jabatan di header portal + tanda
             // "MODE DEMO" bila masuk saat server tidak terjangkau (Okt 2026:
@@ -2534,10 +2770,16 @@ export default function App() {
         <AktivasiRtPage
           token={tokenAktivasiRt ?? ""}
           onKembali={() => setPage("landing")}
-          onLogin={(profil) => {
+          onLogin={async (profil) => {
             // Bersihkan path /aktivasi-rt/<token> agar refresh tidak
             // membuka ulang tautan yang sudah terpakai.
             if (typeof window !== "undefined") window.history.pushState({}, "", dasarDeploy());
+            // Batch 18 · tenant BARU: baris contoh dibuang + identitas diisi
+            // dari `GET /rt/profil` milik RT hasil aktivasi sebelum portal
+            // dirender — tampilan harus persis data registrasi.
+            bersihkanContohSesi();
+            setTenantSesiDimuat(false);
+            await muatTenantSesi("rt");
             setPeranMasuk("rt");
             setProfilSesi(profil);
             setPage("dashboard-rt");

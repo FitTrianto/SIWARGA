@@ -9762,3 +9762,182 @@ describe("Batch 15E · bukti bayar lintas portal (multipart · unduh · tolak/ul
     expect(ditolak?.diverifikasiPada, "baris ditolak tidak pernah membawa cap verifikasi").toBeNull();
   });
 });
+
+describe("Batch 18 · multi-tenant tampilan (profil RT · audit log · sesi warga)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRt04 = "";
+  let sidRt05 = "";
+  let sidWarga = "";
+  let sidRtBaru = "";
+
+  const acak = randomUUID().slice(0, 8);
+  const WILAYAH = {
+    namaKetua: `Ketua Uji Batch 18 ${acak}`,
+    kecamatan: `Kecamatan Uji 18 ${acak}`,
+    kelurahan: `Kelurahan Uji 18 ${acak}`,
+    kota: `Kota Uji 18 ${acak}`,
+    rt: "19",
+    rw: "09",
+  };
+  const EMAIL = `rt19.${acak}@siwarga.id`;
+  const SANDI = "KataSandiBatch18!";
+
+  const loginRt = async (email: string, sandi: string): Promise<string> => {
+    const res = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email, password: sandi },
+    });
+    expect(res.statusCode, `login ${email}`).toBe(200);
+    return cookieDari(res, "sid")!;
+  };
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+    sidRt04 = await loginRt("rt04@siwarga.id", "rahasia123");
+    sidRt05 = await loginRt("rt05@siwarga.id", "rahasia123");
+    const warga = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(warga.statusCode, "login warga Bambang").toBe(200);
+    sidWarga = cookieDari(warga, "sid")!;
+  }, 60_000);
+
+  afterAll(async () => {
+    await tutupAplikasiUji();
+  });
+
+  it("GET /rt/profil: identitas RT login dari DB (kode wilayah, pengurus, langganan) — bukan konstanta FE", async () => {
+    const res = await app.inject({ method: "GET", url: `${api}/rt/profil`, cookies: { sid: sidRt04 } });
+    expect(res.statusCode).toBe(200);
+    const rt = isi(res).data.rt as {
+      kodeRt: string; kodeRw: string; kelurahan: string; kecamatan: string;
+      kota: string | null; ketuaRw: string | null;
+      pengurus: Array<{ nama: string; jabatan: string }>;
+      langganan: { paket: string; status: string } | null;
+    };
+    expect(rt.kodeRt, "kode RT seed 004 (bukan label FE \"04\")").toBe("004");
+    expect(rt.kodeRw).toBe("012");
+    expect(rt.kelurahan).toMatch(/Rawa Buaya/i);
+    expect(rt.kecamatan).toMatch(/Cengkareng/i);
+    expect(rt.kota, "RT seed tanpa pendaftaran mandiri → kota null, bukan karangan").toBeNull();
+    expect(rt.ketuaRw).toBeTruthy();
+    expect(rt.pengurus.some((p) => p.jabatan === "ketua" && /Joko Santoso/.test(p.nama))).toBe(true);
+    expect(rt.langganan?.paket, "langganan seed = paket pro").toBe("pro");
+  });
+
+  it("GET /rt/profil ditolak tanpa sesi pengurus RT (guard peran)", async () => {
+    const tanpaSesi = await app.inject({ method: "GET", url: `${api}/rt/profil` });
+    const sesiWarga = await app.inject({
+      method: "GET", url: `${api}/rt/profil`, cookies: { sid: sidWarga },
+    });
+    expect(tanpaSesi.statusCode).toBe(401);
+    expect(sesiWarga.statusCode, "sesi warga bukan pengurus RT").toBe(401);
+  });
+
+  it("tenant hasil aktivasi: identitas = data registrasi, seluruh halaman KOSONG, audit = 1 baris aktivasi", async () => {
+    // Pendaftaran + aktivasi (alur Batch 17) dengan wilayah unik milik uji ini.
+    const daftar = await app.inject({
+      method: "POST", url: `${api}/publik/pendaftaran`,
+      payload: {
+        namaKetua: WILAYAH.namaKetua, whatsapp: "081299000118",
+        rt: WILAYAH.rt, rw: WILAYAH.rw,
+        kecamatan: WILAYAH.kecamatan, kelurahan: WILAYAH.kelurahan, kota: WILAYAH.kota,
+        paket: "free", setuju: true,
+      },
+    });
+    expect(daftar.statusCode).toBe(200);
+    const token = isi(daftar).data.token as string;
+
+    const aktif = await app.inject({
+      method: "POST", url: `${api}/publik/aktivasi`,
+      payload: { token, email: EMAIL, password: SANDI, konfirmasiPassword: SANDI },
+    });
+    expect(aktif.statusCode, "aktivasi sah").toBe(200);
+    sidRtBaru = cookieDari(aktif, "sid")!;
+
+    // Identitas tampilan = persis input registrasi (multi-tenant provisioning).
+    const profil = await app.inject({ method: "GET", url: `${api}/rt/profil`, cookies: { sid: sidRtBaru } });
+    expect(profil.statusCode).toBe(200);
+    const rt = isi(profil).data.rt as {
+      kodeRt: string; kodeRw: string; kelurahan: string; kecamatan: string;
+      kota: string | null; perumahan: string | null;
+      pengurus: Array<{ nama: string; jabatan: string }>;
+      langganan: { paket: string } | null;
+    };
+    expect(rt.kodeRt).toBe(WILAYAH.rt);
+    expect(rt.kodeRw).toBe(WILAYAH.rw);
+    expect(rt.kelurahan).toBe(WILAYAH.kelurahan);
+    expect(rt.kecamatan).toBe(WILAYAH.kecamatan);
+    expect(rt.kota, "kota ikut baris pendaftaran mandiri").toBe(WILAYAH.kota);
+    expect(rt.perumahan, "tanpa perumahan tercatat → null (FE mengisi label faktis)").toBeNull();
+    expect(rt.pengurus.length, "tepat ketua dari formulir").toBe(1);
+    expect(rt.pengurus[0]!.nama).toBe(WILAYAH.namaKetua);
+    expect(rt.pengurus[0]!.jabatan).toBe("ketua");
+    expect(rt.langganan?.paket).toBe("free");
+
+    // Seluruh modul KOSONG untuk tenant baru (tanpa baris contoh milik RT lain).
+    const kategori = await app.inject({ method: "GET", url: `${api}/rt/iuran/kategori`, cookies: { sid: sidRtBaru } });
+    expect((isi(kategori).data.kategori as unknown[]).length, "kategori iuran kosong").toBe(0);
+    const kas = await app.inject({ method: "GET", url: `${api}/rt/kas`, cookies: { sid: sidRtBaru } });
+    expect((isi(kas).data.entri as unknown[]).length, "buku kas kosong").toBe(0);
+    const wargaRt = await app.inject({ method: "GET", url: `${api}/rt/warga`, cookies: { sid: sidRtBaru } });
+    expect((isi(wargaRt).data.warga as unknown[]).length, "daftar warga kosong").toBe(0);
+    expect((isi(wargaRt).data.keluarga as unknown[]).length, "daftar KK kosong").toBe(0);
+
+    // Audit = TEPAT satu baris aktivasi miliknya sendiri.
+    const audit = await app.inject({ method: "GET", url: `${api}/rt/audit-log`, cookies: { sid: sidRtBaru } });
+    expect(audit.statusCode).toBe(200);
+    const baris = isi(audit).data.baris as Array<{ aksi: string; aktor: { peran: string } }>;
+    expect(baris.length, "hanya aktivasi miliknya sendiri").toBe(1);
+    expect(baris[0]!.aksi).toBe("aktivasi_pendaftaran");
+    expect(baris[0]!.aktor.peran).toBe("rt_admin");
+  });
+
+  it("GET /rt/audit-log: terbatas scope RT peminta + parameter `ambil` tervalidasi", async () => {
+    // RT04: ada baris miliknya (login pengurus di beforeAll) tapi TIDAK ada
+    // baris milik RT05 (login rt05 tercatat di scope RT05).
+    const res04 = await app.inject({ method: "GET", url: `${api}/rt/audit-log`, cookies: { sid: sidRt04 } });
+    expect(res04.statusCode).toBe(200);
+    const baris04 = isi(res04).data.baris as Array<{ ringkasan: string | null; aktor: { peran: string } }>;
+    expect(baris04.length, "RT04 punya riwayat login sendiri").toBeGreaterThan(0);
+    expect(
+      baris04.some((b) => (b.ringkasan ?? "").includes("rt05@siwarga.id")),
+      "baris milik RT05 tidak pernah bocor ke RT04",
+    ).toBe(false);
+
+    const res05 = await app.inject({ method: "GET", url: `${api}/rt/audit-log`, cookies: { sid: sidRt05 } });
+    const baris05 = isi(res05).data.baris as Array<{ ringkasan: string | null }>;
+    expect(
+      baris05.some((b) => (b.ringkasan ?? "").includes("rt05@siwarga.id")),
+      "RT05 melihat aktivitas miliknya sendiri",
+    ).toBe(true);
+
+    const satu = await app.inject({ method: "GET", url: `${api}/rt/audit-log?ambil=1`, cookies: { sid: sidRt04 } });
+    expect((isi(satu).data.baris as unknown[]).length, "ambil=1 → 1 baris").toBe(1);
+    const nol = await app.inject({ method: "GET", url: `${api}/rt/audit-log?ambil=0`, cookies: { sid: sidRt04 } });
+    expect(nol.statusCode, "ambil=0 ditolak").toBe(400);
+    const kelewat = await app.inject({ method: "GET", url: `${api}/rt/audit-log?ambil=999`, cookies: { sid: sidRt04 } });
+    expect(kelewat.statusCode, "ambil>200 ditolak").toBe(400);
+    const warga = await app.inject({ method: "GET", url: `${api}/rt/audit-log`, cookies: { sid: sidWarga } });
+    expect(warga.statusCode, "sesi warga bukan pengurus RT").toBe(401);
+  });
+
+  it("GET /auth/warga/sesi membawa identitas RT milik warga login", async () => {
+    const res = await app.inject({ method: "GET", url: `${api}/auth/warga/sesi`, cookies: { sid: sidWarga } });
+    expect(res.statusCode).toBe(200);
+    const rt = isi(res).data.rt as {
+      kodeRt: string; kodeRw: string; kelurahan: string; kota: string | null;
+      namaKetuaRt: string | null;
+    };
+    expect(rt.kodeRt, "warga Bambang = RT04").toBe("004");
+    expect(rt.kodeRw).toBe("012");
+    expect(rt.kelurahan).toMatch(/Rawa Buaya/i);
+    expect(rt.kota, "RT seed tanpa pendaftaran → kota null").toBeNull();
+    expect(rt.namaKetuaRt, "ketua RT penandatangan blok TTD surat warga").toBe("Joko Santoso");
+  });
+});

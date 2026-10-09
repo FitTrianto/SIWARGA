@@ -204,8 +204,23 @@ export function logoutPengurus(): Promise<unknown> {
   return minta("/auth/pengurus/logout", { method: "POST", csrf: true }).catch(() => undefined);
 }
 
-/** GET /auth/warga/sesi — cek sesi masih berlaku. */
-export function sesiWarga(): Promise<{ nama: string; sisaDetik: number }> {
+/** Identitas RT pemilik data warga — `GET /auth/warga/sesi` (Batch 18). */
+export interface SesiWarga {
+  nama: string;
+  sisaDetik: number;
+  rt: {
+    kodeRt: string;
+    kodeRw: string;
+    kelurahan: string;
+    kecamatan: string;
+    kota: string | null;
+    /** Penandatangan blok TTD surat — null bila ketua belum tercatat. */
+    namaKetuaRt: string | null;
+  } | null;
+}
+
+/** GET /auth/warga/sesi — cek sesi masih berlaku + identitas RT (Batch 18). */
+export function sesiWarga(): Promise<SesiWarga> {
   return minta("/auth/warga/sesi");
 }
 
@@ -757,6 +772,53 @@ export interface TambahKategoriRtPayload {
   nominal: number;
   tipe: TipeTarif;
   sifat: SifatIuran;
+}
+
+// ---------------------------------------------------------------------------
+// Batch 18 · multi-tenant tampilan — identitas tenant + audit log dari server
+// ---------------------------------------------------------------------------
+
+/** `GET /rt/profil` — identitas RT login dari DB (bukan konstanta FE). */
+export interface ProfilRtServer {
+  kodeRt: string;
+  kodeRw: string;
+  perumahan: string | null;
+  alamat: string | null;
+  kelurahan: string;
+  kecamatan: string;
+  /** Hanya tercatat pada pendaftaran mandiri (Batch 17) — null untuk RT seed. */
+  kota: string | null;
+  ketuaRw: string | null;
+  pengurus: Array<{ id: string; nama: string; jabatan: string; email: string }>;
+  langganan: {
+    paket: string;
+    status: string;
+    mulai: string;
+    aktifSampai: string | null;
+  } | null;
+}
+
+/** GET `/rt/profil` — dasbor/header/kop selalu memakai identitas sesi ini. */
+export function profilRt(): Promise<{ rt: ProfilRtServer }> {
+  return minta("/rt/profil");
+}
+
+/** Satu baris `GET /rt/audit-log` — aktivitas milik RT login (RLS scope RT). */
+export interface BarisAuditServer {
+  id: string;
+  waktu: string;
+  aktor: { peran: string; nama: string | null; email: string | null };
+  portal: string;
+  modul: string;
+  aksi: string;
+  aksiBadge: string | null;
+  ringkasan: string | null;
+  ip: string | null;
+}
+
+/** GET `/rt/audit-log?ambil=` — maks. 200 baris terbaru (default 100). */
+export function auditLogRt(ambil = 100): Promise<{ baris: BarisAuditServer[] }> {
+  return minta(`/rt/audit-log?ambil=${ambil}`);
 }
 
 /** POST `/rt/iuran/kategori` — tambah master kategori (wajib CSRF, nama unik per RT). */

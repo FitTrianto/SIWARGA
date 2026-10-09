@@ -28,6 +28,7 @@ import { ruteIuranWarga } from "./routes/iuranWarga.js";
 import { ruteImporWarga } from "./routes/rtImporWarga.js";
 import { ruteKasRt } from "./routes/kasRt.js";
 import { rutePublikPendaftaran } from "./routes/publikPendaftaran.js";
+import { ruteProfilTenant } from "./routes/rtProfil.js";
 import { ruteRtAjuanPerubahan } from "./routes/rtAjuanPerubahan.js";
 import { ruteRtDataWarga } from "./routes/rtDataWarga.js";
 import { ruteRtHunian } from "./routes/rtHunian.js";
@@ -114,6 +115,10 @@ export async function buatAplikasi(): Promise<FastifyInstance> {
   // B12 · persuratan resmi & verifikasi publik (§6.6): kop pengaturan RT,
   // antrian/penerbitan surat, ajukan surat warga, dan cek QR `/q/:token`
   await app.register(ruteRtSurat, { prefix: PREFIX_API });
+
+  // Batch 18 · multi-tenant tampilan: identitas RT login dari DB (`/rt/profil`)
+  // + Audit Log scope RT (`/rt/audit-log`) — menggantikan konstanta FE hardcode
+  await app.register(ruteProfilTenant, { prefix: PREFIX_API });
 
   // A10 · §9.1(6) Migrasi Data: impor CSV/XLSX warga → `impor_data` (§5.4)
   await app.register(ruteImporWarga, { prefix: PREFIX_API });
