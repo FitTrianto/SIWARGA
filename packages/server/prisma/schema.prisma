@@ -65,8 +65,10 @@ enum ModeTagihan {
 
 model Kecamatan {
   id     String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  // Permendagri 137/2017 — 10 digit
-  kode   String  @db.VarChar(10)
+  // Permendagri 137/2017 — 10 digit. NULL = belum terdata: pendaftaran mandiri
+  // (Batch 17) hanya mengumpulkan NAMA kecamatan dari formulir publik dan tidak
+  // tahu kode resminya — diisi ulang lewat impor data wilayah (deviasi §Batch 17).
+  kode   String? @db.VarChar(10)
   nama   String  @db.VarChar(120)
 
   kelurahan Kelurahan[]
@@ -79,7 +81,8 @@ model Kecamatan {
 model Kelurahan {
   id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   kecamatanId    String  @map("kecamatan_id") @db.Uuid
-  kodeKemendagri String  @map("kode_kemendagri") @db.VarChar(10)
+  // NULL = belum terdata (pendaftaran mandiri Batch 17 — lihat catatan `Kecamatan.kode`).
+  kodeKemendagri String? @map("kode_kemendagri") @db.VarChar(10)
   nama           String  @db.VarChar(120)
 
   kecamatan Kecamatan @relation(fields: [kecamatanId], references: [id])
@@ -115,8 +118,8 @@ model Rt {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   rwId         String    @map("rw_id") @db.Uuid
   kodeRt       String    @map("kode_rt") @db.VarChar(3)
-  // 10 digit Kemendagri
-  kodeWilayah  String    @map("kode_wilayah") @db.VarChar(10)
+  // 10 digit Kemendagri — NULL = belum terdata (pendaftaran mandiri Batch 17)
+  kodeWilayah  String?   @map("kode_wilayah") @db.VarChar(10)
   perumahan    String?   @map("perumahan") @db.VarChar(120)
   alamat       String?
   kelurahanId  String    @map("kelurahan_id") @db.Uuid
@@ -151,6 +154,7 @@ model Rt {
   perubahanList    PerubahanDataWarga[]
   tokenUndanganList TokenUndangan[]
   akunPengurus     PenggunaPengurus[]
+  pendaftaran      PendaftaranRt?
 
   @@unique([rwId, kodeRt])
   @@index([kodeWilayah])
@@ -228,6 +232,51 @@ model PengaturanRw {
   rw Rw @relation(fields: [rwId], references: [id], onDelete: Cascade)
 
   @@map("pengaturan_rw")
+}
+
+// =============================================================================
+// §9.5 Onboarding self-service — Batch 17 (Fase 5 sebagian)
+// =============================================================================
+
+enum StatusPendaftaran {
+  menunggu_aktivasi
+  aktif
+  kedaluwarsa
+}
+
+// Formulir pendaftaran mandiri di Landing Page (POST /publik/pendaftaran):
+// baris hidup sebagai ANTREAN AKTIVASI, bukan data wilayah — provisioning
+// tenant (kecamatan→kelurahan→rw→rt + langganan + pengurus + akun pengurus)
+// hanya berjalan saat tautan aktivasi dipakai (POST /publik/aktivasi).
+// Sengaja TIDAK di-RLS: berdiri di kelompok "kunci otorisasi" (migrasi 0002) —
+// diakses lewat token/id baris, bukan pemindaian tenant.
+model PendaftaranRt {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Diisi saat aktivasi berhasil — mengaitkan pendaftaran dengan tenant barunya.
+  rtId           String?           @unique @map("rt_id") @db.Uuid
+  namaKetua      String            @map("nama_ketua") @db.VarChar(120)
+  whatsapp       String            @db.VarChar(20)
+  kodeRt         String            @map("kode_rt") @db.VarChar(3)
+  kodeRw         String            @map("kode_rw") @db.VarChar(3)
+  kecamatan      String            @db.VarChar(120)
+  kelurahan      String            @db.VarChar(120)
+  kota           String            @db.VarChar(80)
+  // `pro_trial` (label formulir) → `pro` (enum); masa uji dicatat di `langganan`.
+  paket          PaketLangganan
+  setujuPdp      Boolean           @default(true) @map("setuju_pdp")
+  status         StatusPendaftaran @default(menunggu_aktivasi)
+  // argon2id dari kode token `<pendaftaran_id>.<kode>` — kode asli tak pernah disimpan
+  kodeHash       String            @map("kode_hash") @db.VarChar(255)
+  kedaluwarsaPada DateTime         @map("kedaluwarsa_pada") @db.Timestamptz(3)
+  dipakaiPada    DateTime?         @map("dipakai_pada") @db.Timestamptz(3)
+  ip             String?           @db.Inet
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rt Rt? @relation(fields: [rtId], references: [id])
+
+  @@index([status, kedaluwarsaPada])
+  @@map("pendaftaran_rt")
 }
 
 // =============================================================================

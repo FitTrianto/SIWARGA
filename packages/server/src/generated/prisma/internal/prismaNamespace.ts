@@ -405,6 +405,7 @@ export const ModelName = {
   PengurusRw: 'PengurusRw',
   PengaturanRt: 'PengaturanRt',
   PengaturanRw: 'PengaturanRw',
+  PendaftaranRt: 'PendaftaranRt',
   Rumah: 'Rumah',
   KartuKeluarga: 'KartuKeluarga',
   Warga: 'Warga',
@@ -449,7 +450,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "kecamatan" | "kelurahan" | "rw" | "rt" | "pengurusRt" | "pengurusRw" | "pengaturanRt" | "pengaturanRw" | "rumah" | "kartuKeluarga" | "warga" | "perubahanDataWarga" | "tokenUndangan" | "kredensialWarga" | "sesiLogin" | "percobaanOtp" | "penggunaPengurus" | "kategoriIuran" | "profilIuranWarga" | "tagihan" | "pembayaran" | "alokasiPembayaran" | "mutasiSaldoWarga" | "keringanan" | "kasEntry" | "approvalKas" | "tutupBukuKas" | "tutupBukuIuran" | "jenisSurat" | "surat" | "permintaanAksesDetail" | "langganan" | "transaksiLangganan" | "kontenLanding" | "auditLog" | "notifikasiJob" | "imporData"
+    modelProps: "kecamatan" | "kelurahan" | "rw" | "rt" | "pengurusRt" | "pengurusRw" | "pengaturanRt" | "pengaturanRw" | "pendaftaranRt" | "rumah" | "kartuKeluarga" | "warga" | "perubahanDataWarga" | "tokenUndangan" | "kredensialWarga" | "sesiLogin" | "percobaanOtp" | "penggunaPengurus" | "kategoriIuran" | "profilIuranWarga" | "tagihan" | "pembayaran" | "alokasiPembayaran" | "mutasiSaldoWarga" | "keringanan" | "kasEntry" | "approvalKas" | "tutupBukuKas" | "tutupBukuIuran" | "jenisSurat" | "surat" | "permintaanAksesDetail" | "langganan" | "transaksiLangganan" | "kontenLanding" | "auditLog" | "notifikasiJob" | "imporData"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1042,6 +1043,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.PengaturanRwCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.PengaturanRwCountAggregateOutputType> | number
+        }
+      }
+    }
+    PendaftaranRt: {
+      payload: Prisma.$PendaftaranRtPayload<ExtArgs>
+      fields: Prisma.PendaftaranRtFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.PendaftaranRtFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.PendaftaranRtFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload>
+        }
+        findFirst: {
+          args: Prisma.PendaftaranRtFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.PendaftaranRtFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload>
+        }
+        findMany: {
+          args: Prisma.PendaftaranRtFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload>[]
+        }
+        create: {
+          args: Prisma.PendaftaranRtCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload>
+        }
+        createMany: {
+          args: Prisma.PendaftaranRtCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.PendaftaranRtCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload>[]
+        }
+        delete: {
+          args: Prisma.PendaftaranRtDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload>
+        }
+        update: {
+          args: Prisma.PendaftaranRtUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload>
+        }
+        deleteMany: {
+          args: Prisma.PendaftaranRtDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.PendaftaranRtUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.PendaftaranRtUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload>[]
+        }
+        upsert: {
+          args: Prisma.PendaftaranRtUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PendaftaranRtPayload>
+        }
+        aggregate: {
+          args: Prisma.PendaftaranRtAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregatePendaftaranRt>
+        }
+        groupBy: {
+          args: Prisma.PendaftaranRtGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PendaftaranRtGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.PendaftaranRtCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PendaftaranRtCountAggregateOutputType> | number
         }
       }
     }
@@ -3339,6 +3414,30 @@ export const PengaturanRwScalarFieldEnum = {
 export type PengaturanRwScalarFieldEnum = (typeof PengaturanRwScalarFieldEnum)[keyof typeof PengaturanRwScalarFieldEnum]
 
 
+export const PendaftaranRtScalarFieldEnum = {
+  id: 'id',
+  rtId: 'rtId',
+  namaKetua: 'namaKetua',
+  whatsapp: 'whatsapp',
+  kodeRt: 'kodeRt',
+  kodeRw: 'kodeRw',
+  kecamatan: 'kecamatan',
+  kelurahan: 'kelurahan',
+  kota: 'kota',
+  paket: 'paket',
+  setujuPdp: 'setujuPdp',
+  status: 'status',
+  kodeHash: 'kodeHash',
+  kedaluwarsaPada: 'kedaluwarsaPada',
+  dipakaiPada: 'dipakaiPada',
+  ip: 'ip',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type PendaftaranRtScalarFieldEnum = (typeof PendaftaranRtScalarFieldEnum)[keyof typeof PendaftaranRtScalarFieldEnum]
+
+
 export const RumahScalarFieldEnum = {
   id: 'id',
   rtId: 'rtId',
@@ -4051,6 +4150,34 @@ export type EnumQueryModeFieldRefInput<$PrismaModel> = FieldRefInputType<$Prisma
 
 
 /**
+ * Reference to a field of type 'PaketLangganan'
+ */
+export type EnumPaketLanggananFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'PaketLangganan'>
+    
+
+
+/**
+ * Reference to a field of type 'PaketLangganan[]'
+ */
+export type ListEnumPaketLanggananFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'PaketLangganan[]'>
+    
+
+
+/**
+ * Reference to a field of type 'StatusPendaftaran'
+ */
+export type EnumStatusPendaftaranFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StatusPendaftaran'>
+    
+
+
+/**
+ * Reference to a field of type 'StatusPendaftaran[]'
+ */
+export type ListEnumStatusPendaftaranFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StatusPendaftaran[]'>
+    
+
+
+/**
  * Reference to a field of type 'StatusHuni'
  */
 export type EnumStatusHuniFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StatusHuni'>
@@ -4513,20 +4640,6 @@ export type ListEnumStatusAksesRwFieldRefInput<$PrismaModel> = FieldRefInputType
 
 
 /**
- * Reference to a field of type 'PaketLangganan'
- */
-export type EnumPaketLanggananFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'PaketLangganan'>
-    
-
-
-/**
- * Reference to a field of type 'PaketLangganan[]'
- */
-export type ListEnumPaketLanggananFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'PaketLangganan[]'>
-    
-
-
-/**
  * Reference to a field of type 'StatusLangganan'
  */
 export type EnumStatusLanggananFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StatusLangganan'>
@@ -4824,6 +4937,7 @@ export type GlobalOmitConfig = {
   pengurusRw?: Prisma.PengurusRwOmit
   pengaturanRt?: Prisma.PengaturanRtOmit
   pengaturanRw?: Prisma.PengaturanRwOmit
+  pendaftaranRt?: Prisma.PendaftaranRtOmit
   rumah?: Prisma.RumahOmit
   kartuKeluarga?: Prisma.KartuKeluargaOmit
   warga?: Prisma.WargaOmit

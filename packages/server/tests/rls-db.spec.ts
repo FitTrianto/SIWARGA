@@ -72,7 +72,7 @@ function siapkanPort(port: number): void {
   URL_TES = `postgresql://${PERAN_TES}:${KATA_SANDI}@127.0.0.1:${PORT}/${DB_NAME}`;
 }
 
-/** 6 tabel kunci otorisasi yang sengaja TIDAK di-RLS (lihat header migrasi 0002). */
+/** 7 tabel kunci otorisasi & antrean aktivasi yang sengaja TIDAK di-RLS (header migrasi 0002 + Batch 17). */
 const TANPA_RLS = [
   "kredensial_warga",
   "sesi_login",
@@ -80,6 +80,9 @@ const TANPA_RLS = [
   "pengguna_pengurus",
   "konten_landing",
   "notifikasi_job",
+  // Batch 17 — antrean aktivasi pendaftaran mandiri: diakses lewat token/id
+  // baris (pola kunci otorisasi), bukan pemindaian tenant.
+  "pendaftaran_rt",
 ].sort();
 
 // "auth" = GUC jalur lookup login (migrasi 0003) — HANYA untuk membaca `warga`
@@ -556,7 +559,7 @@ describe("gagal-aman: tanpa scope = nol baris", () => {
 });
 
 describe("Row Level Security aktif + FORCE", () => {
-  it("31 dari 37 tabel di-RLS; 6 tabel kunci otorisasi sengaja dikecualikan", async () => {
+  it("31 dari 38 tabel di-RLS; 7 tabel kunci otorisasi sengaja dikecualikan", async () => {
     const r = await dalamScopePlat((c) =>
       c.query(
         `SELECT c.relname AS tabel, c.relrowsecurity AS rls, c.relforcerowsecurity AS force
@@ -568,7 +571,7 @@ describe("Row Level Security aktif + FORCE", () => {
       ),
     );
     const baris = r.rows as Array<{ tabel: string; rls: boolean; force: boolean }>;
-    expect(baris).toHaveLength(37);
+    expect(baris).toHaveLength(38);
 
     const berRls = baris.filter((b) => b.rls);
     expect(berRls).toHaveLength(31);
@@ -8665,5 +8668,368 @@ describe("Batch 15C · edit nominal tagihan & alasan tolak wajib (Portal RT)", (
     const akhir = semuaBaris(await muatBaris()).find(({ k }) => k.tagihanId === idTagihan)!;
     expect(akhir.k.nominal).toBe(asli);
     expect(akhir.k.sisa).toBe(asli);
+  });
+});
+// ---------------------------------------------------------------------------
+// Batch 17 · pendaftaran mandiri RT + provisioning tenant (PRD §9.5 Fase 5)
+// Rute PUBLIK /publik/pendaftaran & /publik/aktivasi — tanpa sesi, tanpa CSRF
+// (pola login/aktivasi warga). Cluster embedded selalu segar tiap putaran;
+// sufiks acak tetap dipakai agar run berurutan tidak saling mengganggu.
+// ---------------------------------------------------------------------------
+describe("Batch 17 · pendaftaran mandiri & aktivasi tenant (POST /publik/*)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  const acak = randomUUID().slice(0, 8);
+  const WILAYAH = {
+    kecamatan: `Kecamatan Uji ${acak}`,
+    kelurahan: `Kelurahan Uji ${acak}`,
+    kota: `Kota Uji ${acak}`,
+    rt: "17",
+    rw: "07",
+  };
+  const EMAIL = `rt17.${acak}@siwarga.id`;
+  const EMAIL_DUP = `rt17dup.${acak}@siwarga.id`;
+  const SANDI = "KataSandiBatch17!";
+  let token1 = "";
+  let idP1 = "";
+
+  const formulir = (lebih: Record<string, unknown> = {}) => ({
+    namaKetua: "Ketua Uji Batch 17",
+    whatsapp: "081299000111",
+    rt: WILAYAH.rt,
+    rw: WILAYAH.rw,
+    kecamatan: WILAYAH.kecamatan,
+    kelurahan: WILAYAH.kelurahan,
+    kota: WILAYAH.kota,
+    paket: "pro_trial",
+    setuju: true,
+    ...lebih,
+  });
+
+  const daftar = (payload: Record<string, unknown>) =>
+    app.inject({ method: "POST", url: `${api}/publik/pendaftaran`, payload });
+
+  const aktivasi = (payload: Record<string, unknown>) =>
+    app.inject({ method: "POST", url: `${api}/publik/aktivasi`, payload });
+
+  const barisPendaftaran = async (id: string) => {
+    const r = await denganScope(null, (c) =>
+      c.query(
+        `SELECT id::text, status::text, paket::text, setuju_pdp, kode_hash, kode_rt, kode_rw,
+                kota, rt_id::text, dipakai_pada, kedaluwarsa_pada
+           FROM pendaftaran_rt WHERE id = $1`,
+        [id],
+      ),
+    );
+    return r.rows[0] as
+      | {
+          id: string;
+          status: string;
+          paket: string;
+          setuju_pdp: boolean;
+          kode_hash: string;
+          kode_rt: string;
+          kode_rw: string;
+          kota: string;
+          rt_id: string | null;
+          dipakai_pada: Date | null;
+          kedaluwarsa_pada: Date;
+        }
+      | undefined;
+  };
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+  }, 60_000);
+
+  afterAll(async () => {
+    await tutupAplikasiUji();
+  });
+
+  it("validasi formulir: format salah / tanpa persetujuan ditolak 400, nol baris masuk", async () => {
+    const kasus: Array<[string, Record<string, unknown>]> = [
+      ["whatsapp non-angka", { whatsapp: "0812abcde" }],
+      ["RT bukan angka", { rt: "17a" }],
+      ["RW 4 digit", { rw: "0123" }],
+      ["paket asing", { paket: "platinum" }],
+      ["nama ketua pendek", { namaKetua: "X" }],
+      ["tanpa persetujuan", { setuju: false }],
+      ["kecamatan kosong", { kecamatan: "" }],
+    ];
+    for (const [nama, lebih] of kasus) {
+      const res = await daftar(formulir(lebih));
+      expect(res.statusCode, `harus 400: ${nama}`).toBe(400);
+      expect(isi(res).error?.code, nama).toBe("VALIDATION");
+    }
+    expect(
+      await hitung(null, "SELECT count(*)::int AS n FROM pendaftaran_rt WHERE kecamatan = $1", [
+        WILAYAH.kecamatan,
+      ]),
+      "validasi ditolak = tanpa baris tersimpan",
+    ).toBe(0);
+  });
+
+  it("pendaftaran sah: baris antrean + audit tercatat, TANPA tenant dibuat (provisioning nanti)", async () => {
+    const res = await daftar(formulir());
+    expect(res.statusCode).toBe(200);
+    expect(isi(res).ok).toBe(true);
+    idP1 = isi(res).data.pendaftaranId as string;
+    token1 = isi(res).data.token as string;
+    expect(idP1).toMatch(/^[0-9a-f-]{36}$/);
+    expect(token1).toContain(".");
+    expect(new Date(isi(res).data.kedaluwarsaPada).getTime()).toBeGreaterThan(Date.now());
+
+    const baris = await barisPendaftaran(idP1);
+    expect(baris, "baris pendaftaran wajib tersimpan").toBeTruthy();
+    expect(baris!.status).toBe("menunggu_aktivasi");
+    expect(baris!.paket, "pro_trial disimpan sebagai enum paket 'pro'").toBe("pro");
+    expect(baris!.setuju_pdp).toBe(true);
+    expect(baris!.rt_id, "tenant belum ada sebelum aktivasi").toBeNull();
+    // Kode token hanya hidup sebagai hash argon2id — kode asli tak pernah disimpan.
+    const kodeKasat = token1.slice(token1.lastIndexOf(".") + 1);
+    expect(baris!.kode_hash.startsWith("$argon2")).toBe(true);
+    expect(baris!.kode_hash).not.toContain(kodeKasat);
+
+    // JEJAK AUDIT pendaftaran (scope platform, actor = baris pendaftaran)
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'daftar_rt' AND actor_id = $1 AND portal = 'publik'",
+        [idP1],
+      ),
+    ).toBe(1);
+
+    // Belum ada SATU pun entitas wilayah yang dibuat oleh pendaftaran.
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM kelurahan WHERE nama = $1", [
+        WILAYAH.kelurahan,
+      ]),
+      "provisioning hanya berjalan saat aktivasi",
+    ).toBe(0);
+  });
+
+  it("pendaftaran ulang untuk RT yang sama: antrean lama dibuang, tautan lama hangus 404", async () => {
+    const res = await daftar(formulir());
+    expect(res.statusCode).toBe(200);
+    const tokenBaru = isi(res).data.token as string;
+    const idBaru = isi(res).data.pendaftaranId as string;
+
+    expect(
+      await hitung(
+        null,
+        "SELECT count(*)::int AS n FROM pendaftaran_rt WHERE kecamatan = $1 AND kelurahan = $2 AND kode_rt = $3 AND status = 'menunggu_aktivasi'",
+        [WILAYAH.kecamatan, WILAYAH.kelurahan, WILAYAH.rt],
+      ),
+      "satu RT hanya punya satu antrean hidup",
+    ).toBe(1);
+    expect(await barisPendaftaran(idP1), "baris lama ikut terhapus").toBeUndefined();
+
+    const lama = await aktivasi({ token: token1, email: EMAIL, password: SANDI, konfirmasiPassword: SANDI });
+    expect(lama.statusCode).toBe(404);
+    expect(isi(lama).error?.message).toMatch(/daftarkan RT kembali/);
+
+    token1 = tokenBaru;
+    idP1 = idBaru;
+  });
+
+  it("token salah / format rusak / id asing: 404 dengan pesan seragam (anti-enumerasi)", async () => {
+    const uuidAsing = "00000000-0000-0000-0000-000000000000";
+    const body = (token: string) => ({ token, email: EMAIL, password: SANDI, konfirmasiPassword: SANDI });
+
+    const idAsing = await aktivasi(body(`${uuidAsing}.kodesalah`));
+    const kodeSalah = await aktivasi(body(`${idP1}.kodesalah`));
+    const tanpaTitik = await aktivasi(body(`katakata`));
+    const formatRusak = await aktivasi(body(`bukan-uuid.${"x".repeat(10)}`));
+
+    for (const [nama, res] of [
+      ["id asing", idAsing],
+      ["kode salah", kodeSalah],
+      ["tanpa titik", tanpaTitik],
+      ["format rusak", formatRusak],
+    ] as const) {
+      expect(res.statusCode, nama).toBe(404);
+      expect(isi(res).error?.code, nama).toBe("NOT_FOUND");
+    }
+    expect(isi(idAsing).error?.message, "pesan identik id-asing vs kode-salah").toBe(
+      isi(kodeSalah).error?.message,
+    );
+    expect(
+      await hitung(null, "SELECT count(*)::int AS n FROM pendaftaran_rt WHERE id = $1 AND status = 'menunggu_aktivasi'", [idP1]),
+      "percobaan gagal tidak mengubah status antrean",
+    ).toBe(1);
+  });
+
+  it("tautan kedaluwarsa: 410 + baris ditandai kedaluwarsa", async () => {
+    const res = await daftar(formulir({ rt: "18" }));
+    expect(res.statusCode).toBe(200);
+    const token = isi(res).data.token as string;
+    const id = isi(res).data.pendaftaranId as string;
+
+    await denganScope(PLATFORM, (c) =>
+      c.query("UPDATE pendaftaran_rt SET kedaluwarsa_pada = now() - interval '1 hour' WHERE id = $1", [id]),
+    );
+
+    const aktivasiKadaluarsa = await aktivasi({
+      token,
+      email: `rt18.${acak}@siwarga.id`,
+      password: SANDI,
+      konfirmasiPassword: SANDI,
+    });
+    expect(aktivasiKadaluarsa.statusCode).toBe(410);
+    expect(isi(aktivasiKadaluarsa).error?.code).toBe("TOKEN_EXPIRED");
+    expect((await barisPendaftaran(id))!.status).toBe("kedaluwarsa");
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM rt WHERE kode_rt = '18'"),
+      "kedaluwarsa tidak membuat tenant",
+    ).toBe(0);
+  });
+
+  it("aktivasi sah: provisioning lengkap (wilayah + RT + langganan + pengurus + akun) + sesi + login ulang", async () => {
+    const res = await aktivasi({ token: token1, email: EMAIL, password: SANDI, konfirmasiPassword: SANDI });
+    expect(res.statusCode).toBe(200);
+    expect(isi(res).data.peran).toBe("rt_admin");
+    expect(isi(res).data.email).toBe(EMAIL);
+    const sid = cookieDari(res, "sid");
+    expect(sid, "sesi langsung dipasang seperti login").toBeTruthy();
+    expect(res.cookies.find((c) => c.name === "sid")?.httpOnly).toBe(true);
+
+    // Hierarki + RT: kode wilayah resmi TIDAK diketahui pendaftaran mandiri → NULL
+    const r = await denganScope(PLATFORM, (c) =>
+      c.query(
+        `SELECT rt.id::text AS rt_id, rt.status::text AS status_rt, rt.ketua_rt_id::text,
+                (kec.kode IS NULL) AS kec_kode_null,
+                (kel.kode_kemendagri IS NULL) AS kel_kode_null,
+                (rt.kode_wilayah IS NULL) AS wil_kode_null,
+                (SELECT count(*)::int FROM pengurus_rt p
+                  WHERE p.rt_id = rt.id AND p.jabatan = 'ketua' AND p.email = $2) AS jumlah_ketua,
+                (SELECT count(*)::int FROM pengaturan_rt WHERE rt_id = rt.id) AS jumlah_pengaturan,
+                (SELECT count(*)::int FROM langganan
+                  WHERE rt_id = rt.id AND paket = 'pro' AND status = 'uji_coba'
+                    AND aktif_sampai IS NOT NULL AND metode_bayar = 'belum') AS jumlah_langganan,
+                (SELECT count(*)::int FROM pengguna_pengurus
+                  WHERE rt_id = rt.id AND email = $2 AND peran = 'rt_admin' AND status = 'active') AS jumlah_akun
+           FROM rt
+           JOIN kelurahan kel ON kel.id = rt.kelurahan_id
+           JOIN kecamatan kec ON kec.id = kel.kecamatan_id
+          WHERE rt.kode_rt = $1
+            AND rt.rw_id IN (SELECT id FROM rw WHERE kode_rw = $3 AND kelurahan_id = kel.id)`,
+        [WILAYAH.rt, EMAIL, WILAYAH.rw],
+      ),
+    );
+    const baris = r.rows[0] as Record<string, unknown> | undefined;
+    expect(baris, "RT hasil provisioning wajib ada").toBeTruthy();
+    expect(baris!.status_rt).toBe("uji_coba");
+    expect(baris!.ketua_rt_id, "ketua_rt_id terpasang").toBeTruthy();
+    expect(baris!.kec_kode_null).toBe(true);
+    expect(baris!.kel_kode_null).toBe(true);
+    expect(baris!.wil_kode_null).toBe(true);
+    expect(baris!.jumlah_ketua).toBe(1);
+    expect(baris!.jumlah_pengaturan).toBe(1);
+    expect(baris!.jumlah_langganan).toBe(1);
+    expect(baris!.jumlah_akun).toBe(1);
+    const rtId = baris!.rt_id as string;
+
+    const p = await barisPendaftaran(idP1);
+    expect(p!.status).toBe("aktif");
+    expect(p!.rt_id).toBe(rtId);
+    expect(p!.dipakai_pada).toBeTruthy();
+
+    expect(
+      await hitung(
+        PLATFORM,
+        "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'aktivasi_pendaftaran' AND scope_id = $1 AND actor_id IS NOT NULL",
+        [rtId],
+      ),
+      "audit aktivasi tercatat di scope RT",
+    ).toBe(1);
+
+    // Kredensial benar-benar bisa dipakai: login pengurus biasa → 200.
+    const login = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: EMAIL, password: SANDI },
+    });
+    expect(login.statusCode, "login dengan akun hasil aktivasi").toBe(200);
+    expect(isi(login).data.peran).toBe("rt_admin");
+    const sesi = await app.inject({
+      method: "GET",
+      url: `${api}/auth/pengurus/sesi`,
+      cookies: { sid: cookieDari(login, "sid")! },
+    });
+    expect(sesi.statusCode).toBe(200);
+    expect(isi(sesi).data.peran).toBe("rt_admin");
+  });
+
+  it("tautan dipakai ulang: 409 'sudah diaktivasi' tanpa efek samping", async () => {
+    const res = await aktivasi({ token: token1, email: `rt17lagi.${acak}@siwarga.id`, password: SANDI, konfirmasiPassword: SANDI });
+    expect(res.statusCode).toBe(409);
+    expect(isi(res).error?.code).toBe("CONFLICT");
+    expect(isi(res).error?.message).toMatch(/sudah diaktivasi/);
+    expect(cookieDari(res, "sid"), "tanpa sesi baru").toBeNull();
+  });
+
+  it("RT sudah terdaftar: aktivasi kedua ditolak 409 dan transisi antrean di-ROLLBACK", async () => {
+    const daft = await daftar(formulir());
+    expect(daft.statusCode).toBe(200);
+    const tokenDup = isi(daft).data.token as string;
+    const idDup = isi(daft).data.pendaftaranId as string;
+
+    const res = await aktivasi({
+      token: tokenDup,
+      email: EMAIL_DUP,
+      password: SANDI,
+      konfirmasiPassword: SANDI,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(isi(res).error?.message).toMatch(/RT ini sudah terdaftar/);
+    // Rollback penuh: antrean kembali menunggu (bisa dicoba lagi oleh pendaftar asli)
+    expect((await barisPendaftaran(idDup))!.status).toBe("menunggu_aktivasi");
+    expect(
+      await hitung(null, "SELECT count(*)::int AS n FROM pengguna_pengurus WHERE email = $1", [EMAIL_DUP]),
+      "tak ada akun setelah konflik",
+    ).toBe(0);
+  });
+
+  it("email sudah terdaftar: 409 sebelum penyusunan wilayah", async () => {
+    const daft = await daftar(formulir({ rt: "19" }));
+    expect(daft.statusCode).toBe(200);
+    const res = await aktivasi({
+      token: isi(daft).data.token as string,
+      email: EMAIL, // sudah dipakai pada aktivasi pertama
+      password: SANDI,
+      konfirmasiPassword: SANDI,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(isi(res).error?.message).toMatch(/Email sudah terdaftar/);
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM rt WHERE kode_rt = '19'"),
+      "tidak ada RT baru saat email bentrok",
+    ).toBe(0);
+  });
+
+  it("kata sandi lemah / ulangan tidak sama: 400 tanpa mengubah antrean", async () => {
+    const daft = await daftar(formulir({ rt: "20" }));
+    expect(daft.statusCode).toBe(200);
+    const token = isi(daft).data.token as string;
+    const id = isi(daft).data.pendaftaranId as string;
+    const emailLemah = `rt20.${acak}@siwarga.id`;
+
+    const lemah = await aktivasi({ token, email: emailLemah, password: "pendek", konfirmasiPassword: "pendek" });
+    expect(lemah.statusCode).toBe(400);
+    expect(isi(lemah).error?.message).toMatch(/minimal 8/);
+
+    const beda = await aktivasi({ token, email: emailLemah, password: SANDI, konfirmasiPassword: `${SANDI}x` });
+    expect(beda.statusCode).toBe(400);
+    expect(isi(beda).error?.message).toMatch(/tidak sama/);
+
+    expect((await barisPendaftaran(id))!.status, "antrean tetap menunggu").toBe("menunggu_aktivasi");
+    expect(
+      await hitung(null, "SELECT count(*)::int AS n FROM pengguna_pengurus WHERE email = $1", [emailLemah]),
+    ).toBe(0);
+    expect(
+      await hitung(PLATFORM, "SELECT count(*)::int AS n FROM rt WHERE kode_rt = '20'"),
+      "gagal validasi tidak membuat tenant",
+    ).toBe(0);
   });
 });

@@ -998,10 +998,6 @@ export type NullableBytesFieldUpdateOperationsInput = {
   set?: runtime.Bytes | null
 }
 
-export type NullableDateTimeFieldUpdateOperationsInput = {
-  set?: Date | string | null
-}
-
 export type NullableEnumJenisKelaminFieldUpdateOperationsInput = {
   set?: $Enums.JenisKelamin | null
 }

@@ -137,6 +137,7 @@ import { AuditAdmin } from "./pages/Admin/AuditAdmin";
 import { SistemAdmin } from "./pages/Admin/SistemAdmin";
 import { UndanganPage } from "./pages/Undangan/UndanganPage";
 import { VerifikasiSuratPage } from "./pages/VerifikasiSuratPage";
+import { AktivasiRtPage } from "./pages/AktivasiRtPage";
 import { tenant } from "./lib/tenant";
 import {
   Tenant, tenantDefault,
@@ -172,7 +173,7 @@ import {
 } from "./lib/shared";
 import {
   Undangan, undanganDefault,
-  buatToken, tokenDariPath, empatDigitAkhir, tanggalPendek,
+  buatToken, tokenDariPath, tokenAktivasiRtDariPath, empatDigitAkhir, tanggalPendek,
 } from "./lib/undangan";
 
 type Page =
@@ -185,7 +186,8 @@ type Page =
   | "dashboard-admin" | "langganan-admin" | "tenant-admin"
   | "konten-admin" | "audit-admin" | "sistem-admin"
   | "syarat-ketentuan" | "kebijakan-privasi"
-  | "undangan-publik" | "verifikasi-surat";
+  | "undangan-publik" | "verifikasi-surat"
+  | "aktivasi-rt";
 
 // Gerbang peran (§5.0): setiap halaman portal punya pemilik peran — halaman
 // hanya terbuka bila `peranMasuk` cocok. Tanpa ini, sesi warga/RW/admin bisa
@@ -335,8 +337,13 @@ export default function App() {
   // Halaman publik verifikasi surat (/q/<token>) — dibuka lewat pemindaian QR
   // pada surat terbit, tanpa sesi & tanpa layout portal (§5.7).
   const [tokenQrSurat] = useState<string | null>(() => tokenQrDariPath());
+  // Halaman publik aktivasi pendaftaran mandiri (/aktivasi-rt/<token>) —
+  // dibuka dari tautan yang diterima setelah formulir Landing Page terkirim.
+  const [tokenAktivasiRt] = useState<string | null>(() => tokenAktivasiRtDariPath());
   const [page, setPage] = useState<Page>(() =>
-    tokenDariPath()
+    tokenAktivasiRtDariPath()
+      ? "aktivasi-rt"
+      : tokenDariPath()
       ? "undangan-publik"
       : tokenQrDariPath()
       ? "verifikasi-surat"
@@ -2485,6 +2492,25 @@ export default function App() {
     }
     if (page === "kebijakan-privasi") {
       return <KebijakanPrivasiPage onBack={() => setPage(halamanSebelumnya)} onNavigate={navigate} />;
+    }
+
+    if (page === "aktivasi-rt") {
+      // Halaman publik aktivasi pendaftaran mandiri — sukses = sesi RT sudah
+      // terpasang server; portlet langsung menyetel peran & masuk portal.
+      return (
+        <AktivasiRtPage
+          token={tokenAktivasiRt ?? ""}
+          onKembali={() => setPage("landing")}
+          onLogin={(profil) => {
+            // Bersihkan path /aktivasi-rt/<token> agar refresh tidak
+            // membuka ulang tautan yang sudah terpakai.
+            if (typeof window !== "undefined") window.history.pushState({}, "", dasarDeploy());
+            setPeranMasuk("rt");
+            setProfilSesi(profil);
+            setPage("dashboard-rt");
+          }}
+        />
+      );
     }
 
     return <LandingPage onNavigate={navigate} konten={kontenLanding} />;

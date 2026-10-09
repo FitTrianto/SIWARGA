@@ -144,7 +144,7 @@ export type KelurahanGroupByArgs<ExtArgs extends runtime.Types.Extensions.Intern
 export type KelurahanGroupByOutputType = {
   id: string
   kecamatanId: string
-  kodeKemendagri: string
+  kodeKemendagri: string | null
   nama: string
   _count: KelurahanCountAggregateOutputType | null
   _min: KelurahanMinAggregateOutputType | null
@@ -172,7 +172,7 @@ export type KelurahanWhereInput = {
   NOT?: Prisma.KelurahanWhereInput | Prisma.KelurahanWhereInput[]
   id?: Prisma.UuidFilter<"Kelurahan"> | string
   kecamatanId?: Prisma.UuidFilter<"Kelurahan"> | string
-  kodeKemendagri?: Prisma.StringFilter<"Kelurahan"> | string
+  kodeKemendagri?: Prisma.StringNullableFilter<"Kelurahan"> | string | null
   nama?: Prisma.StringFilter<"Kelurahan"> | string
   kecamatan?: Prisma.XOR<Prisma.KecamatanScalarRelationFilter, Prisma.KecamatanWhereInput>
   rws?: Prisma.RwListRelationFilter
@@ -182,7 +182,7 @@ export type KelurahanWhereInput = {
 export type KelurahanOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   kecamatanId?: Prisma.SortOrder
-  kodeKemendagri?: Prisma.SortOrder
+  kodeKemendagri?: Prisma.SortOrderInput | Prisma.SortOrder
   nama?: Prisma.SortOrder
   kecamatan?: Prisma.KecamatanOrderByWithRelationInput
   rws?: Prisma.RwOrderByRelationAggregateInput
@@ -196,7 +196,7 @@ export type KelurahanWhereUniqueInput = Prisma.AtLeast<{
   OR?: Prisma.KelurahanWhereInput[]
   NOT?: Prisma.KelurahanWhereInput | Prisma.KelurahanWhereInput[]
   kecamatanId?: Prisma.UuidFilter<"Kelurahan"> | string
-  kodeKemendagri?: Prisma.StringFilter<"Kelurahan"> | string
+  kodeKemendagri?: Prisma.StringNullableFilter<"Kelurahan"> | string | null
   nama?: Prisma.StringFilter<"Kelurahan"> | string
   kecamatan?: Prisma.XOR<Prisma.KecamatanScalarRelationFilter, Prisma.KecamatanWhereInput>
   rws?: Prisma.RwListRelationFilter
@@ -206,7 +206,7 @@ export type KelurahanWhereUniqueInput = Prisma.AtLeast<{
 export type KelurahanOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   kecamatanId?: Prisma.SortOrder
-  kodeKemendagri?: Prisma.SortOrder
+  kodeKemendagri?: Prisma.SortOrderInput | Prisma.SortOrder
   nama?: Prisma.SortOrder
   _count?: Prisma.KelurahanCountOrderByAggregateInput
   _max?: Prisma.KelurahanMaxOrderByAggregateInput
@@ -219,13 +219,13 @@ export type KelurahanScalarWhereWithAggregatesInput = {
   NOT?: Prisma.KelurahanScalarWhereWithAggregatesInput | Prisma.KelurahanScalarWhereWithAggregatesInput[]
   id?: Prisma.UuidWithAggregatesFilter<"Kelurahan"> | string
   kecamatanId?: Prisma.UuidWithAggregatesFilter<"Kelurahan"> | string
-  kodeKemendagri?: Prisma.StringWithAggregatesFilter<"Kelurahan"> | string
+  kodeKemendagri?: Prisma.StringNullableWithAggregatesFilter<"Kelurahan"> | string | null
   nama?: Prisma.StringWithAggregatesFilter<"Kelurahan"> | string
 }
 
 export type KelurahanCreateInput = {
   id?: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
   kecamatan: Prisma.KecamatanCreateNestedOneWithoutKelurahanInput
   rws?: Prisma.RwCreateNestedManyWithoutKelurahanInput
@@ -235,7 +235,7 @@ export type KelurahanCreateInput = {
 export type KelurahanUncheckedCreateInput = {
   id?: string
   kecamatanId: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
   rws?: Prisma.RwUncheckedCreateNestedManyWithoutKelurahanInput
   rts?: Prisma.RtUncheckedCreateNestedManyWithoutKelurahanInput
@@ -243,7 +243,7 @@ export type KelurahanUncheckedCreateInput = {
 
 export type KelurahanUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
   kecamatan?: Prisma.KecamatanUpdateOneRequiredWithoutKelurahanNestedInput
   rws?: Prisma.RwUpdateManyWithoutKelurahanNestedInput
@@ -253,7 +253,7 @@ export type KelurahanUpdateInput = {
 export type KelurahanUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kecamatanId?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
   rws?: Prisma.RwUncheckedUpdateManyWithoutKelurahanNestedInput
   rts?: Prisma.RtUncheckedUpdateManyWithoutKelurahanNestedInput
@@ -262,20 +262,20 @@ export type KelurahanUncheckedUpdateInput = {
 export type KelurahanCreateManyInput = {
   id?: string
   kecamatanId: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
 }
 
 export type KelurahanUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
 export type KelurahanUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kecamatanId?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
@@ -392,7 +392,7 @@ export type KelurahanUpdateOneRequiredWithoutRtsNestedInput = {
 
 export type KelurahanCreateWithoutKecamatanInput = {
   id?: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
   rws?: Prisma.RwCreateNestedManyWithoutKelurahanInput
   rts?: Prisma.RtCreateNestedManyWithoutKelurahanInput
@@ -400,7 +400,7 @@ export type KelurahanCreateWithoutKecamatanInput = {
 
 export type KelurahanUncheckedCreateWithoutKecamatanInput = {
   id?: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
   rws?: Prisma.RwUncheckedCreateNestedManyWithoutKelurahanInput
   rts?: Prisma.RtUncheckedCreateNestedManyWithoutKelurahanInput
@@ -438,13 +438,13 @@ export type KelurahanScalarWhereInput = {
   NOT?: Prisma.KelurahanScalarWhereInput | Prisma.KelurahanScalarWhereInput[]
   id?: Prisma.UuidFilter<"Kelurahan"> | string
   kecamatanId?: Prisma.UuidFilter<"Kelurahan"> | string
-  kodeKemendagri?: Prisma.StringFilter<"Kelurahan"> | string
+  kodeKemendagri?: Prisma.StringNullableFilter<"Kelurahan"> | string | null
   nama?: Prisma.StringFilter<"Kelurahan"> | string
 }
 
 export type KelurahanCreateWithoutRwsInput = {
   id?: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
   kecamatan: Prisma.KecamatanCreateNestedOneWithoutKelurahanInput
   rts?: Prisma.RtCreateNestedManyWithoutKelurahanInput
@@ -453,7 +453,7 @@ export type KelurahanCreateWithoutRwsInput = {
 export type KelurahanUncheckedCreateWithoutRwsInput = {
   id?: string
   kecamatanId: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
   rts?: Prisma.RtUncheckedCreateNestedManyWithoutKelurahanInput
 }
@@ -476,7 +476,7 @@ export type KelurahanUpdateToOneWithWhereWithoutRwsInput = {
 
 export type KelurahanUpdateWithoutRwsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
   kecamatan?: Prisma.KecamatanUpdateOneRequiredWithoutKelurahanNestedInput
   rts?: Prisma.RtUpdateManyWithoutKelurahanNestedInput
@@ -485,14 +485,14 @@ export type KelurahanUpdateWithoutRwsInput = {
 export type KelurahanUncheckedUpdateWithoutRwsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kecamatanId?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
   rts?: Prisma.RtUncheckedUpdateManyWithoutKelurahanNestedInput
 }
 
 export type KelurahanCreateWithoutRtsInput = {
   id?: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
   kecamatan: Prisma.KecamatanCreateNestedOneWithoutKelurahanInput
   rws?: Prisma.RwCreateNestedManyWithoutKelurahanInput
@@ -501,7 +501,7 @@ export type KelurahanCreateWithoutRtsInput = {
 export type KelurahanUncheckedCreateWithoutRtsInput = {
   id?: string
   kecamatanId: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
   rws?: Prisma.RwUncheckedCreateNestedManyWithoutKelurahanInput
 }
@@ -524,7 +524,7 @@ export type KelurahanUpdateToOneWithWhereWithoutRtsInput = {
 
 export type KelurahanUpdateWithoutRtsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
   kecamatan?: Prisma.KecamatanUpdateOneRequiredWithoutKelurahanNestedInput
   rws?: Prisma.RwUpdateManyWithoutKelurahanNestedInput
@@ -533,20 +533,20 @@ export type KelurahanUpdateWithoutRtsInput = {
 export type KelurahanUncheckedUpdateWithoutRtsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kecamatanId?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
   rws?: Prisma.RwUncheckedUpdateManyWithoutKelurahanNestedInput
 }
 
 export type KelurahanCreateManyKecamatanInput = {
   id?: string
-  kodeKemendagri: string
+  kodeKemendagri?: string | null
   nama: string
 }
 
 export type KelurahanUpdateWithoutKecamatanInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
   rws?: Prisma.RwUpdateManyWithoutKelurahanNestedInput
   rts?: Prisma.RtUpdateManyWithoutKelurahanNestedInput
@@ -554,7 +554,7 @@ export type KelurahanUpdateWithoutKecamatanInput = {
 
 export type KelurahanUncheckedUpdateWithoutKecamatanInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
   rws?: Prisma.RwUncheckedUpdateManyWithoutKelurahanNestedInput
   rts?: Prisma.RtUncheckedUpdateManyWithoutKelurahanNestedInput
@@ -562,7 +562,7 @@ export type KelurahanUncheckedUpdateWithoutKecamatanInput = {
 
 export type KelurahanUncheckedUpdateManyWithoutKecamatanInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeKemendagri?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeKemendagri?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   nama?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
@@ -664,7 +664,7 @@ export type $KelurahanPayload<ExtArgs extends runtime.Types.Extensions.InternalA
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     kecamatanId: string
-    kodeKemendagri: string
+    kodeKemendagri: string | null
     nama: string
   }, ExtArgs["result"]["kelurahan"]>
   composites: {}

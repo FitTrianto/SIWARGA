@@ -476,10 +476,6 @@ export type RwUncheckedUpdateManyWithoutKelurahanNestedInput = {
   deleteMany?: Prisma.RwScalarWhereInput | Prisma.RwScalarWhereInput[]
 }
 
-export type NullableStringFieldUpdateOperationsInput = {
-  set?: string | null
-}
-
 export type DateTimeFieldUpdateOperationsInput = {
   set?: Date | string
 }

@@ -112,6 +112,23 @@ export function tokenDariPath(): string | null {
   return m ? m[1] : null;
 }
 
+/** URL absolut halaman aktivasi pendaftaran mandiri RT (Batch 17). */
+export function linkAktivasiRt(token: string): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}${dasarDeploy()}aktivasi-rt/${token}`;
+}
+
+/**
+ * Ambil token aktivasi pendaftaran RT dari path URL saat tautan dibuka
+ * (deep-link `/aktivasi-rt/<uuid>.<kode>` — pola sama `/undangan/<token>`).
+ * Bukan tautan aktivasi → null.
+ */
+export function tokenAktivasiRtDariPath(): string | null {
+  if (typeof window === "undefined") return null;
+  const m = pathTanpaDasar().match(/^\/aktivasi-rt\/([A-Za-z0-9._-]+)/);
+  return m ? m[1] : null;
+}
+
 /**
  * Format tanggal pendek gaya Indonesia dari ISO 8601 (atau string apa pun
  * yang bisa dibaca `Date`): "2026-09-29T07:00:00.000Z" → "29 Sep 2026".

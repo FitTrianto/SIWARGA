@@ -27,6 +27,7 @@ import { ruteIuranRt } from "./routes/iuranRt.js";
 import { ruteIuranWarga } from "./routes/iuranWarga.js";
 import { ruteImporWarga } from "./routes/rtImporWarga.js";
 import { ruteKasRt } from "./routes/kasRt.js";
+import { rutePublikPendaftaran } from "./routes/publikPendaftaran.js";
 import { ruteRtAjuanPerubahan } from "./routes/rtAjuanPerubahan.js";
 import { ruteRtDataWarga } from "./routes/rtDataWarga.js";
 import { ruteRtHunian } from "./routes/rtHunian.js";
@@ -87,6 +88,8 @@ export async function buatAplikasi(): Promise<FastifyInstance> {
   await app.register(ruteAuthPengurus, { prefix: PREFIX_API });
   // F-2: aktivasi undangan (rute PUBLIK /auth/warga/undangan/* + terbit RT, §5.1/§5.2)
   await app.register(ruteAktivasiWarga, { prefix: PREFIX_API });
+  // §9.5: pendaftaran mandiri Landing Page (rute PUBLIK /publik/* — Batch 17)
+  await app.register(rutePublikPendaftaran, { prefix: PREFIX_API });
   // F-3: modul iuran (tagihan/riwayat/bukti warga + verifikasi RT → kas, §5.3/§5.4)
   await app.register(ruteIuranWarga, { prefix: PREFIX_API });
   await app.register(ruteIuranRt, { prefix: PREFIX_API });

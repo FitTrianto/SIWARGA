@@ -53,6 +53,15 @@ export const ModeTagihan = {
 export type ModeTagihan = (typeof ModeTagihan)[keyof typeof ModeTagihan]
 
 
+export const StatusPendaftaran = {
+  menunggu_aktivasi: 'menunggu_aktivasi',
+  aktif: 'aktif',
+  kedaluwarsa: 'kedaluwarsa'
+} as const
+
+export type StatusPendaftaran = (typeof StatusPendaftaran)[keyof typeof StatusPendaftaran]
+
+
 export const StatusHuni = {
   milik: 'milik',
   sewa: 'sewa',

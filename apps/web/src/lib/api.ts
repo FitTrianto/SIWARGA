@@ -233,6 +233,63 @@ export function riwayatLoginWarga(): Promise<{ daftar: EntriRiwayatLogin[] }> {
 }
 
 // ---------------------------------------------------------------------------
+// Pendaftaran mandiri RT — Batch 17 (PRD §9.5, rute PUBLIK /publik/*)
+// ---------------------------------------------------------------------------
+
+/** Input formulir "Daftarkan RT" di Landing Page (kolom wilayah per level). */
+export interface InputPendaftaranRt {
+  namaKetua: string;
+  whatsapp: string;
+  rt: string;
+  rw: string;
+  kecamatan: string;
+  kelurahan: string;
+  kota: string;
+  paket: "pro_trial" | "free";
+  setuju: boolean;
+}
+
+/** Balasan `POST /publik/pendaftaran` — token hanya dikembalikan SEKALI di sini. */
+export interface HasilPendaftaranRt {
+  pendaftaranId: string;
+  token: string;
+  /** ISO 8601 — tautan aktivasi berlaku 24 jam, sekali pakai. */
+  kedaluwarsaPada: string;
+}
+
+/**
+ * POST /publik/pendaftaran — kirim formulir pendaftaran; server MENYIMPANNYA
+ * sebagai antrean aktivasi dan menerbitkan token. Galat: `VALIDATION` (400),
+ * `RATE_LIMITED` (429); `OFFLINE` (0) bila server tak terjangkau — tanda
+ * data TIDAK tersimpan.
+ */
+export function daftarRt(input: InputPendaftaranRt): Promise<HasilPendaftaranRt> {
+  return minta<HasilPendaftaranRt>("/publik/pendaftaran", { method: "POST", body: input });
+}
+
+/** Balasan `POST /publik/aktivasi` — tenant & akun jadi, sesi RT terpasang (auto-login). */
+export interface HasilAktivasiRt {
+  peran: "rt_admin";
+  nama: string;
+  email: string;
+}
+
+/**
+ * POST /publik/aktivasi — tukar tautan `<id>.<kode>` menjadi akun pengurus RT
+ * (provisioning tenant: wilayah → RT → langganan → pengurus → akun) + sesi.
+ * Galat: `NOT_FOUND` (404), `TOKEN_EXPIRED` (410), `CONFLICT` (409),
+ * `VALIDATION` (400).
+ */
+export function aktivasiAkunRt(input: {
+  token: string;
+  email: string;
+  password: string;
+  konfirmasiPassword: string;
+}): Promise<HasilAktivasiRt> {
+  return minta<HasilAktivasiRt>("/publik/aktivasi", { method: "POST", body: input });
+}
+
+// ---------------------------------------------------------------------------
 // Undangan & aktivasi Portal Warga — F-2 (spesifikasi §5.2)
 // ---------------------------------------------------------------------------
 

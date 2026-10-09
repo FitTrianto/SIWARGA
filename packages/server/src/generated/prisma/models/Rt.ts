@@ -187,7 +187,7 @@ export type RtGroupByOutputType = {
   id: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah: string | null
   perumahan: string | null
   alamat: string | null
   kelurahanId: string
@@ -222,7 +222,7 @@ export type RtWhereInput = {
   id?: Prisma.UuidFilter<"Rt"> | string
   rwId?: Prisma.UuidFilter<"Rt"> | string
   kodeRt?: Prisma.StringFilter<"Rt"> | string
-  kodeWilayah?: Prisma.StringFilter<"Rt"> | string
+  kodeWilayah?: Prisma.StringNullableFilter<"Rt"> | string | null
   perumahan?: Prisma.StringNullableFilter<"Rt"> | string | null
   alamat?: Prisma.StringNullableFilter<"Rt"> | string | null
   kelurahanId?: Prisma.UuidFilter<"Rt"> | string
@@ -253,13 +253,14 @@ export type RtWhereInput = {
   perubahanList?: Prisma.PerubahanDataWargaListRelationFilter
   tokenUndanganList?: Prisma.TokenUndanganListRelationFilter
   akunPengurus?: Prisma.PenggunaPengurusListRelationFilter
+  pendaftaran?: Prisma.XOR<Prisma.PendaftaranRtNullableScalarRelationFilter, Prisma.PendaftaranRtWhereInput> | null
 }
 
 export type RtOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   rwId?: Prisma.SortOrder
   kodeRt?: Prisma.SortOrder
-  kodeWilayah?: Prisma.SortOrder
+  kodeWilayah?: Prisma.SortOrderInput | Prisma.SortOrder
   perumahan?: Prisma.SortOrderInput | Prisma.SortOrder
   alamat?: Prisma.SortOrderInput | Prisma.SortOrder
   kelurahanId?: Prisma.SortOrder
@@ -290,6 +291,7 @@ export type RtOrderByWithRelationInput = {
   perubahanList?: Prisma.PerubahanDataWargaOrderByRelationAggregateInput
   tokenUndanganList?: Prisma.TokenUndanganOrderByRelationAggregateInput
   akunPengurus?: Prisma.PenggunaPengurusOrderByRelationAggregateInput
+  pendaftaran?: Prisma.PendaftaranRtOrderByWithRelationInput
 }
 
 export type RtWhereUniqueInput = Prisma.AtLeast<{
@@ -301,7 +303,7 @@ export type RtWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.RtWhereInput | Prisma.RtWhereInput[]
   rwId?: Prisma.UuidFilter<"Rt"> | string
   kodeRt?: Prisma.StringFilter<"Rt"> | string
-  kodeWilayah?: Prisma.StringFilter<"Rt"> | string
+  kodeWilayah?: Prisma.StringNullableFilter<"Rt"> | string | null
   perumahan?: Prisma.StringNullableFilter<"Rt"> | string | null
   alamat?: Prisma.StringNullableFilter<"Rt"> | string | null
   kelurahanId?: Prisma.UuidFilter<"Rt"> | string
@@ -331,13 +333,14 @@ export type RtWhereUniqueInput = Prisma.AtLeast<{
   perubahanList?: Prisma.PerubahanDataWargaListRelationFilter
   tokenUndanganList?: Prisma.TokenUndanganListRelationFilter
   akunPengurus?: Prisma.PenggunaPengurusListRelationFilter
+  pendaftaran?: Prisma.XOR<Prisma.PendaftaranRtNullableScalarRelationFilter, Prisma.PendaftaranRtWhereInput> | null
 }, "id" | "ketuaRtId" | "rwId_kodeRt">
 
 export type RtOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   rwId?: Prisma.SortOrder
   kodeRt?: Prisma.SortOrder
-  kodeWilayah?: Prisma.SortOrder
+  kodeWilayah?: Prisma.SortOrderInput | Prisma.SortOrder
   perumahan?: Prisma.SortOrderInput | Prisma.SortOrder
   alamat?: Prisma.SortOrderInput | Prisma.SortOrder
   kelurahanId?: Prisma.SortOrder
@@ -357,7 +360,7 @@ export type RtScalarWhereWithAggregatesInput = {
   id?: Prisma.UuidWithAggregatesFilter<"Rt"> | string
   rwId?: Prisma.UuidWithAggregatesFilter<"Rt"> | string
   kodeRt?: Prisma.StringWithAggregatesFilter<"Rt"> | string
-  kodeWilayah?: Prisma.StringWithAggregatesFilter<"Rt"> | string
+  kodeWilayah?: Prisma.StringNullableWithAggregatesFilter<"Rt"> | string | null
   perumahan?: Prisma.StringNullableWithAggregatesFilter<"Rt"> | string | null
   alamat?: Prisma.StringNullableWithAggregatesFilter<"Rt"> | string | null
   kelurahanId?: Prisma.UuidWithAggregatesFilter<"Rt"> | string
@@ -370,7 +373,7 @@ export type RtScalarWhereWithAggregatesInput = {
 export type RtCreateInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -399,13 +402,14 @@ export type RtCreateInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -433,12 +437,13 @@ export type RtUncheckedCreateInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -467,13 +472,14 @@ export type RtUpdateInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -501,13 +507,14 @@ export type RtUncheckedUpdateInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateManyInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -520,7 +527,7 @@ export type RtCreateManyInput = {
 export type RtUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -532,7 +539,7 @@ export type RtUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -755,6 +762,22 @@ export type RtUpdateOneRequiredWithoutPengaturanNestedInput = {
   upsert?: Prisma.RtUpsertWithoutPengaturanInput
   connect?: Prisma.RtWhereUniqueInput
   update?: Prisma.XOR<Prisma.XOR<Prisma.RtUpdateToOneWithWhereWithoutPengaturanInput, Prisma.RtUpdateWithoutPengaturanInput>, Prisma.RtUncheckedUpdateWithoutPengaturanInput>
+}
+
+export type RtCreateNestedOneWithoutPendaftaranInput = {
+  create?: Prisma.XOR<Prisma.RtCreateWithoutPendaftaranInput, Prisma.RtUncheckedCreateWithoutPendaftaranInput>
+  connectOrCreate?: Prisma.RtCreateOrConnectWithoutPendaftaranInput
+  connect?: Prisma.RtWhereUniqueInput
+}
+
+export type RtUpdateOneWithoutPendaftaranNestedInput = {
+  create?: Prisma.XOR<Prisma.RtCreateWithoutPendaftaranInput, Prisma.RtUncheckedCreateWithoutPendaftaranInput>
+  connectOrCreate?: Prisma.RtCreateOrConnectWithoutPendaftaranInput
+  upsert?: Prisma.RtUpsertWithoutPendaftaranInput
+  disconnect?: Prisma.RtWhereInput | boolean
+  delete?: Prisma.RtWhereInput | boolean
+  connect?: Prisma.RtWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.RtUpdateToOneWithWhereWithoutPendaftaranInput, Prisma.RtUpdateWithoutPendaftaranInput>, Prisma.RtUncheckedUpdateWithoutPendaftaranInput>
 }
 
 export type RtCreateNestedOneWithoutRumahListInput = {
@@ -1014,7 +1037,7 @@ export type RtUpdateOneRequiredWithoutImporListNestedInput = {
 export type RtCreateWithoutKelurahanInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -1042,13 +1065,14 @@ export type RtCreateWithoutKelurahanInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutKelurahanInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   ketuaRtId?: string | null
@@ -1075,6 +1099,7 @@ export type RtUncheckedCreateWithoutKelurahanInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutKelurahanInput = {
@@ -1110,7 +1135,7 @@ export type RtScalarWhereInput = {
   id?: Prisma.UuidFilter<"Rt"> | string
   rwId?: Prisma.UuidFilter<"Rt"> | string
   kodeRt?: Prisma.StringFilter<"Rt"> | string
-  kodeWilayah?: Prisma.StringFilter<"Rt"> | string
+  kodeWilayah?: Prisma.StringNullableFilter<"Rt"> | string | null
   perumahan?: Prisma.StringNullableFilter<"Rt"> | string | null
   alamat?: Prisma.StringNullableFilter<"Rt"> | string | null
   kelurahanId?: Prisma.UuidFilter<"Rt"> | string
@@ -1123,7 +1148,7 @@ export type RtScalarWhereInput = {
 export type RtCreateWithoutRwInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -1151,12 +1176,13 @@ export type RtCreateWithoutRwInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutRwInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -1184,6 +1210,7 @@ export type RtUncheckedCreateWithoutRwInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutRwInput = {
@@ -1215,7 +1242,7 @@ export type RtUpdateManyWithWhereWithoutRwInput = {
 export type RtCreateWithoutPengurusListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -1243,13 +1270,14 @@ export type RtCreateWithoutPengurusListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutPengurusListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -1276,6 +1304,7 @@ export type RtUncheckedCreateWithoutPengurusListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutPengurusListInput = {
@@ -1286,7 +1315,7 @@ export type RtCreateOrConnectWithoutPengurusListInput = {
 export type RtCreateWithoutKetuaRtInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -1314,13 +1343,14 @@ export type RtCreateWithoutKetuaRtInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutKetuaRtInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -1347,6 +1377,7 @@ export type RtUncheckedCreateWithoutKetuaRtInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutKetuaRtInput = {
@@ -1368,7 +1399,7 @@ export type RtUpdateToOneWithWhereWithoutPengurusListInput = {
 export type RtUpdateWithoutPengurusListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -1396,13 +1427,14 @@ export type RtUpdateWithoutPengurusListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutPengurusListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1429,6 +1461,7 @@ export type RtUncheckedUpdateWithoutPengurusListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtUpsertWithoutKetuaRtInput = {
@@ -1445,7 +1478,7 @@ export type RtUpdateToOneWithWhereWithoutKetuaRtInput = {
 export type RtUpdateWithoutKetuaRtInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -1473,13 +1506,14 @@ export type RtUpdateWithoutKetuaRtInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutKetuaRtInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1506,12 +1540,13 @@ export type RtUncheckedUpdateWithoutKetuaRtInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutPengaturanInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -1539,13 +1574,14 @@ export type RtCreateWithoutPengaturanInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutPengaturanInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -1572,6 +1608,7 @@ export type RtUncheckedCreateWithoutPengaturanInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutPengaturanInput = {
@@ -1593,7 +1630,7 @@ export type RtUpdateToOneWithWhereWithoutPengaturanInput = {
 export type RtUpdateWithoutPengaturanInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -1621,13 +1658,14 @@ export type RtUpdateWithoutPengaturanInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutPengaturanInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1636,6 +1674,159 @@ export type RtUncheckedUpdateWithoutPengaturanInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
+  rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
+  kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
+  wargaList?: Prisma.WargaUncheckedUpdateManyWithoutRtNestedInput
+  kategoriIuran?: Prisma.KategoriIuranUncheckedUpdateManyWithoutRtNestedInput
+  tagihanList?: Prisma.TagihanUncheckedUpdateManyWithoutRtNestedInput
+  pembayaranList?: Prisma.PembayaranUncheckedUpdateManyWithoutRtNestedInput
+  alokasiList?: Prisma.AlokasiPembayaranUncheckedUpdateManyWithoutRtNestedInput
+  mutasiList?: Prisma.MutasiSaldoWargaUncheckedUpdateManyWithoutRtNestedInput
+  keringananList?: Prisma.KeringananUncheckedUpdateManyWithoutRtNestedInput
+  jenisSuratList?: Prisma.JenisSuratUncheckedUpdateManyWithoutRtNestedInput
+  suratList?: Prisma.SuratUncheckedUpdateManyWithoutRtNestedInput
+  permintaanAkses?: Prisma.PermintaanAksesDetailUncheckedUpdateManyWithoutRtNestedInput
+  langganan?: Prisma.LanggananUncheckedUpdateOneWithoutRtNestedInput
+  imporList?: Prisma.ImporDataUncheckedUpdateManyWithoutRtNestedInput
+  perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
+  tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
+  akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
+}
+
+export type RtCreateWithoutPendaftaranInput = {
+  id?: string
+  kodeRt: string
+  kodeWilayah?: string | null
+  perumahan?: string | null
+  alamat?: string | null
+  status?: $Enums.RtStatus
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  rw: Prisma.RwCreateNestedOneWithoutRtsInput
+  kelurahan: Prisma.KelurahanCreateNestedOneWithoutRtsInput
+  ketuaRt?: Prisma.PengurusRtCreateNestedOneWithoutRtKetuaDariInput
+  pengurusList?: Prisma.PengurusRtCreateNestedManyWithoutRtInput
+  pengaturan?: Prisma.PengaturanRtCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranCreateNestedOneWithoutRtInput
+  rumahList?: Prisma.RumahCreateNestedManyWithoutRtInput
+  kartuKeluargaList?: Prisma.KartuKeluargaCreateNestedManyWithoutRtInput
+  wargaList?: Prisma.WargaCreateNestedManyWithoutRtInput
+  kategoriIuran?: Prisma.KategoriIuranCreateNestedManyWithoutRtInput
+  tagihanList?: Prisma.TagihanCreateNestedManyWithoutRtInput
+  pembayaranList?: Prisma.PembayaranCreateNestedManyWithoutRtInput
+  alokasiList?: Prisma.AlokasiPembayaranCreateNestedManyWithoutRtInput
+  mutasiList?: Prisma.MutasiSaldoWargaCreateNestedManyWithoutRtInput
+  keringananList?: Prisma.KeringananCreateNestedManyWithoutRtInput
+  jenisSuratList?: Prisma.JenisSuratCreateNestedManyWithoutRtInput
+  suratList?: Prisma.SuratCreateNestedManyWithoutRtInput
+  permintaanAkses?: Prisma.PermintaanAksesDetailCreateNestedManyWithoutRtInput
+  langganan?: Prisma.LanggananCreateNestedOneWithoutRtInput
+  imporList?: Prisma.ImporDataCreateNestedManyWithoutRtInput
+  perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
+  tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
+  akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+}
+
+export type RtUncheckedCreateWithoutPendaftaranInput = {
+  id?: string
+  rwId: string
+  kodeRt: string
+  kodeWilayah?: string | null
+  perumahan?: string | null
+  alamat?: string | null
+  kelurahanId: string
+  ketuaRtId?: string | null
+  status?: $Enums.RtStatus
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  pengurusList?: Prisma.PengurusRtUncheckedCreateNestedManyWithoutRtInput
+  pengaturan?: Prisma.PengaturanRtUncheckedCreateNestedOneWithoutRtInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedCreateNestedOneWithoutRtInput
+  rumahList?: Prisma.RumahUncheckedCreateNestedManyWithoutRtInput
+  kartuKeluargaList?: Prisma.KartuKeluargaUncheckedCreateNestedManyWithoutRtInput
+  wargaList?: Prisma.WargaUncheckedCreateNestedManyWithoutRtInput
+  kategoriIuran?: Prisma.KategoriIuranUncheckedCreateNestedManyWithoutRtInput
+  tagihanList?: Prisma.TagihanUncheckedCreateNestedManyWithoutRtInput
+  pembayaranList?: Prisma.PembayaranUncheckedCreateNestedManyWithoutRtInput
+  alokasiList?: Prisma.AlokasiPembayaranUncheckedCreateNestedManyWithoutRtInput
+  mutasiList?: Prisma.MutasiSaldoWargaUncheckedCreateNestedManyWithoutRtInput
+  keringananList?: Prisma.KeringananUncheckedCreateNestedManyWithoutRtInput
+  jenisSuratList?: Prisma.JenisSuratUncheckedCreateNestedManyWithoutRtInput
+  suratList?: Prisma.SuratUncheckedCreateNestedManyWithoutRtInput
+  permintaanAkses?: Prisma.PermintaanAksesDetailUncheckedCreateNestedManyWithoutRtInput
+  langganan?: Prisma.LanggananUncheckedCreateNestedOneWithoutRtInput
+  imporList?: Prisma.ImporDataUncheckedCreateNestedManyWithoutRtInput
+  perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
+  tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
+  akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+}
+
+export type RtCreateOrConnectWithoutPendaftaranInput = {
+  where: Prisma.RtWhereUniqueInput
+  create: Prisma.XOR<Prisma.RtCreateWithoutPendaftaranInput, Prisma.RtUncheckedCreateWithoutPendaftaranInput>
+}
+
+export type RtUpsertWithoutPendaftaranInput = {
+  update: Prisma.XOR<Prisma.RtUpdateWithoutPendaftaranInput, Prisma.RtUncheckedUpdateWithoutPendaftaranInput>
+  create: Prisma.XOR<Prisma.RtCreateWithoutPendaftaranInput, Prisma.RtUncheckedCreateWithoutPendaftaranInput>
+  where?: Prisma.RtWhereInput
+}
+
+export type RtUpdateToOneWithWhereWithoutPendaftaranInput = {
+  where?: Prisma.RtWhereInput
+  data: Prisma.XOR<Prisma.RtUpdateWithoutPendaftaranInput, Prisma.RtUncheckedUpdateWithoutPendaftaranInput>
+}
+
+export type RtUpdateWithoutPendaftaranInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  rw?: Prisma.RwUpdateOneRequiredWithoutRtsNestedInput
+  kelurahan?: Prisma.KelurahanUpdateOneRequiredWithoutRtsNestedInput
+  ketuaRt?: Prisma.PengurusRtUpdateOneWithoutRtKetuaDariNestedInput
+  pengurusList?: Prisma.PengurusRtUpdateManyWithoutRtNestedInput
+  pengaturan?: Prisma.PengaturanRtUpdateOneWithoutRtNestedInput
+  tutupBukuIuran?: Prisma.TutupBukuIuranUpdateOneWithoutRtNestedInput
+  rumahList?: Prisma.RumahUpdateManyWithoutRtNestedInput
+  kartuKeluargaList?: Prisma.KartuKeluargaUpdateManyWithoutRtNestedInput
+  wargaList?: Prisma.WargaUpdateManyWithoutRtNestedInput
+  kategoriIuran?: Prisma.KategoriIuranUpdateManyWithoutRtNestedInput
+  tagihanList?: Prisma.TagihanUpdateManyWithoutRtNestedInput
+  pembayaranList?: Prisma.PembayaranUpdateManyWithoutRtNestedInput
+  alokasiList?: Prisma.AlokasiPembayaranUpdateManyWithoutRtNestedInput
+  mutasiList?: Prisma.MutasiSaldoWargaUpdateManyWithoutRtNestedInput
+  keringananList?: Prisma.KeringananUpdateManyWithoutRtNestedInput
+  jenisSuratList?: Prisma.JenisSuratUpdateManyWithoutRtNestedInput
+  suratList?: Prisma.SuratUpdateManyWithoutRtNestedInput
+  permintaanAkses?: Prisma.PermintaanAksesDetailUpdateManyWithoutRtNestedInput
+  langganan?: Prisma.LanggananUpdateOneWithoutRtNestedInput
+  imporList?: Prisma.ImporDataUpdateManyWithoutRtNestedInput
+  perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
+  tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
+  akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+}
+
+export type RtUncheckedUpdateWithoutPendaftaranInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  rwId?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
+  ketuaRtId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  pengurusList?: Prisma.PengurusRtUncheckedUpdateManyWithoutRtNestedInput
+  pengaturan?: Prisma.PengaturanRtUncheckedUpdateOneWithoutRtNestedInput
   tutupBukuIuran?: Prisma.TutupBukuIuranUncheckedUpdateOneWithoutRtNestedInput
   rumahList?: Prisma.RumahUncheckedUpdateManyWithoutRtNestedInput
   kartuKeluargaList?: Prisma.KartuKeluargaUncheckedUpdateManyWithoutRtNestedInput
@@ -1659,7 +1850,7 @@ export type RtUncheckedUpdateWithoutPengaturanInput = {
 export type RtCreateWithoutRumahListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -1687,13 +1878,14 @@ export type RtCreateWithoutRumahListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutRumahListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -1720,6 +1912,7 @@ export type RtUncheckedCreateWithoutRumahListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutRumahListInput = {
@@ -1741,7 +1934,7 @@ export type RtUpdateToOneWithWhereWithoutRumahListInput = {
 export type RtUpdateWithoutRumahListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -1769,13 +1962,14 @@ export type RtUpdateWithoutRumahListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutRumahListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1802,12 +1996,13 @@ export type RtUncheckedUpdateWithoutRumahListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutKartuKeluargaListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -1835,13 +2030,14 @@ export type RtCreateWithoutKartuKeluargaListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutKartuKeluargaListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -1868,6 +2064,7 @@ export type RtUncheckedCreateWithoutKartuKeluargaListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutKartuKeluargaListInput = {
@@ -1889,7 +2086,7 @@ export type RtUpdateToOneWithWhereWithoutKartuKeluargaListInput = {
 export type RtUpdateWithoutKartuKeluargaListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -1917,13 +2114,14 @@ export type RtUpdateWithoutKartuKeluargaListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutKartuKeluargaListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1950,12 +2148,13 @@ export type RtUncheckedUpdateWithoutKartuKeluargaListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutWargaListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -1983,13 +2182,14 @@ export type RtCreateWithoutWargaListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutWargaListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -2016,6 +2216,7 @@ export type RtUncheckedCreateWithoutWargaListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutWargaListInput = {
@@ -2037,7 +2238,7 @@ export type RtUpdateToOneWithWhereWithoutWargaListInput = {
 export type RtUpdateWithoutWargaListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -2065,13 +2266,14 @@ export type RtUpdateWithoutWargaListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutWargaListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2098,12 +2300,13 @@ export type RtUncheckedUpdateWithoutWargaListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutPerubahanListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -2131,13 +2334,14 @@ export type RtCreateWithoutPerubahanListInput = {
   imporList?: Prisma.ImporDataCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutPerubahanListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -2164,6 +2368,7 @@ export type RtUncheckedCreateWithoutPerubahanListInput = {
   imporList?: Prisma.ImporDataUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutPerubahanListInput = {
@@ -2185,7 +2390,7 @@ export type RtUpdateToOneWithWhereWithoutPerubahanListInput = {
 export type RtUpdateWithoutPerubahanListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -2213,13 +2418,14 @@ export type RtUpdateWithoutPerubahanListInput = {
   imporList?: Prisma.ImporDataUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutPerubahanListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2246,12 +2452,13 @@ export type RtUncheckedUpdateWithoutPerubahanListInput = {
   imporList?: Prisma.ImporDataUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutTokenUndanganListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -2279,13 +2486,14 @@ export type RtCreateWithoutTokenUndanganListInput = {
   imporList?: Prisma.ImporDataCreateNestedManyWithoutRtInput
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutTokenUndanganListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -2312,6 +2520,7 @@ export type RtUncheckedCreateWithoutTokenUndanganListInput = {
   imporList?: Prisma.ImporDataUncheckedCreateNestedManyWithoutRtInput
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutTokenUndanganListInput = {
@@ -2333,7 +2542,7 @@ export type RtUpdateToOneWithWhereWithoutTokenUndanganListInput = {
 export type RtUpdateWithoutTokenUndanganListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -2361,13 +2570,14 @@ export type RtUpdateWithoutTokenUndanganListInput = {
   imporList?: Prisma.ImporDataUpdateManyWithoutRtNestedInput
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutTokenUndanganListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2394,12 +2604,13 @@ export type RtUncheckedUpdateWithoutTokenUndanganListInput = {
   imporList?: Prisma.ImporDataUncheckedUpdateManyWithoutRtNestedInput
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutAkunPengurusInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -2427,13 +2638,14 @@ export type RtCreateWithoutAkunPengurusInput = {
   imporList?: Prisma.ImporDataCreateNestedManyWithoutRtInput
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutAkunPengurusInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -2460,6 +2672,7 @@ export type RtUncheckedCreateWithoutAkunPengurusInput = {
   imporList?: Prisma.ImporDataUncheckedCreateNestedManyWithoutRtInput
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutAkunPengurusInput = {
@@ -2481,7 +2694,7 @@ export type RtUpdateToOneWithWhereWithoutAkunPengurusInput = {
 export type RtUpdateWithoutAkunPengurusInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -2509,13 +2722,14 @@ export type RtUpdateWithoutAkunPengurusInput = {
   imporList?: Prisma.ImporDataUpdateManyWithoutRtNestedInput
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutAkunPengurusInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2542,12 +2756,13 @@ export type RtUncheckedUpdateWithoutAkunPengurusInput = {
   imporList?: Prisma.ImporDataUncheckedUpdateManyWithoutRtNestedInput
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutKategoriIuranInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -2575,13 +2790,14 @@ export type RtCreateWithoutKategoriIuranInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutKategoriIuranInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -2608,6 +2824,7 @@ export type RtUncheckedCreateWithoutKategoriIuranInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutKategoriIuranInput = {
@@ -2629,7 +2846,7 @@ export type RtUpdateToOneWithWhereWithoutKategoriIuranInput = {
 export type RtUpdateWithoutKategoriIuranInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -2657,13 +2874,14 @@ export type RtUpdateWithoutKategoriIuranInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutKategoriIuranInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2690,12 +2908,13 @@ export type RtUncheckedUpdateWithoutKategoriIuranInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutTagihanListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -2723,13 +2942,14 @@ export type RtCreateWithoutTagihanListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutTagihanListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -2756,6 +2976,7 @@ export type RtUncheckedCreateWithoutTagihanListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutTagihanListInput = {
@@ -2777,7 +2998,7 @@ export type RtUpdateToOneWithWhereWithoutTagihanListInput = {
 export type RtUpdateWithoutTagihanListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -2805,13 +3026,14 @@ export type RtUpdateWithoutTagihanListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutTagihanListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2838,12 +3060,13 @@ export type RtUncheckedUpdateWithoutTagihanListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutPembayaranListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -2871,13 +3094,14 @@ export type RtCreateWithoutPembayaranListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutPembayaranListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -2904,6 +3128,7 @@ export type RtUncheckedCreateWithoutPembayaranListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutPembayaranListInput = {
@@ -2925,7 +3150,7 @@ export type RtUpdateToOneWithWhereWithoutPembayaranListInput = {
 export type RtUpdateWithoutPembayaranListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -2953,13 +3178,14 @@ export type RtUpdateWithoutPembayaranListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutPembayaranListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -2986,12 +3212,13 @@ export type RtUncheckedUpdateWithoutPembayaranListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutAlokasiListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -3019,13 +3246,14 @@ export type RtCreateWithoutAlokasiListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutAlokasiListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -3052,6 +3280,7 @@ export type RtUncheckedCreateWithoutAlokasiListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutAlokasiListInput = {
@@ -3073,7 +3302,7 @@ export type RtUpdateToOneWithWhereWithoutAlokasiListInput = {
 export type RtUpdateWithoutAlokasiListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -3101,13 +3330,14 @@ export type RtUpdateWithoutAlokasiListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutAlokasiListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -3134,12 +3364,13 @@ export type RtUncheckedUpdateWithoutAlokasiListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutMutasiListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -3167,13 +3398,14 @@ export type RtCreateWithoutMutasiListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutMutasiListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -3200,6 +3432,7 @@ export type RtUncheckedCreateWithoutMutasiListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutMutasiListInput = {
@@ -3221,7 +3454,7 @@ export type RtUpdateToOneWithWhereWithoutMutasiListInput = {
 export type RtUpdateWithoutMutasiListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -3249,13 +3482,14 @@ export type RtUpdateWithoutMutasiListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutMutasiListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -3282,12 +3516,13 @@ export type RtUncheckedUpdateWithoutMutasiListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutKeringananListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -3315,13 +3550,14 @@ export type RtCreateWithoutKeringananListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutKeringananListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -3348,6 +3584,7 @@ export type RtUncheckedCreateWithoutKeringananListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutKeringananListInput = {
@@ -3369,7 +3606,7 @@ export type RtUpdateToOneWithWhereWithoutKeringananListInput = {
 export type RtUpdateWithoutKeringananListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -3397,13 +3634,14 @@ export type RtUpdateWithoutKeringananListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutKeringananListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -3430,12 +3668,13 @@ export type RtUncheckedUpdateWithoutKeringananListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutTutupBukuIuranInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -3463,13 +3702,14 @@ export type RtCreateWithoutTutupBukuIuranInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutTutupBukuIuranInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -3496,6 +3736,7 @@ export type RtUncheckedCreateWithoutTutupBukuIuranInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutTutupBukuIuranInput = {
@@ -3517,7 +3758,7 @@ export type RtUpdateToOneWithWhereWithoutTutupBukuIuranInput = {
 export type RtUpdateWithoutTutupBukuIuranInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -3545,13 +3786,14 @@ export type RtUpdateWithoutTutupBukuIuranInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutTutupBukuIuranInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -3578,12 +3820,13 @@ export type RtUncheckedUpdateWithoutTutupBukuIuranInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutJenisSuratListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -3611,13 +3854,14 @@ export type RtCreateWithoutJenisSuratListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutJenisSuratListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -3644,6 +3888,7 @@ export type RtUncheckedCreateWithoutJenisSuratListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutJenisSuratListInput = {
@@ -3665,7 +3910,7 @@ export type RtUpdateToOneWithWhereWithoutJenisSuratListInput = {
 export type RtUpdateWithoutJenisSuratListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -3693,13 +3938,14 @@ export type RtUpdateWithoutJenisSuratListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutJenisSuratListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -3726,12 +3972,13 @@ export type RtUncheckedUpdateWithoutJenisSuratListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutSuratListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -3759,13 +4006,14 @@ export type RtCreateWithoutSuratListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutSuratListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -3792,6 +4040,7 @@ export type RtUncheckedCreateWithoutSuratListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutSuratListInput = {
@@ -3813,7 +4062,7 @@ export type RtUpdateToOneWithWhereWithoutSuratListInput = {
 export type RtUpdateWithoutSuratListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -3841,13 +4090,14 @@ export type RtUpdateWithoutSuratListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutSuratListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -3874,12 +4124,13 @@ export type RtUncheckedUpdateWithoutSuratListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutPermintaanAksesInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -3907,13 +4158,14 @@ export type RtCreateWithoutPermintaanAksesInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutPermintaanAksesInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -3940,6 +4192,7 @@ export type RtUncheckedCreateWithoutPermintaanAksesInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutPermintaanAksesInput = {
@@ -3961,7 +4214,7 @@ export type RtUpdateToOneWithWhereWithoutPermintaanAksesInput = {
 export type RtUpdateWithoutPermintaanAksesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -3989,13 +4242,14 @@ export type RtUpdateWithoutPermintaanAksesInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutPermintaanAksesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -4022,12 +4276,13 @@ export type RtUncheckedUpdateWithoutPermintaanAksesInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutLanggananInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -4055,13 +4310,14 @@ export type RtCreateWithoutLanggananInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutLanggananInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -4088,6 +4344,7 @@ export type RtUncheckedCreateWithoutLanggananInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutLanggananInput = {
@@ -4109,7 +4366,7 @@ export type RtUpdateToOneWithWhereWithoutLanggananInput = {
 export type RtUpdateWithoutLanggananInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -4137,13 +4394,14 @@ export type RtUpdateWithoutLanggananInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutLanggananInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -4170,12 +4428,13 @@ export type RtUncheckedUpdateWithoutLanggananInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateWithoutImporListInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   status?: $Enums.RtStatus
@@ -4203,13 +4462,14 @@ export type RtCreateWithoutImporListInput = {
   perubahanList?: Prisma.PerubahanDataWargaCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtCreateNestedOneWithoutRtInput
 }
 
 export type RtUncheckedCreateWithoutImporListInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -4236,6 +4496,7 @@ export type RtUncheckedCreateWithoutImporListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedCreateNestedManyWithoutRtInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedCreateNestedManyWithoutRtInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedCreateNestedManyWithoutRtInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedCreateNestedOneWithoutRtInput
 }
 
 export type RtCreateOrConnectWithoutImporListInput = {
@@ -4257,7 +4518,7 @@ export type RtUpdateToOneWithWhereWithoutImporListInput = {
 export type RtUpdateWithoutImporListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -4285,13 +4546,14 @@ export type RtUpdateWithoutImporListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutImporListInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -4318,13 +4580,14 @@ export type RtUncheckedUpdateWithoutImporListInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtCreateManyKelurahanInput = {
   id?: string
   rwId: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   ketuaRtId?: string | null
@@ -4336,7 +4599,7 @@ export type RtCreateManyKelurahanInput = {
 export type RtUpdateWithoutKelurahanInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -4364,13 +4627,14 @@ export type RtUpdateWithoutKelurahanInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutKelurahanInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ketuaRtId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -4397,13 +4661,14 @@ export type RtUncheckedUpdateWithoutKelurahanInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateManyWithoutKelurahanInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   rwId?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ketuaRtId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -4415,7 +4680,7 @@ export type RtUncheckedUpdateManyWithoutKelurahanInput = {
 export type RtCreateManyRwInput = {
   id?: string
   kodeRt: string
-  kodeWilayah: string
+  kodeWilayah?: string | null
   perumahan?: string | null
   alamat?: string | null
   kelurahanId: string
@@ -4428,7 +4693,7 @@ export type RtCreateManyRwInput = {
 export type RtUpdateWithoutRwInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   status?: Prisma.EnumRtStatusFieldUpdateOperationsInput | $Enums.RtStatus
@@ -4456,12 +4721,13 @@ export type RtUpdateWithoutRwInput = {
   perubahanList?: Prisma.PerubahanDataWargaUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateWithoutRwInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -4489,12 +4755,13 @@ export type RtUncheckedUpdateWithoutRwInput = {
   perubahanList?: Prisma.PerubahanDataWargaUncheckedUpdateManyWithoutRtNestedInput
   tokenUndanganList?: Prisma.TokenUndanganUncheckedUpdateManyWithoutRtNestedInput
   akunPengurus?: Prisma.PenggunaPengurusUncheckedUpdateManyWithoutRtNestedInput
+  pendaftaran?: Prisma.PendaftaranRtUncheckedUpdateOneWithoutRtNestedInput
 }
 
 export type RtUncheckedUpdateManyWithoutRwInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   kodeRt?: Prisma.StringFieldUpdateOperationsInput | string
-  kodeWilayah?: Prisma.StringFieldUpdateOperationsInput | string
+  kodeWilayah?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   perumahan?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   alamat?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   kelurahanId?: Prisma.StringFieldUpdateOperationsInput | string
@@ -4714,6 +4981,7 @@ export type RtSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = run
   perubahanList?: boolean | Prisma.Rt$perubahanListArgs<ExtArgs>
   tokenUndanganList?: boolean | Prisma.Rt$tokenUndanganListArgs<ExtArgs>
   akunPengurus?: boolean | Prisma.Rt$akunPengurusArgs<ExtArgs>
+  pendaftaran?: boolean | Prisma.Rt$pendaftaranArgs<ExtArgs>
   _count?: boolean | Prisma.RtCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["rt"]>
 
@@ -4790,6 +5058,7 @@ export type RtInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   perubahanList?: boolean | Prisma.Rt$perubahanListArgs<ExtArgs>
   tokenUndanganList?: boolean | Prisma.Rt$tokenUndanganListArgs<ExtArgs>
   akunPengurus?: boolean | Prisma.Rt$akunPengurusArgs<ExtArgs>
+  pendaftaran?: boolean | Prisma.Rt$pendaftaranArgs<ExtArgs>
   _count?: boolean | Prisma.RtCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type RtIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -4829,12 +5098,13 @@ export type $RtPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
     perubahanList: Prisma.$PerubahanDataWargaPayload<ExtArgs>[]
     tokenUndanganList: Prisma.$TokenUndanganPayload<ExtArgs>[]
     akunPengurus: Prisma.$PenggunaPengurusPayload<ExtArgs>[]
+    pendaftaran: Prisma.$PendaftaranRtPayload<ExtArgs> | null
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     rwId: string
     kodeRt: string
-    kodeWilayah: string
+    kodeWilayah: string | null
     perumahan: string | null
     alamat: string | null
     kelurahanId: string
@@ -5259,6 +5529,7 @@ export interface Prisma__RtClient<T, Null = never, ExtArgs extends runtime.Types
   perubahanList<T extends Prisma.Rt$perubahanListArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$perubahanListArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PerubahanDataWargaPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   tokenUndanganList<T extends Prisma.Rt$tokenUndanganListArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$tokenUndanganListArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TokenUndanganPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   akunPengurus<T extends Prisma.Rt$akunPengurusArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$akunPengurusArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PenggunaPengurusPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  pendaftaran<T extends Prisma.Rt$pendaftaranArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Rt$pendaftaranArgs<ExtArgs>>): Prisma.Prisma__PendaftaranRtClient<runtime.Types.Result.GetResult<Prisma.$PendaftaranRtPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -6181,6 +6452,25 @@ export type Rt$akunPengurusArgs<ExtArgs extends runtime.Types.Extensions.Interna
   take?: number
   skip?: number
   distinct?: Prisma.PenggunaPengurusScalarFieldEnum | Prisma.PenggunaPengurusScalarFieldEnum[]
+}
+
+/**
+ * Rt.pendaftaran
+ */
+export type Rt$pendaftaranArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the PendaftaranRt
+   */
+  select?: Prisma.PendaftaranRtSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the PendaftaranRt
+   */
+  omit?: Prisma.PendaftaranRtOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.PendaftaranRtInclude<ExtArgs> | null
+  where?: Prisma.PendaftaranRtWhereInput
 }
 
 /**

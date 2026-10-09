@@ -58,6 +58,11 @@ export type PengaturanRt = Prisma.PengaturanRtModel
  */
 export type PengaturanRw = Prisma.PengaturanRwModel
 /**
+ * Model PendaftaranRt
+ * 
+ */
+export type PendaftaranRt = Prisma.PendaftaranRtModel
+/**
  * Model Rumah
  * 
  */

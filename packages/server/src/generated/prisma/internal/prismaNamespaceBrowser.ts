@@ -59,6 +59,7 @@ export const ModelName = {
   PengurusRw: 'PengurusRw',
   PengaturanRt: 'PengaturanRt',
   PengaturanRw: 'PengaturanRw',
+  PendaftaranRt: 'PendaftaranRt',
   Rumah: 'Rumah',
   KartuKeluarga: 'KartuKeluarga',
   Warga: 'Warga',
@@ -213,6 +214,30 @@ export const PengaturanRwScalarFieldEnum = {
 } as const
 
 export type PengaturanRwScalarFieldEnum = (typeof PengaturanRwScalarFieldEnum)[keyof typeof PengaturanRwScalarFieldEnum]
+
+
+export const PendaftaranRtScalarFieldEnum = {
+  id: 'id',
+  rtId: 'rtId',
+  namaKetua: 'namaKetua',
+  whatsapp: 'whatsapp',
+  kodeRt: 'kodeRt',
+  kodeRw: 'kodeRw',
+  kecamatan: 'kecamatan',
+  kelurahan: 'kelurahan',
+  kota: 'kota',
+  paket: 'paket',
+  setujuPdp: 'setujuPdp',
+  status: 'status',
+  kodeHash: 'kodeHash',
+  kedaluwarsaPada: 'kedaluwarsaPada',
+  dipakaiPada: 'dipakaiPada',
+  ip: 'ip',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type PendaftaranRtScalarFieldEnum = (typeof PendaftaranRtScalarFieldEnum)[keyof typeof PendaftaranRtScalarFieldEnum]
 
 
 export const RumahScalarFieldEnum = {

@@ -422,10 +422,6 @@ export type LanggananUncheckedUpdateOneWithoutRtNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.LanggananUpdateToOneWithWhereWithoutRtInput, Prisma.LanggananUpdateWithoutRtInput>, Prisma.LanggananUncheckedUpdateWithoutRtInput>
 }
 
-export type EnumPaketLanggananFieldUpdateOperationsInput = {
-  set?: $Enums.PaketLangganan
-}
-
 export type EnumStatusLanggananFieldUpdateOperationsInput = {
   set?: $Enums.StatusLangganan
 }
