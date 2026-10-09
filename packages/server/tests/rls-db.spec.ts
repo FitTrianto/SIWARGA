@@ -9033,3 +9033,358 @@ describe("Batch 17 · pendaftaran mandiri & aktivasi tenant (POST /publik/*)", (
     ).toBe(0);
   });
 });
+
+// =============================================================================
+// Batch 15D — Kirim Pengingat: tandai `pengingat_terakhir` + antrean
+// `notifikasi_job` (tipe `jatuh_tempo`). Sebelumnya tombol "Kirim Pengingat"
+// di Portal RT hanya `flash` klien (audit laporan perbaikan butir 21–22) —
+// respons kini membawa ANGKA SERVER apa adanya.
+// =============================================================================
+describe("Batch 15D · pengingat iuran (tandai + antrean notifikasi)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRt = "";
+  let csrfRt = "";
+  let sidWarga = "";
+  let csrfWarga = "";
+  const PERIODE_UJI = "2025-01";
+  /** Kategori buatan blok ini (unik per RT) — sasaran tagihan uji. */
+  let idKat1 = "";
+  let idKat2 = "";
+  /** Rumah uji untuk sasaran alamat (tombol baris). */
+  let alamatUji = "";
+  /** Warga bernomor & warga tanpa nomor — keduanya buatan blok ini. */
+  let idBerkomitmen = "";
+  let idTanpaNomor = "";
+  /** Tagihan uji milik masing-masing warga. */
+  let idTagA1 = "";
+  let idTagA2 = "";
+  let idTagB = "";
+
+  const sesiRt = () => ({ sid: sidRt, csrf_token: csrfRt });
+  const kirim = (payload: Record<string, unknown>, opsi?: { tanpaCsrf?: boolean; tanpaSesi?: boolean }) =>
+    app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/pengingat`,
+      ...(opsi?.tanpaSesi ? {} : { cookies: sesiRt() }),
+      ...(opsi?.tanpaCsrf ? {} : { headers: { "x-csrf-token": csrfRt } }),
+      payload,
+    });
+
+  /** Job pengingat uji (tipe jatuh_tempo, periode uji, milik RT04). */
+  const hitungJob = (): Promise<number> =>
+    hitung(
+      null,
+      `SELECT count(*)::int AS n FROM notifikasi_job
+        WHERE tipe = 'jatuh_tempo' AND payload->>'periode' = $1
+          AND payload->>'rtId' = $2`,
+      [PERIODE_UJI, idRt04],
+    );
+
+  const stampTagihan = (id: string): Promise<boolean> =>
+    dalamScopePlat((c) =>
+      c.query("SELECT pengingat_terakhir IS NOT NULL AS ada FROM tagihan WHERE id = $1", [id]),
+    ).then((r) => Boolean((r.rows[0] as { ada: boolean } | undefined)?.ada));
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+
+    const rt = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt04@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt.statusCode, "login RT04").toBe(200);
+    sidRt = cookieDari(rt, "sid")!;
+    csrfRt = cookieDari(rt, "csrf_token")!;
+
+    const warga = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567894", password: SANDI_WARGA_UJI },
+    });
+    expect(warga.statusCode, "login warga").toBe(200);
+    sidWarga = cookieDari(warga, "sid")!;
+    csrfWarga = cookieDari(warga, "csrf_token")!;
+
+    // Fixtur buatan blok ini (describe terakhir — baris seed yang dipakai
+    // describe lain tidak tersentuh; hasil uji lintas-RT memakai baris RT05
+    // buatan describe B7/B9 yang berjalan sebelum blok ini).
+    const k1 = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO kategori_iuran
+           (id, rt_id, nama, tipe_tarif, nominal_default, wajib_opsional, status_aktif, urutan, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, 'Iuran Uji 15D-1', 'flat', 50000, 'wajib', true, 91, now(), now())
+         RETURNING id`,
+        [idRt04],
+      ),
+    );
+    idKat1 = (k1.rows[0] as { id: string }).id;
+    const k2 = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO kategori_iuran
+           (id, rt_id, nama, tipe_tarif, nominal_default, wajib_opsional, status_aktif, urutan, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, 'Iuran Uji 15D-2', 'flat', 50000, 'wajib', true, 92, now(), now())
+         RETURNING id`,
+        [idRt04],
+      ),
+    );
+    idKat2 = (k2.rows[0] as { id: string }).id;
+
+    const r = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO rumah (id, rt_id, kode_rumah, alamat, alamat_pendek, unit_kendaraan_r4, status_huni, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, 'R15D01', 'Blok Z9 No. 15D', 'Z9-15D', 1, 'milik', now(), now())
+         RETURNING alamat`,
+        [idRt04],
+      ),
+    );
+    alamatUji = (r.rows[0] as { alamat: string }).alamat;
+
+    const kk = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO kartu_keluarga
+           (id, rt_id, no_kk, kepala_keluarga, alamat, jumlah_anggota, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, '9999000000011551', 'Kepala KK Uji 15D', $2, 2, now(), now())
+         RETURNING id`,
+        [idRt04, alamatUji],
+      ),
+    );
+    const idKk = (kk.rows[0] as { id: string }).id;
+
+    const wa = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO warga
+           (id, rt_id, kk_id, rumah_id, nama, no_hp, status_akses, is_active, status_demografis, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, (SELECT id FROM rumah WHERE rt_id = $1 AND alamat = $3),
+                 'Warga Uji 15D A', '081999000111', 'aktif', true, 'aktif', now(), now())
+         RETURNING id`,
+        [idRt04, idKk, alamatUji],
+      ),
+    );
+    idBerkomitmen = (wa.rows[0] as { id: string }).id;
+
+    const wb = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO warga
+           (id, rt_id, kk_id, nama, status_akses, is_active, status_demografis, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, 'Warga Uji 15D B', 'aktif', true, 'aktif', now(), now())
+         RETURNING id`,
+        [idRt04, idKk],
+      ),
+    );
+    idTanpaNomor = (wb.rows[0] as { id: string }).id;
+    // Warga B sengaja tanpa nomor: `no_hp` dibiarkan NULL.
+
+    const buatTagihan = async (wargaId: string, kategoriId: string, sisa: number, status: string) => {
+      const t = await dalamScopePlat((c) =>
+        c.query(
+          `INSERT INTO tagihan
+             (id, rt_id, warga_id, kategori_id, periode, nominal, nominal_awal, sisa, tenggat, status, sumber)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, 50000, 50000, $5, $6::date, $7, 'bulk')
+           RETURNING id`,
+          [idRt04, wargaId, kategoriId, PERIODE_UJI, sisa, `${PERIODE_UJI}-10`, status],
+        ),
+      );
+      return (t.rows[0] as { id: string }).id;
+    };
+    idTagA1 = await buatTagihan(idBerkomitmen, idKat1, 20000, "sebagian");
+    idTagA2 = await buatTagihan(idBerkomitmen, idKat2, 50000, "belum_bayar");
+    idTagB = await buatTagihan(idTanpaNomor, idKat1, 50000, "belum_bayar");
+  }, 60_000);
+
+  afterAll(async () => {
+    await tutupAplikasiUji();
+  });
+
+  it("guard 15D: tanpa sesi / sesi warga → 401; mutasi tanpa CSRF → ditolak", async () => {
+    const tanpa = await kirim({ periode: PERIODE_UJI }, { tanpaSesi: true });
+    expect(tanpa.statusCode, "POST tanpa sesi").toBe(401);
+
+    const sesiWarga = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/pengingat`,
+      cookies: { sid: sidWarga, csrf_token: csrfWarga },
+      headers: { "x-csrf-token": csrfWarga },
+      payload: { periode: PERIODE_UJI },
+    });
+    expect(sesiWarga.statusCode, "POST sesi warga").toBe(401);
+    expect(isi(sesiWarga).error?.code).toBe("UNAUTHORIZED");
+
+    const tanpaCsrf = await kirim({ periode: PERIODE_UJI }, { tanpaCsrf: true });
+    expect(tanpaCsrf.statusCode, "POST tanpa x-csrf-token").toBe(401);
+    expect(isi(tanpaCsrf).error?.message).toMatch(/CSRF/);
+
+    const getTanpa = await app.inject({ method: "GET", url: `${api}/rt/iuran/pengingat` });
+    expect(getTanpa.statusCode, "GET tanpa sesi").toBe(401);
+  });
+
+  it("bulk: satu job per warga + tandai tagihan ber-SMS + audit; tanpa nomor dilewati", async () => {
+    const jobSebelum = await hitungJob();
+    const auditSebelum = await hitung(
+      { level: "rt", id: idRt04 },
+      "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'kirim_pengingat' AND scope_id = $1",
+      [idRt04],
+    );
+
+    const res = await kirim({ periode: PERIODE_UJI });
+    expect(res.statusCode, "POST bulk pengingat").toBe(200);
+    const h = isi(res).data as {
+      periode: string;
+      diantrikan: number;
+      ditandai: number;
+      tanpaNomor: number;
+    };
+    expect(h.periode).toBe(PERIODE_UJI);
+    expect(h.diantrikan, "hanya warga ber-nomor yang masuk antrean").toBe(1);
+    expect(h.ditandai, "dua tagihan warga A ikut ditandai").toBe(2);
+    expect(h.tanpaNomor, "warga B tanpa nomor dilaporkan apa adanya").toBe(1);
+
+    expect(await hitungJob(), "persis satu job baru (satu per warga)").toBe(jobSebelum + 1);
+    const job = await dalamScopePlat((c) =>
+      c.query(
+        `SELECT payload, tujuan FROM notifikasi_job
+          WHERE tipe = 'jatuh_tempo' AND status = 'queued' AND channel = 'whatsapp'
+            AND payload->>'periode' = $1 AND payload->>'rtId' = $2`,
+        [PERIODE_UJI, idRt04],
+      ),
+    );
+    expect(job.rows.length, "job antrean ditemukan").toBe(1);
+    const baris = job.rows[0] as { payload: { tagihanIds?: string[]; totalSisa?: number }; tujuan: string };
+    expect(baris.tujuan, "tujuan = nomor HP warga").toBe("081999000111");
+    expect(baris.payload.tagihanIds ?? [], "satu job memuat semua tagihan warga").toHaveLength(2);
+    expect(baris.payload.totalSisa, "total sisa 20.000 + 50.000").toBe(70000);
+
+    expect(await stampTagihan(idTagA1), "tagihan A1 ditandai").toBe(true);
+    expect(await stampTagihan(idTagA2), "tagihan A2 ditandai").toBe(true);
+    expect(await stampTagihan(idTagB), "warga tanpa nomor TIDAK ditandai (jujur)").toBe(false);
+
+    const auditSesudah = await hitung(
+      { level: "rt", id: idRt04 },
+      "SELECT count(*)::int AS n FROM audit_log WHERE aksi = 'kirim_pengingat' AND scope_id = $1",
+      [idRt04],
+    );
+    expect(auditSesudah, "audit kirim_pengingat tercatat").toBe(auditSebelum + 1);
+  });
+
+  it("satu alamat tak dikenal → 404 jujur, tanpa job & tanpa tandai baru", async () => {
+    const jobSebelum = await hitungJob();
+    const res = await kirim({ periode: PERIODE_UJI, alamat: "Blok Tidak Ada" });
+    expect(res.statusCode, "alamat asing ditolak").toBe(404);
+    expect(isi(res).error?.code).toBe("NOT_FOUND");
+    expect(isi(res).error?.message).toMatch(/tidak ditemukan/);
+    expect(await hitungJob(), "tanpa job untuk alamat asing").toBe(jobSebelum);
+  });
+
+  it("satu alamat (huruf kecil) → hanya warga di rumah itu; warga lain tak tersentuh", async () => {
+    // Reset tandai agar terlihat siapa yang ditandai ulang oleh permintaan ini.
+    await dalamScopePlat((c) =>
+      c.query("UPDATE tagihan SET pengingat_terakhir = NULL WHERE rt_id = $1 AND periode = $2", [
+        idRt04,
+        PERIODE_UJI,
+      ]),
+    );
+    const jobSebelum = await hitungJob();
+
+    const res = await kirim({ periode: PERIODE_UJI, alamat: alamatUji.toLowerCase() });
+    expect(res.statusCode, "pencocokan alamat case-insensitive").toBe(200);
+    const h = isi(res).data as { diantrikan: number; ditandai: number; tanpaNomor: number };
+    expect(h.diantrikan, "hanya warga A di rumah ini").toBe(1);
+    expect(h.ditandai, "dua tagihan warga A").toBe(2);
+    expect(h.tanpaNomor, "warga B tak punya rumah — tak ikut sasaran").toBe(0);
+    expect(await hitungJob()).toBe(jobSebelum + 1);
+    expect(await stampTagihan(idTagA1), "A1 ditandai ulang").toBe(true);
+    expect(await stampTagihan(idTagB), "tagihan di luar rumah tetap tanpa tandai").toBe(false);
+  });
+
+  it("GET peta tandai: alamat tercantum dengan waktu; periode lain kosong", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `${api}/rt/iuran/pengingat?periode=${PERIODE_UJI}`,
+      cookies: sesiRt(),
+    });
+    expect(res.statusCode).toBe(200);
+    const peta = isi(res).data.pengingat as Record<string, string>;
+    expect(peta[alamatUji.toLowerCase()], "chip untuk rumah uji").toBeDefined();
+    expect(Number.isNaN(new Date(peta[alamatUji.toLowerCase()]).getTime()), "waktu valid").toBe(false);
+
+    const lain = await app.inject({
+      method: "GET",
+      url: `${api}/rt/iuran/pengingat?periode=2026-11`,
+      cookies: sesiRt(),
+    });
+    expect(lain.statusCode).toBe(200);
+    expect(Object.keys(isi(lain).data.pengingat as Record<string, string>), "belum pernah diingatkan").toHaveLength(0);
+  });
+
+  it("semua lunas → diantrikan 0 (jujur, bukan sukses palsu); job tak bertambah", async () => {
+    // CHECK `tagihan_status_sisa`: status lunas wajib beriringan sisa = 0.
+    // Tagihan B sengaja DIPERTAHANKAN belum bayar — itulah satu-satunya
+    // sasaran tersisa (warga tanpa nomor) untuk menguji `tanpaNomor`.
+    await dalamScopePlat((c) =>
+      c.query(
+        `UPDATE tagihan SET status = 'lunas', sisa = 0, pengingat_terakhir = NULL
+          WHERE id IN ($1, $2)`,
+        [idTagA1, idTagA2],
+      ),
+    );
+    const jobSebelum = await hitungJob();
+
+    const res = await kirim({ periode: PERIODE_UJI });
+    expect(res.statusCode).toBe(200);
+    const h = isi(res).data as { diantrikan: number; ditandai: number; tanpaNomor: number };
+    expect(h.diantrikan, "tidak ada yang diantrekan").toBe(0);
+    expect(h.ditandai, "tidak ada yang ditandai").toBe(0);
+    expect(h.tanpaNomor, "warga B masih tanpa nomor (sisa satu-satunya sasaran)").toBe(1);
+    expect(await hitungJob(), "nol job = nol klaim").toBe(jobSebelum);
+    expect(await stampTagihan(idTagB), "stempel tetap kosong").toBe(false);
+  });
+
+  it("validasi input: periode rusak & alamat kosong → 400 VALIDATION", async () => {
+    const periode = await kirim({ periode: "2026-99" });
+    expect(periode.statusCode).toBe(400);
+    expect(isi(periode).error?.code).toBe("VALIDATION");
+    expect(isi(periode).error?.message).toMatch(/YYYY-MM/);
+
+    const alamat = await kirim({ periode: PERIODE_UJI, alamat: "   " });
+    expect(alamat.statusCode).toBe(400);
+    expect(isi(alamat).error?.message).toMatch(/wajib diisi/);
+
+    const get = await app.inject({
+      method: "GET",
+      url: `${api}/rt/iuran/pengingat?periode=bukan-periode`,
+      cookies: sesiRt(),
+    });
+    expect(get.statusCode, "GET periode rusak").toBe(400);
+  });
+
+  it("isolasi RT: bulk RT04 tidak menyentuh tagihan RT05", async () => {
+    const tagihanRt05 = await dalamScopePlat((c) =>
+      c.query("SELECT id FROM tagihan WHERE rt_id = $1 AND periode = '2026-10'", [idRt05]),
+    );
+    expect(tagihanRt05.rows.length, "fixtur tagihan RT05 (describe B7/B9) tersedia").toBeGreaterThan(0);
+    const jobRt05Sebelum = await hitung(
+      null,
+      "SELECT count(*)::int AS n FROM notifikasi_job WHERE payload->>'rtId' = $1",
+      [idRt05],
+    );
+
+    const res = await kirim({ periode: "2026-10" });
+    expect(res.statusCode, "bulk periode lain tetap jalan").toBe(200);
+
+    const tertandai = await dalamScopePlat((c) =>
+      c.query(
+        "SELECT count(*)::int AS n FROM tagihan WHERE rt_id = $1 AND periode = '2026-10' AND pengingat_terakhir IS NOT NULL",
+        [idRt05],
+      ),
+    );
+    expect((tertandai.rows[0] as { n: number }).n, "tagihan RT05 tanpa tandai").toBe(0);
+    const jobRt05Sesudah = await hitung(
+      null,
+      "SELECT count(*)::int AS n FROM notifikasi_job WHERE payload->>'rtId' = $1",
+      [idRt05],
+    );
+    expect(jobRt05Sesudah, "RT05 tak menerima job").toBe(jobRt05Sebelum);
+  });
+});

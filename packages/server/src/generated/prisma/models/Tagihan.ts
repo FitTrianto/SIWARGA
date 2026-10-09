@@ -51,6 +51,7 @@ export type TagihanMinAggregateOutputType = {
   status: $Enums.StatusTagihan | null
   dibuatPada: Date | null
   sumber: string | null
+  pengingatTerakhir: Date | null
 }
 
 export type TagihanMaxAggregateOutputType = {
@@ -66,6 +67,7 @@ export type TagihanMaxAggregateOutputType = {
   status: $Enums.StatusTagihan | null
   dibuatPada: Date | null
   sumber: string | null
+  pengingatTerakhir: Date | null
 }
 
 export type TagihanCountAggregateOutputType = {
@@ -81,6 +83,7 @@ export type TagihanCountAggregateOutputType = {
   status: number
   dibuatPada: number
   sumber: number
+  pengingatTerakhir: number
   _all: number
 }
 
@@ -110,6 +113,7 @@ export type TagihanMinAggregateInputType = {
   status?: true
   dibuatPada?: true
   sumber?: true
+  pengingatTerakhir?: true
 }
 
 export type TagihanMaxAggregateInputType = {
@@ -125,6 +129,7 @@ export type TagihanMaxAggregateInputType = {
   status?: true
   dibuatPada?: true
   sumber?: true
+  pengingatTerakhir?: true
 }
 
 export type TagihanCountAggregateInputType = {
@@ -140,6 +145,7 @@ export type TagihanCountAggregateInputType = {
   status?: true
   dibuatPada?: true
   sumber?: true
+  pengingatTerakhir?: true
   _all?: true
 }
 
@@ -242,6 +248,7 @@ export type TagihanGroupByOutputType = {
   status: $Enums.StatusTagihan
   dibuatPada: Date
   sumber: string
+  pengingatTerakhir: Date | null
   _count: TagihanCountAggregateOutputType | null
   _avg: TagihanAvgAggregateOutputType | null
   _sum: TagihanSumAggregateOutputType | null
@@ -280,6 +287,7 @@ export type TagihanWhereInput = {
   status?: Prisma.EnumStatusTagihanFilter<"Tagihan"> | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFilter<"Tagihan"> | Date | string
   sumber?: Prisma.StringFilter<"Tagihan"> | string
+  pengingatTerakhir?: Prisma.DateTimeNullableFilter<"Tagihan"> | Date | string | null
   rt?: Prisma.XOR<Prisma.RtScalarRelationFilter, Prisma.RtWhereInput>
   warga?: Prisma.XOR<Prisma.WargaScalarRelationFilter, Prisma.WargaWhereInput>
   kategori?: Prisma.XOR<Prisma.KategoriIuranScalarRelationFilter, Prisma.KategoriIuranWhereInput>
@@ -299,6 +307,7 @@ export type TagihanOrderByWithRelationInput = {
   status?: Prisma.SortOrder
   dibuatPada?: Prisma.SortOrder
   sumber?: Prisma.SortOrder
+  pengingatTerakhir?: Prisma.SortOrderInput | Prisma.SortOrder
   rt?: Prisma.RtOrderByWithRelationInput
   warga?: Prisma.WargaOrderByWithRelationInput
   kategori?: Prisma.KategoriIuranOrderByWithRelationInput
@@ -322,6 +331,7 @@ export type TagihanWhereUniqueInput = Prisma.AtLeast<{
   status?: Prisma.EnumStatusTagihanFilter<"Tagihan"> | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFilter<"Tagihan"> | Date | string
   sumber?: Prisma.StringFilter<"Tagihan"> | string
+  pengingatTerakhir?: Prisma.DateTimeNullableFilter<"Tagihan"> | Date | string | null
   rt?: Prisma.XOR<Prisma.RtScalarRelationFilter, Prisma.RtWhereInput>
   warga?: Prisma.XOR<Prisma.WargaScalarRelationFilter, Prisma.WargaWhereInput>
   kategori?: Prisma.XOR<Prisma.KategoriIuranScalarRelationFilter, Prisma.KategoriIuranWhereInput>
@@ -341,6 +351,7 @@ export type TagihanOrderByWithAggregationInput = {
   status?: Prisma.SortOrder
   dibuatPada?: Prisma.SortOrder
   sumber?: Prisma.SortOrder
+  pengingatTerakhir?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.TagihanCountOrderByAggregateInput
   _avg?: Prisma.TagihanAvgOrderByAggregateInput
   _max?: Prisma.TagihanMaxOrderByAggregateInput
@@ -364,6 +375,7 @@ export type TagihanScalarWhereWithAggregatesInput = {
   status?: Prisma.EnumStatusTagihanWithAggregatesFilter<"Tagihan"> | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeWithAggregatesFilter<"Tagihan"> | Date | string
   sumber?: Prisma.StringWithAggregatesFilter<"Tagihan"> | string
+  pengingatTerakhir?: Prisma.DateTimeNullableWithAggregatesFilter<"Tagihan"> | Date | string | null
 }
 
 export type TagihanCreateInput = {
@@ -376,6 +388,7 @@ export type TagihanCreateInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
   rt: Prisma.RtCreateNestedOneWithoutTagihanListInput
   warga: Prisma.WargaCreateNestedOneWithoutTagihanListInput
   kategori: Prisma.KategoriIuranCreateNestedOneWithoutTagihanListInput
@@ -395,6 +408,7 @@ export type TagihanUncheckedCreateInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
   alokasiList?: Prisma.AlokasiPembayaranUncheckedCreateNestedManyWithoutTagihanInput
 }
 
@@ -408,6 +422,7 @@ export type TagihanUpdateInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   rt?: Prisma.RtUpdateOneRequiredWithoutTagihanListNestedInput
   warga?: Prisma.WargaUpdateOneRequiredWithoutTagihanListNestedInput
   kategori?: Prisma.KategoriIuranUpdateOneRequiredWithoutTagihanListNestedInput
@@ -427,6 +442,7 @@ export type TagihanUncheckedUpdateInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   alokasiList?: Prisma.AlokasiPembayaranUncheckedUpdateManyWithoutTagihanNestedInput
 }
 
@@ -443,6 +459,7 @@ export type TagihanCreateManyInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
 }
 
 export type TagihanUpdateManyMutationInput = {
@@ -455,6 +472,7 @@ export type TagihanUpdateManyMutationInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TagihanUncheckedUpdateManyInput = {
@@ -470,6 +488,7 @@ export type TagihanUncheckedUpdateManyInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TagihanListRelationFilter = {
@@ -501,6 +520,7 @@ export type TagihanCountOrderByAggregateInput = {
   status?: Prisma.SortOrder
   dibuatPada?: Prisma.SortOrder
   sumber?: Prisma.SortOrder
+  pengingatTerakhir?: Prisma.SortOrder
 }
 
 export type TagihanAvgOrderByAggregateInput = {
@@ -522,6 +542,7 @@ export type TagihanMaxOrderByAggregateInput = {
   status?: Prisma.SortOrder
   dibuatPada?: Prisma.SortOrder
   sumber?: Prisma.SortOrder
+  pengingatTerakhir?: Prisma.SortOrder
 }
 
 export type TagihanMinOrderByAggregateInput = {
@@ -537,6 +558,7 @@ export type TagihanMinOrderByAggregateInput = {
   status?: Prisma.SortOrder
   dibuatPada?: Prisma.SortOrder
   sumber?: Prisma.SortOrder
+  pengingatTerakhir?: Prisma.SortOrder
 }
 
 export type TagihanSumOrderByAggregateInput = {
@@ -704,6 +726,7 @@ export type TagihanCreateWithoutRtInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
   warga: Prisma.WargaCreateNestedOneWithoutTagihanListInput
   kategori: Prisma.KategoriIuranCreateNestedOneWithoutTagihanListInput
   alokasiList?: Prisma.AlokasiPembayaranCreateNestedManyWithoutTagihanInput
@@ -721,6 +744,7 @@ export type TagihanUncheckedCreateWithoutRtInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
   alokasiList?: Prisma.AlokasiPembayaranUncheckedCreateNestedManyWithoutTagihanInput
 }
 
@@ -766,6 +790,7 @@ export type TagihanScalarWhereInput = {
   status?: Prisma.EnumStatusTagihanFilter<"Tagihan"> | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFilter<"Tagihan"> | Date | string
   sumber?: Prisma.StringFilter<"Tagihan"> | string
+  pengingatTerakhir?: Prisma.DateTimeNullableFilter<"Tagihan"> | Date | string | null
 }
 
 export type TagihanCreateWithoutWargaInput = {
@@ -778,6 +803,7 @@ export type TagihanCreateWithoutWargaInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
   rt: Prisma.RtCreateNestedOneWithoutTagihanListInput
   kategori: Prisma.KategoriIuranCreateNestedOneWithoutTagihanListInput
   alokasiList?: Prisma.AlokasiPembayaranCreateNestedManyWithoutTagihanInput
@@ -795,6 +821,7 @@ export type TagihanUncheckedCreateWithoutWargaInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
   alokasiList?: Prisma.AlokasiPembayaranUncheckedCreateNestedManyWithoutTagihanInput
 }
 
@@ -834,6 +861,7 @@ export type TagihanCreateWithoutKategoriInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
   rt: Prisma.RtCreateNestedOneWithoutTagihanListInput
   warga: Prisma.WargaCreateNestedOneWithoutTagihanListInput
   alokasiList?: Prisma.AlokasiPembayaranCreateNestedManyWithoutTagihanInput
@@ -851,6 +879,7 @@ export type TagihanUncheckedCreateWithoutKategoriInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
   alokasiList?: Prisma.AlokasiPembayaranUncheckedCreateNestedManyWithoutTagihanInput
 }
 
@@ -890,6 +919,7 @@ export type TagihanCreateWithoutAlokasiListInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
   rt: Prisma.RtCreateNestedOneWithoutTagihanListInput
   warga: Prisma.WargaCreateNestedOneWithoutTagihanListInput
   kategori: Prisma.KategoriIuranCreateNestedOneWithoutTagihanListInput
@@ -908,6 +938,7 @@ export type TagihanUncheckedCreateWithoutAlokasiListInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
 }
 
 export type TagihanCreateOrConnectWithoutAlokasiListInput = {
@@ -936,6 +967,7 @@ export type TagihanUpdateWithoutAlokasiListInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   rt?: Prisma.RtUpdateOneRequiredWithoutTagihanListNestedInput
   warga?: Prisma.WargaUpdateOneRequiredWithoutTagihanListNestedInput
   kategori?: Prisma.KategoriIuranUpdateOneRequiredWithoutTagihanListNestedInput
@@ -954,6 +986,7 @@ export type TagihanUncheckedUpdateWithoutAlokasiListInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TagihanCreateManyRtInput = {
@@ -968,6 +1001,7 @@ export type TagihanCreateManyRtInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
 }
 
 export type TagihanUpdateWithoutRtInput = {
@@ -980,6 +1014,7 @@ export type TagihanUpdateWithoutRtInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   warga?: Prisma.WargaUpdateOneRequiredWithoutTagihanListNestedInput
   kategori?: Prisma.KategoriIuranUpdateOneRequiredWithoutTagihanListNestedInput
   alokasiList?: Prisma.AlokasiPembayaranUpdateManyWithoutTagihanNestedInput
@@ -997,6 +1032,7 @@ export type TagihanUncheckedUpdateWithoutRtInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   alokasiList?: Prisma.AlokasiPembayaranUncheckedUpdateManyWithoutTagihanNestedInput
 }
 
@@ -1012,6 +1048,7 @@ export type TagihanUncheckedUpdateManyWithoutRtInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TagihanCreateManyWargaInput = {
@@ -1026,6 +1063,7 @@ export type TagihanCreateManyWargaInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
 }
 
 export type TagihanUpdateWithoutWargaInput = {
@@ -1038,6 +1076,7 @@ export type TagihanUpdateWithoutWargaInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   rt?: Prisma.RtUpdateOneRequiredWithoutTagihanListNestedInput
   kategori?: Prisma.KategoriIuranUpdateOneRequiredWithoutTagihanListNestedInput
   alokasiList?: Prisma.AlokasiPembayaranUpdateManyWithoutTagihanNestedInput
@@ -1055,6 +1094,7 @@ export type TagihanUncheckedUpdateWithoutWargaInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   alokasiList?: Prisma.AlokasiPembayaranUncheckedUpdateManyWithoutTagihanNestedInput
 }
 
@@ -1070,6 +1110,7 @@ export type TagihanUncheckedUpdateManyWithoutWargaInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 export type TagihanCreateManyKategoriInput = {
@@ -1084,6 +1125,7 @@ export type TagihanCreateManyKategoriInput = {
   status?: $Enums.StatusTagihan
   dibuatPada?: Date | string
   sumber?: string
+  pengingatTerakhir?: Date | string | null
 }
 
 export type TagihanUpdateWithoutKategoriInput = {
@@ -1096,6 +1138,7 @@ export type TagihanUpdateWithoutKategoriInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   rt?: Prisma.RtUpdateOneRequiredWithoutTagihanListNestedInput
   warga?: Prisma.WargaUpdateOneRequiredWithoutTagihanListNestedInput
   alokasiList?: Prisma.AlokasiPembayaranUpdateManyWithoutTagihanNestedInput
@@ -1113,6 +1156,7 @@ export type TagihanUncheckedUpdateWithoutKategoriInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   alokasiList?: Prisma.AlokasiPembayaranUncheckedUpdateManyWithoutTagihanNestedInput
 }
 
@@ -1128,6 +1172,7 @@ export type TagihanUncheckedUpdateManyWithoutKategoriInput = {
   status?: Prisma.EnumStatusTagihanFieldUpdateOperationsInput | $Enums.StatusTagihan
   dibuatPada?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   sumber?: Prisma.StringFieldUpdateOperationsInput | string
+  pengingatTerakhir?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
 
@@ -1174,6 +1219,7 @@ export type TagihanSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   status?: boolean
   dibuatPada?: boolean
   sumber?: boolean
+  pengingatTerakhir?: boolean
   rt?: boolean | Prisma.RtDefaultArgs<ExtArgs>
   warga?: boolean | Prisma.WargaDefaultArgs<ExtArgs>
   kategori?: boolean | Prisma.KategoriIuranDefaultArgs<ExtArgs>
@@ -1194,6 +1240,7 @@ export type TagihanSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exten
   status?: boolean
   dibuatPada?: boolean
   sumber?: boolean
+  pengingatTerakhir?: boolean
   rt?: boolean | Prisma.RtDefaultArgs<ExtArgs>
   warga?: boolean | Prisma.WargaDefaultArgs<ExtArgs>
   kategori?: boolean | Prisma.KategoriIuranDefaultArgs<ExtArgs>
@@ -1212,6 +1259,7 @@ export type TagihanSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exten
   status?: boolean
   dibuatPada?: boolean
   sumber?: boolean
+  pengingatTerakhir?: boolean
   rt?: boolean | Prisma.RtDefaultArgs<ExtArgs>
   warga?: boolean | Prisma.WargaDefaultArgs<ExtArgs>
   kategori?: boolean | Prisma.KategoriIuranDefaultArgs<ExtArgs>
@@ -1230,9 +1278,10 @@ export type TagihanSelectScalar = {
   status?: boolean
   dibuatPada?: boolean
   sumber?: boolean
+  pengingatTerakhir?: boolean
 }
 
-export type TagihanOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "rtId" | "wargaId" | "kategoriId" | "periode" | "nominal" | "nominalAwal" | "sisa" | "tenggat" | "status" | "dibuatPada" | "sumber", ExtArgs["result"]["tagihan"]>
+export type TagihanOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "rtId" | "wargaId" | "kategoriId" | "periode" | "nominal" | "nominalAwal" | "sisa" | "tenggat" | "status" | "dibuatPada" | "sumber" | "pengingatTerakhir", ExtArgs["result"]["tagihan"]>
 export type TagihanInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   rt?: boolean | Prisma.RtDefaultArgs<ExtArgs>
   warga?: boolean | Prisma.WargaDefaultArgs<ExtArgs>
@@ -1272,6 +1321,7 @@ export type $TagihanPayload<ExtArgs extends runtime.Types.Extensions.InternalArg
     status: $Enums.StatusTagihan
     dibuatPada: Date
     sumber: string
+    pengingatTerakhir: Date | null
   }, ExtArgs["result"]["tagihan"]>
   composites: {}
 }
@@ -1711,6 +1761,7 @@ export interface TagihanFieldRefs {
   readonly status: Prisma.FieldRef<"Tagihan", 'StatusTagihan'>
   readonly dibuatPada: Prisma.FieldRef<"Tagihan", 'DateTime'>
   readonly sumber: Prisma.FieldRef<"Tagihan", 'String'>
+  readonly pengingatTerakhir: Prisma.FieldRef<"Tagihan", 'DateTime'>
 }
     
 

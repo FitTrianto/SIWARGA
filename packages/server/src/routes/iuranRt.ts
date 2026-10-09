@@ -14,6 +14,8 @@
  *   GET   /rt/iuran/pengaturan               → modeAlokasi/tenggatHari/dendaAktif (B7)
  *   PATCH /rt/iuran/pengaturan               → ubah pengaturan iuran (B7)
  *   POST  /rt/iuran/tagihan/generate         → generate tagihan bulanan idempoten (B9)
+ *   POST  /rt/iuran/pengingat                → tandai + antrean notifikasi pengingat (15D)
+ *   GET   /rt/iuran/pengingat?periode=       → peta alamat → pengingat terakhir (15D)
  *   POST  /rt/iuran/kondisional              → buat tagihan insidental (iuran kondisional)
  *   GET   /rt/iuran/kondisional              → daftar tagihan insidental + status per warga
  *   GET   /rt/warga/:id/profil-iuran         → profil iuran per warga (B9, deviasi kontrak)
@@ -33,6 +35,7 @@ import { config } from "../config.js";
 import { catatAudit } from "../plugins/audit.js";
 import { verifikasiCsrf } from "../plugins/csrf.js";
 import { GalatTolak, wajibRt } from "../plugins/guard.js";
+import { batasAuth } from "../plugins/ratelimit.js";
 import { denganScopeRequest } from "../plugins/scope.js";
 import type { DbTransaksi } from "../services/db.js";
 import { terapkanAlokasiPembayaran, tanggalPendek } from "../services/alokasiRepo.js";
@@ -95,6 +98,16 @@ const skemaCatat = z.object({
     .optional(),
   // B7 — mode terpisah: alokasi hanya ke satu kategori (§4.1)
   kategoriTujuan: skemaId.optional(),
+});
+
+// Batch 15D — pengingat iuran: `alamat` opsional menyasar SATU rumah (tombol
+// baris); tanpa `alamat` = seluruh tagihan belum lunas pada periode (bulk).
+const skemaPengingat = z.object({
+  periode: skemaPeriode.optional(),
+  alamat: z.string().trim().min(1, "Alamat rumah wajib diisi.").max(160).optional(),
+});
+const skemaQueryPengingat = z.object({
+  periode: skemaPeriode.optional(),
 });
 
 /** B7 — pengaturan iuran; PATCH menerima minimal satu field (parsial). */
@@ -1189,6 +1202,181 @@ export const ruteIuranRt: FastifyPluginAsync = async (app) => {
     });
 
     return reply.ok(hasil);
+  });
+
+  /**
+   * Batch 15D — KIRIM PENGINGAT IURAN: tandai `pengingat_terakhir` + antrean
+   * `notifikasi_job` (tipe `jatuh_tempo`, channel WhatsApp — PRD §6.9/§12.2).
+   * Tombol "Kirim Pengingat" sebelumnya hanya `flash` di FE (audit laporan
+   * perbaikan butir 21–22) — kini respons membawa ANGKA SERVER apa adanya.
+   *
+   *   POST /rt/iuran/pengingat { periode?, alamat? }
+   *
+   * Tanpa `alamat` = seluruh tagihan belum lunas `periode` (bulk); dengan
+   * `alamat` = satu rumah (tombol baris; alamat tak dikenal → 404 jujur).
+   * SATU job per warga (bukan per tagihan) — beberapa tagihan cukup satu
+   * pesan berisi seluruh tunggakan. Hanya warga dengan nomor HP masuk
+   * antrean; tanpa nomor dihitung `tanpaNomor` dan tagihannya TIDAK ditandai
+   * (tandai = antrean benar-benar dibuat, bukan klaim). `batasAuth` (10/menit)
+   * mencegah semburan antrean WA.
+   */
+  app.post(
+    "/rt/iuran/pengingat",
+    { preHandler: verifikasiCsrf, config: batasAuth },
+    async (req, reply) => {
+      const { rtId, sesi } = wajibRt(req);
+      const { periode = config.periodeAktif, alamat } = skemaPengingat.parse(req.body ?? {});
+
+      const hasil = await denganScopeRequest(req, async (tx) => {
+        const oleh = await pengurusAktif(tx, rtId, sesi.subjekId);
+
+        // Sasaran satu alamat: alamat harus dikenal RT ini — typo ≠ "tidak ada
+        // tagihan" (itu akan menutupi kesalahan pengguna).
+        if (alamat) {
+          const rumahAda = await tx.rumah.findFirst({
+            where: { rtId, alamat: { equals: alamat, mode: "insensitive" } },
+            select: { id: true },
+          });
+          if (!rumahAda) {
+            throw new GalatTolak(
+              "NOT_FOUND",
+              "Alamat rumah tidak ditemukan di RT ini — tidak ada pengingat yang diantrikan.",
+            );
+          }
+        }
+
+        const tagihan = await tx.tagihan.findMany({
+          where: {
+            rtId,
+            periode,
+            status: { in: ["belum_bayar", "sebagian"] },
+            ...(alamat
+              ? { warga: { rumah: { alamat: { equals: alamat, mode: "insensitive" } } } }
+              : {}),
+          },
+          select: {
+            id: true,
+            sisa: true,
+            wargaId: true,
+            warga: { select: { nama: true, noHp: true, rumah: { select: { alamat: true } } } },
+          },
+        });
+
+        const perWarga = new Map<
+          string,
+          { nama: string; noHp: string | null; alamat: string | null; ids: string[]; total: number }
+        >();
+        for (const t of tagihan) {
+          const g = perWarga.get(t.wargaId) ?? {
+            nama: t.warga.nama,
+            noHp: t.warga.noHp,
+            alamat: t.warga.rumah?.alamat ?? null,
+            ids: [],
+            total: 0,
+          };
+          g.ids.push(t.id);
+          g.total += Number(t.sisa);
+          perWarga.set(t.wargaId, g);
+        }
+
+        let diantrikan = 0;
+        let tanpaNomor = 0;
+        const ditandai: string[] = [];
+        for (const [wargaId, g] of perWarga) {
+          if (!g.noHp) {
+            tanpaNomor += 1;
+            continue;
+          }
+          await tx.notifikasiJob.create({
+            data: {
+              tipe: "jatuh_tempo",
+              channel: "whatsapp",
+              tujuan: g.noHp,
+              payload: {
+                rtId,
+                periode,
+                wargaId,
+                namaWarga: g.nama,
+                alamat: g.alamat,
+                tagihanIds: g.ids,
+                totalSisa: r2(g.total),
+              },
+            },
+          });
+          diantrikan += 1;
+          ditandai.push(...g.ids);
+        }
+
+        if (ditandai.length > 0) {
+          await tx.tagihan.updateMany({
+            where: { id: { in: ditandai } },
+            data: { pengingatTerakhir: new Date() },
+          });
+        }
+
+        await catatAudit(
+          {
+            scopeLevel: "rt",
+            scopeId: rtId,
+            actorId: oleh,
+            actorRole: "rt_admin",
+            portal: "rt",
+            modul: "iuran",
+            aksi: "kirim_pengingat",
+            aksiBadge: "Diantrekan",
+            entitas: "tagihan",
+            sesudah: {
+              periode,
+              alamat: alamat ?? "semua",
+              diantrikan,
+              ditandai: ditandai.length,
+              tanpaNomor,
+            },
+            ringkasan:
+              `Pengingat ${periode}: ${diantrikan} warga diantrekan, ` +
+              `${ditandai.length} tagihan ditandai` +
+              (tanpaNomor > 0 ? `, ${tanpaNomor} tanpa nomor dilewati` : ""),
+            ip: req.ipAsli,
+          },
+          tx,
+        );
+
+        return { periode, diantrikan, ditandai: ditandai.length, tanpaNomor };
+      });
+
+      return reply.ok(hasil);
+    },
+  );
+
+  /**
+   * Batch 15D — peta tandai pengingat per alamat untuk satu periode (chip
+   * "Pengingat 9 Okt 14.32" di baris tabel Portal RT). Hanya tagihan yang
+   * benar-benar diantrekan (`pengingat_terakhir` terisi); kunci = alamat
+   * huruf kecil agar cocokan FE bebas kapitalisasi.
+   */
+  app.get("/rt/iuran/pengingat", async (req, reply) => {
+    const { rtId } = wajibRt(req);
+    const { periode = config.periodeAktif } = skemaQueryPengingat.parse(req.query);
+
+    const rows = await denganScopeRequest(req, async (tx) =>
+      tx.tagihan.findMany({
+        where: { rtId, periode, pengingatTerakhir: { not: null } },
+        select: {
+          pengingatTerakhir: true,
+          warga: { select: { rumah: { select: { alamat: true } } } },
+        },
+      }),
+    );
+
+    const peta: Record<string, string> = {};
+    for (const r of rows) {
+      const al = r.warga.rumah?.alamat?.trim().toLowerCase();
+      const waktu = r.pengingatTerakhir?.toISOString();
+      if (!al || !waktu) continue;
+      if (!peta[al] || peta[al] < waktu) peta[al] = waktu;
+    }
+
+    return reply.ok({ periode, pengingat: peta });
   });
 
   /**

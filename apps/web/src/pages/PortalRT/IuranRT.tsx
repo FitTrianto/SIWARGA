@@ -25,10 +25,12 @@ import {
 import {
   GalatApi,
   labelPeriodeServer,
+  periodeDariLabel,
   serverKeKategori,
   type BarisProfilIuran,
   type BarisTagihanRtServer,
   type HasilGenerateTagihan,
+  type HasilPengingatIuran,
   type KategoriIuranServer,
   type PengaturanIuranRt,
   type StatusTutupBukuIuran,
@@ -110,6 +112,17 @@ interface IuranRTProps {
     periodeTertutup: string;
     dibukaKembaliPada: string | null;
   } | null>;
+  /**
+   * Batch 15D — `POST /rt/iuran/pengingat` (tandai + antrean notifikasi);
+   * `null` = OFFLINE. Galat non-OFFLINE (404 alamat, 400 validasi, sesi habis)
+   * DILEMPAR agar pesan server tampil apa adanya.
+   */
+  onKirimPengingat: (payload: {
+    periode?: string;
+    alamat?: string;
+  }) => Promise<HasilPengingatIuran | null>;
+  /** Batch 15D — `GET /rt/iuran/pengingat?periode=`; `null` = OFFLINE (tanpa chip). */
+  onMuatPengingat: (periode: string) => Promise<Record<string, string> | null>;
   /** B9/B10 — `GET /rt/iuran/tagihan`; `null` = OFFLINE. */
   onMuatTagihanServer: (opsi: {
     periode?: string;
@@ -195,6 +208,8 @@ export function IuranRT({
   onGenerateTagihan,
   onTutupBuku,
   onBukaBuku,
+  onKirimPengingat,
+  onMuatPengingat,
   onMuatTagihanServer,
   onMuatProfilIuran,
   onSimpanProfilIuran,
@@ -250,6 +265,13 @@ export function IuranRT({
   const [nominalTarget, setNominalTarget] = useState<BarisTagihanRtServer | null>(null);
   const [nominalForm, setNominalForm] = useState<Record<string, string>>({});
   const [nominalSedang, setNominalSedang] = useState(false);
+
+  // Batch 15D — pengingat iuran: penanda proses (anti submit ganda) + peta
+  // tandai per alamat dari server. `null` = belum termuat / OFFLINE → chip
+  // tidak ditampilkan (jujur: tanpa tandai, tanpa klaim).
+  const [pengingatSedang, setPengingatSedang] = useState(false);
+  const [pengingatBaris, setPengingatBaris] = useState<string | null>(null);
+  const [petaPengingat, setPetaPengingat] = useState<Record<string, string> | null>(null);
 
   // §6.4.1 — cegah submit ganda CRUD kategori selagi menunggu respons server.
   const [kategoriSedang, setKategoriSedang] = useState(false);
@@ -333,6 +355,29 @@ export function IuranRT({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fPeriode, fKategori, fStatus, qServer, pemicuMuat]);
+
+  // Batch 15D — muat peta tandai pengingat mengikuti filter periode tabel.
+  // OFFLINE / galat → `null` (tanpa chip; sesi habis ditangani App). Handler
+  // sengaja bukan dependensi — identitasnya berubah tiap render App.
+  useEffect(() => {
+    let batal = false;
+    const periode = periodeDariLabel(filterPeriode);
+    if (!periode) {
+      setPetaPengingat(null);
+      return;
+    }
+    onMuatPengingat(periode)
+      .then((peta) => {
+        if (!batal) setPetaPengingat(peta);
+      })
+      .catch(() => {
+        if (!batal) setPetaPengingat(null);
+      });
+    return () => {
+      batal = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterPeriode]);
 
   const modeTerpisah = pengaturanIuran?.modeAlokasi === "terpisah";
 
@@ -448,6 +493,101 @@ export function IuranRT({
       setTutupBukuSedang(false);
       return flash(err instanceof GalatApi ? err.message : "Buka buku gagal — coba lagi.");
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Batch 15D — KIRIM PENGINGAT: sebelumnya tombol hanya `flash` klien (audit
+  // laporan perbaikan butir 21–22). Kini seluruh angka berasal dari balasan
+  // server; OFFLINE / galat tampil apa adanya — tanpa klaim "terkirim".
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Teks flash dari angka SERVER. Memakai "diantrekan" (bukan "terkirim"):
+   * baris masuk `notifikasi_job` — pengiriman WA sungguhan menunggu worker
+   * (PRD §12.2, B26) yang belum ada.
+   */
+  function pesanPengingat(h: HasilPengingatIuran, konteksAlamat?: string): string {
+    const label = labelPeriodeServer(h.periode);
+    if (h.diantrikan === 0) {
+      if (h.tanpaNomor > 0) {
+        return (
+          `Tidak ada pengingat diantrekan${konteksAlamat ? ` untuk ${konteksAlamat}"` : ""}: ` +
+          `${h.tanpaNomor} warga sasaran belum punya nomor WhatsApp.`
+        );
+      }
+      return (
+        `Tidak ada tagihan belum lunas${konteksAlamat ? ` untuk ${konteksAlamat}` : ""} pada ${label} ` +
+        "— tidak ada pengingat yang diantrikan."
+      );
+    }
+    let pesan =
+      `${h.diantrikan} pengingat diantrekan (WhatsApp) untuk ${label} — ` +
+      `${h.ditandai} tagihan ditandai.`;
+    if (h.tanpaNomor > 0) pesan += ` ${h.tanpaNomor} warga tanpa nomor dilewati.`;
+    return pesan;
+  }
+
+  /** Muat ulang peta tandai sesudah pengingat; gagal → tanpa chip (jujur). */
+  async function segarkanPeta(periode: string): Promise<void> {
+    try {
+      setPetaPengingat(await onMuatPengingat(periode));
+    } catch {
+      setPetaPengingat(null);
+    }
+  }
+
+  /** Bulk — seluruh tagihan belum lunas pada periode filter tabel. */
+  async function handleKirimPengingatBulk() {
+    if (pengingatSedang) return flash("Permintaan masih diproses — tunggu sebentar.");
+    const periode = periodeDariLabel(filterPeriode);
+    if (!periode) return flash("Periode tabel tidak dikenali — pengingat tidak diantrikan.");
+    setPengingatSedang(true);
+    try {
+      const h = await onKirimPengingat({ periode });
+      setPengingatSedang(false);
+      if (!h) {
+        flash("Mode demo (server tidak terjangkau) — pengingat TIDAK diantrikan.");
+        return;
+      }
+      flash(pesanPengingat(h));
+      await segarkanPeta(h.periode);
+    } catch (err) {
+      setPengingatSedang(false);
+      flash(err instanceof GalatApi ? err.message : "Gagal mengirim pengingat — coba lagi.");
+    }
+  }
+
+  /** Satu baris — sasaran `alamat` rumah itu (server memvalidasi alamatnya). */
+  async function handleKirimPengingatBaris(row: TagihanRow) {
+    if (pengingatBaris) return flash("Permintaan masih diproses — tunggu sebentar.");
+    const periode = periodeDariLabel(row.periode);
+    if (!periode) return flash("Periode baris tidak dikenali — pengingat tidak diantrikan.");
+    setPengingatBaris(row.id);
+    try {
+      const h = await onKirimPengingat({ periode, alamat: row.alamat });
+      setPengingatBaris(null);
+      if (!h) {
+        flash("Mode demo (server tidak terjangkau) — pengingat TIDAK diantrikan.");
+        return;
+      }
+      flash(pesanPengingat(h, row.alamat));
+      await segarkanPeta(h.periode);
+    } catch (err) {
+      setPengingatBaris(null);
+      flash(err instanceof GalatApi ? err.message : "Gagal mengirim pengingat — coba lagi.");
+    }
+  }
+
+  /** ISO server → "9 Okt 14.32" (zona perangkat); nilai tak terbaca ditampilkan apa adanya. */
+  function formatWaktuPengingat(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString("id-ID", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   /**
@@ -962,11 +1102,12 @@ export function IuranRT({
             Atur Kategori
           </button>
           <button
-            className="h-11 px-5 rounded-xl bg-surface-container-lowest text-on-surface text-sm shadow-sm hover:shadow-md hover:bg-surface-container-low transition-all flex items-center gap-2"
-            onClick={() => flash(`Pengingat terkirim ke ${rekap.belumCount} rumah yang belum bayar`)}
+            className="h-11 px-5 rounded-xl bg-surface-container-lowest text-on-surface text-sm shadow-sm hover:shadow-md hover:bg-surface-container-low transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+            onClick={() => handleKirimPengingatBulk()}
+            disabled={pengingatSedang}
           >
             <span className="material-symbols-outlined text-tertiary text-[20px]">notifications</span>
-            Kirim Pengingat
+            {pengingatSedang ? "Mengantre…" : "Kirim Pengingat"}
           </button>
           <button
             className="h-11 px-5 rounded-xl bg-primary text-on-primary text-sm shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2"
@@ -1072,6 +1213,14 @@ export function IuranRT({
                         <span className="w-2 h-2 rounded-full bg-current opacity-60" />
                         {row.status}
                       </span>
+                      {/* Batch 15D — chip tandai pengingat dari server (kunci alamat
+                          huruf kecil); tanpa entri = memang belum pernah diantrekan. */}
+                      {petaPengingat?.[row.alamat.trim().toLowerCase()] && (
+                        <div className="mt-1.5 text-[11px] text-on-surface-variant inline-flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[13px]">schedule</span>
+                          Pengingat {formatWaktuPengingat(petaPengingat[row.alamat.trim().toLowerCase()])}
+                        </div>
+                      )}
                     </td>
                     <td className="py-4 px-4">
                       <span className="text-xs text-on-surface-variant font-mono">
@@ -1089,11 +1238,12 @@ export function IuranRT({
                         </button>
                         {(row.status === "Belum Bayar" || row.status === "Denda" || row.status === "Sebagian") && (
                           <button
-                            className="h-8 px-3 rounded-lg bg-tertiary-container/40 text-on-tertiary-container hover:bg-tertiary-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
-                            onClick={() => flash(`Pengingat terkirim ke ${row.kepalaKk} (${row.alamat})`)}
+                            className="h-8 px-3 rounded-lg bg-tertiary-container/40 text-on-tertiary-container hover:bg-tertiary-container text-xs font-semibold inline-flex items-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                            onClick={() => handleKirimPengingatBaris(row)}
+                            disabled={pengingatBaris !== null}
                           >
                             <span className="material-symbols-outlined text-[14px]">notifications</span>
-                            Kirim Pengingat
+                            {pengingatBaris === row.id ? "Mengantre…" : "Kirim Pengingat"}
                           </button>
                         )}
                         {/* Batch 15C — tombol "Bebaskan Denda" DIHAPUS sesuai spek:

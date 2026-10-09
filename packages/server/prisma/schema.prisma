@@ -735,6 +735,9 @@ model Tagihan {
   status      StatusTagihan @default(belum_bayar)
   dibuatPada  DateTime      @default(now()) @map("dibuat_pada") @db.Timestamptz(3)
   sumber      String        @default("bulk") @db.VarChar(16) // bulk | insidental
+  // Batch 15D — tandai pengingat: kapan tagihan terakhir masuk antrean
+  // `notifikasi_job` (NULL = belum pernah diingatkan).
+  pengingatTerakhir DateTime? @map("pengingat_terakhir") @db.Timestamptz(3)
 
   rt       Rt          @relation(fields: [rtId], references: [id])
   warga    Warga       @relation(fields: [wargaId], references: [id], onDelete: Cascade)

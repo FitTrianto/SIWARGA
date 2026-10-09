@@ -644,6 +644,50 @@ export function bukaBukuIuranRt(): Promise<{
   return minta("/rt/iuran/tutup-buku/buka", { method: "POST", body: {}, csrf: true });
 }
 
+/** Batch 15D — hasil `POST /rt/iuran/pengingat` (angka SERVER apa adanya). */
+export interface HasilPengingatIuran {
+  periode: string;
+  /** Warga (bukan tagihan) yang masuk antrean WhatsApp — satu job per warga. */
+  diantrikan: number;
+  /** Tagihan yang ditandai `pengingat_terakhir`. */
+  ditandai: number;
+  /** Warga sasaran TANPA nomor HP — tidak diantrekan, tidak ditandai. */
+  tanpaNomor: number;
+}
+
+/**
+ * Batch 15D — kirim pengingat iuran: server menandai tagihan + menambahkan
+ * `notifikasi_job` (tipe `jatuh_tempo`). `alamat` menyasar SATU rumah (tombol
+ * baris); tanpa `alamat` = seluruh tagihan belum lunas pada periode (bulk).
+ * OFFLINE → galat `OFFLINE` — tangkap di pemanggil, jangan pernah mengklaim
+ * "terkirim" tanpa balasan server.
+ */
+export function kirimPengingatIuran(payload: {
+  periode?: string;
+  alamat?: string;
+}): Promise<HasilPengingatIuran> {
+  return minta("/rt/iuran/pengingat", { method: "POST", body: payload, csrf: true });
+}
+
+/** Batch 15D — `GET /rt/iuran/pengingat?periode=` → peta alamat (huruf kecil) → ISO waktu. */
+export function muatPengingatIuran(periode: string): Promise<{
+  periode: string;
+  pengingat: Record<string, string>;
+}> {
+  return minta(`/rt/iuran/pengingat?periode=${encodeURIComponent(periode)}`);
+}
+
+/**
+ * Batch 15D — label FE `"Oktober 2026"` → periode server `"2026-10"`.
+ * Label tak dikenal → `null` (pemanggil menahan permintaan — bukan menebak).
+ */
+export function periodeDariLabel(label: string): string | null {
+  const m = /^(\S+)\s+(\d{4})$/.exec(label.trim());
+  if (!m) return null;
+  const idx = BULAN_PANJANG.indexOf(m[1]);
+  return idx < 0 ? null : `${m[2]}-${String(idx + 1).padStart(2, "0")}`;
+}
+
 /** Satu baris `GET /rt/iuran/kategori` (master server — bukan state demo FE). */
 export interface KategoriIuranServer {
   id: string;

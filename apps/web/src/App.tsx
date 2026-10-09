@@ -36,6 +36,7 @@ import {
   kategoriIuranRt,
   kategoriKasKeServer,
   keluargaKeKkData,
+  kirimPengingatIuran,
   kirimUlangUndanganRt,
   kondisionalRtKeKartu,
   kondisionalWarga,
@@ -45,6 +46,7 @@ import {
   logoutPengurus,
   logoutWarga,
   metodeKeServer,
+  muatPengingatIuran,
   patchKontakKeFe,
   pembayaranRt,
   pengaturanIuranRt,
@@ -82,6 +84,7 @@ import {
   type BarisWargaRtServer,
   type EntriRiwayatLogin,
   type HasilGenerateTagihan,
+  type HasilPengingatIuran,
   type HasilHapusHunian,
   type HasilImporWarga,
   type HunianServer,
@@ -1032,6 +1035,30 @@ export default function App() {
   } | null> => {
     try {
       return await bukaBukuIuranRt();
+    } catch (err) {
+      if (err instanceof GalatApi && err.code === "OFFLINE") return null;
+      tanganiSesiHabis(err);
+      throw err;
+    }
+  };
+
+  // --- Batch 15D · pengingat iuran (tandai + antrean notifikasi) -------------
+  const kirimPengingatSesi = async (payload: {
+    periode?: string;
+    alamat?: string;
+  }): Promise<HasilPengingatIuran | null> => {
+    try {
+      return await kirimPengingatIuran(payload);
+    } catch (err) {
+      if (err instanceof GalatApi && err.code === "OFFLINE") return null;
+      tanganiSesiHabis(err);
+      throw err;
+    }
+  };
+
+  const muatPengingatSesi = async (periode: string): Promise<Record<string, string> | null> => {
+    try {
+      return (await muatPengingatIuran(periode)).pengingat;
     } catch (err) {
       if (err instanceof GalatApi && err.code === "OFFLINE") return null;
       tanganiSesiHabis(err);
@@ -2332,6 +2359,8 @@ export default function App() {
         onGenerateTagihan={generateTagihanSesi}
         onTutupBuku={tutupBukuSesi}
         onBukaBuku={bukaBukuSesi}
+        onKirimPengingat={kirimPengingatSesi}
+        onMuatPengingat={muatPengingatSesi}
         onMuatTagihanServer={muatTagihanServer}
         onMuatProfilIuran={muatProfilIuranSesi}
         onSimpanProfilIuran={simpanProfilIuranSesi}

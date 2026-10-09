@@ -3642,7 +3642,8 @@ export const TagihanScalarFieldEnum = {
   tenggat: 'tenggat',
   status: 'status',
   dibuatPada: 'dibuatPada',
-  sumber: 'sumber'
+  sumber: 'sumber',
+  pengingatTerakhir: 'pengingatTerakhir'
 } as const
 
 export type TagihanScalarFieldEnum = (typeof TagihanScalarFieldEnum)[keyof typeof TagihanScalarFieldEnum]
