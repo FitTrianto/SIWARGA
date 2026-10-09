@@ -24,6 +24,7 @@ import {
 } from "../../lib/shared";
 import {
   GalatApi,
+  buktiHref,
   labelPeriodeServer,
   periodeDariLabel,
   serverKeKategori,
@@ -1633,7 +1634,11 @@ export function IuranRT({
           </div>
         ) : (
           <div className="space-y-3">
-            {pendingList.map((p) => (
+            {pendingList.map((p) => {
+              // Batch 15E — file bukti dari portal warga terlihat di sini:
+              // tautan ke rute RT (satu baris, dua portal); null = tanpa file.
+              const hrefBukti = buktiHref(p.id, p.bukti, "rt");
+              return (
               <div
                 key={p.id}
                 className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 rounded-xl bg-surface-container-low"
@@ -1649,11 +1654,28 @@ export function IuranRT({
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-on-surface-variant">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-on-surface-variant">
                   <span className="material-symbols-outlined text-[16px]">{p.metodeIcon}</span>
                   <span>
                     {p.metode} · <span className="font-mono">{p.tanggal}</span>
                   </span>
+                  {hrefBukti ? (
+                    <a
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-container/70 text-on-primary-container font-bold hover:bg-primary-container transition-colors"
+                      href={hrefBukti}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`Buka file bukti dari ${p.nama}`}
+                    >
+                      <span className="material-symbols-outlined text-[13px]">attachment</span>
+                      Lihat Bukti
+                    </a>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-medium">
+                      <span className="material-symbols-outlined text-[13px]">link_off</span>
+                      Tanpa lampiran file
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center justify-between lg:justify-end gap-3">
                   <span className="text-sm font-bold text-on-surface font-mono">{formatRupiah(p.jumlah)}</span>
@@ -1678,7 +1700,8 @@ export function IuranRT({
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

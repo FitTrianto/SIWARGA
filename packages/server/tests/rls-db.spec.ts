@@ -9388,3 +9388,377 @@ describe("Batch 15D · pengingat iuran (tandai + antrean notifikasi)", () => {
     expect(jobRt05Sesudah, "RT05 tak menerima job").toBe(jobRt05Sebelum);
   });
 });
+
+describe("Batch 15E · bukti bayar lintas portal (multipart · unduh · tolak/ulang)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  /** Pemilik baris uji (Bambang, RT04) + warga lain satu RT (Ahmad). */
+  let sidWarga = "";
+  let sidWargaLain = "";
+  let sidRt = "";
+  let csrfRt = "";
+  /** RT05 — tidak boleh membuka bukti milik RT04. */
+  let sidRtLain = "";
+  let idWarga = "";
+
+  /** Baris uji dijaga lewat kunci idempotensi `uji-15e-*`. */
+  let idBukti = ""; // multipart + file tersimpan
+  let idReferensi = ""; // JSON jalur lama (referensi teks)
+  let idUlang = ""; // hasil ajukan ulang setelah ditolak
+  let namaBerkas = ""; // "<id>.png" pada `.data-bukti/`
+  /** Tagihan uji 2025-02 — sisa terbuka TERTUA milik Bambang (FIFO). */
+  let idTagUji = "";
+
+  const KUNCI_FILE = "uji-15e-file-0001";
+  const KUNCI_REF = "uji-15e-ref-0001";
+  const KUNCI_ULANG = "uji-15e-ulang-0001";
+  const ALASAN_TOLAK = "Struk buram — nominal tidak cocok dengan mutasi (uji 15E).";
+
+  /** PNG 1×1 — byte asli yang diunggah; unduhan wajib identik byte-per-byte. */
+  const PNG_UJI = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+
+  const sesiRt = () => ({ sid: sidRt, csrf_token: csrfRt });
+  const csrfRtHeader = () => ({ "x-csrf-token": csrfRt });
+
+  /**
+   * `POST /warga/iuran/bukti` multipart — body Buffer manual (pola B9/A10,
+   * tanpa dependensi ekstensi). Field teks + ≤1 file pada field `bukti`.
+   */
+  const kirimMultipart = (
+    isiInput: { nominal: string; metode?: string; catatan?: string; berkas?: { nama: string; isi: Buffer } },
+    opsi: { kunci?: string; sid?: string } = {},
+  ) => {
+    const B = `----uji15e${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+    const potong: Buffer[] = [];
+    const field = (nama: string, nilai: string) =>
+      potong.push(
+        Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="${nama}"\r\n\r\n${nilai}\r\n`, "utf8"),
+      );
+    field("nominal", isiInput.nominal);
+    if (isiInput.metode) field("metode", isiInput.metode);
+    if (isiInput.catatan) field("catatan", isiInput.catatan);
+    if (isiInput.berkas) {
+      potong.push(
+        Buffer.from(
+          `--${B}\r\nContent-Disposition: form-data; name="bukti"; filename="${isiInput.berkas.nama}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+          "utf8",
+        ),
+        isiInput.berkas.isi,
+        Buffer.from("\r\n", "utf8"),
+      );
+    }
+    potong.push(Buffer.from(`--${B}--\r\n`, "utf8"));
+    return app.inject({
+      method: "POST",
+      url: `${api}/warga/iuran/bukti`,
+      cookies: { sid: opsi.sid ?? sidWarga },
+      headers: {
+        ...(opsi.kunci ? { "idempotency-key": opsi.kunci } : {}),
+        "content-type": `multipart/form-data; boundary=${B}`,
+      },
+      payload: Buffer.concat(potong),
+    });
+  };
+
+  /** Unduh file bukti lewat salah satu portal. */
+  const ambil = (portal: "warga" | "rt", id: string, opsi: { sid?: string; tanpaSesi?: boolean } = {}) =>
+    app.inject({
+      method: "GET",
+      url: `${api}/${portal}/iuran/pembayaran/${id}/bukti`,
+      ...(opsi.tanpaSesi ? {} : { cookies: { sid: opsi.sid ?? (portal === "warga" ? sidWarga : sidRt) } }),
+    });
+
+  interface BarisRiwayatUji {
+    id: string;
+    status: string;
+    catatan: string | null;
+    bukti: string | null;
+    diverifikasiPada: string | null;
+  }
+
+  /** Riwayat milik warga login — dasar klaim "terbit di portal warga". */
+  const riwayat = async (): Promise<BarisRiwayatUji[]> => {
+    const res = await app.inject({ method: "GET", url: `${api}/warga/iuran/riwayat`, cookies: { sid: sidWarga } });
+    expect(res.statusCode, "GET riwayat warga").toBe(200);
+    return isi(res).data.riwayat as BarisRiwayatUji[];
+  };
+
+  /** Jumlah baris uji (kunci `uji-15e-*`) di RT04 — bukti "nol baris baru". */
+  const jumlahBarisUji = (): Promise<number> =>
+    hitung(
+      { level: "rt", id: idRt04 },
+      "SELECT count(*)::int AS n FROM pembayaran WHERE rt_id = $1 AND idempotency_key LIKE 'uji-15e-%'",
+      [idRt04],
+    );
+
+  /** Isi folder file bukti (delta sebelum/sesudah → replay tidak menggandakan file). */
+  const daftarBukti = (): string[] => {
+    try {
+      return readdirSync(join(DIR_SERVER, ".data-bukti")).sort();
+    } catch {
+      return [];
+    }
+  };
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+
+    const warga = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(warga.statusCode, "login warga pemilik").toBe(200);
+    sidWarga = cookieDari(warga, "sid")!;
+
+    // Warga LAIN satu RT (Ahmad) — harus mentok di filter kepemilikan (§4.6).
+    const lain = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567894", password: SANDI_WARGA_UJI },
+    });
+    expect(lain.statusCode, "login warga lain").toBe(200);
+    sidWargaLain = cookieDari(lain, "sid")!;
+
+    const rt = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt04@siwarga.id", password: "rahasia123" },
+    });
+    expect(rt.statusCode, "login RT04").toBe(200);
+    sidRt = cookieDari(rt, "sid")!;
+    csrfRt = cookieDari(rt, "csrf_token")!;
+
+    const rtLain = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload: { email: "rt05@siwarga.id", password: "rahasia123" },
+    });
+    expect(rtLain.statusCode, "login RT05").toBe(200);
+    sidRtLain = cookieDari(rtLain, "sid")!;
+
+    const baris = await dalamScopePlat((c) => c.query("SELECT id FROM warga WHERE no_hp = '081234567890'"));
+    idWarga = (baris.rows[0] as { id: string }).id;
+
+    // Tagihan uji 2025-02 sisa 60.000 — periode TERTUA milik Bambang
+    // (seed = 2026-08/09/10, generate = 2026-10) sehingga alokasi FIFO
+    // mengenainya lebih dulu saat verifikasi.
+    const t = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO tagihan
+           (id, rt_id, warga_id, kategori_id, periode, nominal, nominal_awal, sisa, tenggat, status, sumber)
+         VALUES (gen_random_uuid(), $1, $2,
+                 (SELECT id FROM kategori_iuran WHERE rt_id = $1 ORDER BY urutan ASC LIMIT 1),
+                 '2025-02', 60000, 60000, 60000, '2025-02-10', 'belum_bayar', 'bulk')
+         RETURNING id`,
+        [idRt04, idWarga],
+      ),
+    );
+    idTagUji = (t.rows[0] as { id: string }).id;
+    expect(idTagUji).not.toBe("");
+  }, 60_000);
+
+  afterAll(async () => {
+    // Folder file dibersihkan penuh (hanya 15E yang menulisnya; DB segar tiap
+    // putaran tes dan describe ini terakhir — baris uji tak mengganggu blok lain).
+    await rm(join(DIR_SERVER, ".data-bukti"), { recursive: true, force: true }).catch(() => undefined);
+    await tutupAplikasiUji();
+  });
+
+  it("multipart: file struk tersimpan sekali & terbaca dari DUA portal (200 + byte identik)", async () => {
+    const sebelum = await jumlahBarisUji();
+
+    const res = await kirimMultipart(
+      {
+        nominal: "45000",
+        metode: "transfer",
+        catatan: "Struk uji 15E",
+        berkas: { nama: "struk-15e.png", isi: PNG_UJI },
+      },
+      { kunci: KUNCI_FILE },
+    );
+    expect(res.statusCode, "unggah multipart").toBe(200);
+    const h = isi(res).data as { pembayaran: { id: string; status: string; bukti: string | null }; ulang: boolean };
+    expect(h.ulang, "pengajuan pertama, bukan replay").toBe(false);
+    expect(h.pembayaran.status).toBe("menunggu_verifikasi");
+    idBukti = h.pembayaran.id;
+    expect(h.pembayaran.bukti, "bukti = nama berkas hasil tulisan server").toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/i,
+    );
+    namaBerkas = h.pembayaran.bukti!;
+    expect(await jumlahBarisUji(), "persis satu baris uji baru").toBe(sebelum + 1);
+
+    // File benar-benar ada di disk & isinya byte yang sama dengan unggahan.
+    const pathBerkas = join(DIR_SERVER, ".data-bukti", namaBerkas);
+    expect(existsSync(pathBerkas), "file tersimpan di .data-bukti").toBe(true);
+    expect(readFileSync(pathBerkas).equals(PNG_UJI), "isi file identik dengan unggahan").toBe(true);
+
+    // Portal WARGA — pemilik membuka buktinya sendiri.
+    const wargaBuka = await ambil("warga", idBukti);
+    expect(wargaBuka.statusCode, "unduh sebagai pemilik").toBe(200);
+    expect(wargaBuka.headers["content-type"]).toBe("image/png");
+    expect(wargaBuka.rawPayload.equals(PNG_UJI), "byte unduhan identik").toBe(true);
+
+    // Portal RT — pengurus membuka berkas yang SAMA dari satu baris.
+    const rtBuka = await ambil("rt", idBukti);
+    expect(rtBuka.statusCode, "unduh sebagai pengurus RT04").toBe(200);
+    expect(rtBuka.headers["content-type"]).toBe("image/png");
+    expect(rtBuka.rawPayload.equals(PNG_UJI)).toBe(true);
+
+    // Audit mencatat lampiran secara jujur (bukan sekadar "ajukan bukti").
+    const audit = await hitung(
+      { level: "rt", id: idRt04 },
+      `SELECT count(*)::int AS n FROM audit_log
+        WHERE aksi = 'ajukan_bukti' AND entitas_id = $1 AND ringkasan LIKE '%file terlampir%'`,
+      [idBukti],
+    );
+    expect(audit, "audit membawa jejak lampiran file").toBe(1);
+  });
+
+  it("guard unduh bukti: tanpa sesi 401 · warga lain satu RT 404 · RT lain 404 · id rusak 400", async () => {
+    const tanpa = await ambil("warga", idBukti, { tanpaSesi: true });
+    expect(tanpa.statusCode, "tanpa sesi").toBe(401);
+    expect(isi(tanpa).error?.code).toBe("UNAUTHORIZED");
+
+    const wargaLainBuka = await ambil("warga", idBukti, { sid: sidWargaLain });
+    expect(wargaLainBuka.statusCode, "warga lain satu RT → filter kepemilikan").toBe(404);
+    expect(isi(wargaLainBuka).error?.code).toBe("NOT_FOUND");
+
+    const rtLainBuka = await ambil("rt", idBukti, { sid: sidRtLain });
+    expect(rtLainBuka.statusCode, "RT05 membuka bukti RT04 → 404").toBe(404);
+
+    const idRusak = await ambil("warga", "bukan-uuid");
+    expect(idRusak.statusCode, "id bukan UUID → 400").toBe(400);
+    expect(isi(idRusak).error?.code).toBe("VALIDATION");
+    expect(isi(idRusak).error?.message).toMatch(/ID tidak valid/);
+  });
+
+  it("validasi multipart: ekstensi aneh & file >5 MB → 400 jujur, NOL baris baru", async () => {
+    const sebelum = await jumlahBarisUji();
+
+    const ekstensi = await kirimMultipart(
+      { nominal: "10000", berkas: { nama: "virus.exe", isi: Buffer.from("MZ...", "utf8") } },
+      { kunci: "uji-15e-eks-0001" },
+    );
+    expect(ekstensi.statusCode, "ekstensi di luar daftar putih").toBe(400);
+    expect(isi(ekstensi).error?.code).toBe("VALIDATION");
+    expect(isi(ekstensi).error?.message).toMatch(/JPG, PNG, atau PDF/);
+
+    const raksasa = await kirimMultipart(
+      { nominal: "10000", berkas: { nama: "raksasa.png", isi: Buffer.alloc(6 * 1024 * 1024, 0x41) } },
+      { kunci: "uji-15e-besar-0001" },
+    );
+    expect(raksasa.statusCode, "file 6 MB melewati limit 5 MB").toBe(400);
+    expect(isi(raksasa).error?.code).toBe("VALIDATION");
+    expect(isi(raksasa).error?.message).toMatch(/5 MB/);
+
+    expect(await jumlahBarisUji(), "kedua penolakan tidak meninggalkan baris").toBe(sebelum);
+  });
+
+  it("multipart idempoten: replay kunci sama → baris & file lama, tanpa file ganda", async () => {
+    const berkasSebelum = daftarBukti();
+
+    const res = await kirimMultipart(
+      { nominal: "45000", metode: "transfer", berkas: { nama: "struk-ulang.png", isi: PNG_UJI } },
+      { kunci: KUNCI_FILE },
+    );
+    expect(res.statusCode).toBe(200);
+    const h = isi(res).data as { pembayaran: { id: string; bukti: string | null }; ulang: boolean };
+    expect(h.ulang, "replay idempoten").toBe(true);
+    expect(h.pembayaran.id, "baris asli dikembalikan").toBe(idBukti);
+    expect(h.pembayaran.bukti, "file asli tidak diganti").toBe(namaBerkas);
+    expect(daftarBukti(), "replay tidak menulis file baru").toEqual(berkasSebelum);
+  });
+
+  it("JSON jalur lama tetap sah: referensi teks tersimpan — tapi BUKAN file (unduh 404 jujur)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `${api}/warga/iuran/bukti`,
+      cookies: { sid: sidWarga },
+      headers: { "idempotency-key": KUNCI_REF },
+      payload: { nominal: 30000, metode: "transfer", catatan: "Ref uji 15E", buktiUrl: "TRF-2026-15E" },
+    });
+    expect(res.statusCode, "jalur JSON tanpa file").toBe(200);
+    const h = isi(res).data as { pembayaran: { id: string; bukti: string | null } };
+    idReferensi = h.pembayaran.id;
+    expect(h.pembayaran.bukti, "referensi teks dipertahankan").toBe("TRF-2026-15E");
+
+    const wargaBuka = await ambil("warga", idReferensi);
+    expect(wargaBuka.statusCode, "referensi teks bukan file → 404").toBe(404);
+    expect(isi(wargaBuka).error?.message).toMatch(/tidak ditemukan/);
+
+    const rtBuka = await ambil("rt", idReferensi);
+    expect(rtBuka.statusCode, "portal RT juga 404, bukan berkas karangan").toBe(404);
+  });
+
+  it("RT tolak → alasan tampil di riwayat warga; ajukan ulang → baris baru, baris lama utuh", async () => {
+    const tolak = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/pembayaran/${idBukti}/tolak`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { alasan: ALASAN_TOLAK },
+    });
+    expect(tolak.statusCode, "tolak dengan alasan").toBe(200);
+
+    const setelahTolak = await riwayat();
+    const barisDitolak = setelahTolak.find((r) => r.id === idBukti);
+    expect(barisDitolak?.status, "status terbit di portal warga").toBe("ditolak");
+    expect(barisDitolak?.catatan, "alasan penolakan terbaca warga (dasar perbaikan)").toBe(ALASAN_TOLAK);
+
+    const ulang = await app.inject({
+      method: "POST",
+      url: `${api}/warga/iuran/bukti`,
+      cookies: { sid: sidWarga },
+      headers: { "idempotency-key": KUNCI_ULANG },
+      payload: { nominal: 60000, metode: "transfer", catatan: "Ajukan ulang setelah ditolak (uji 15E)" },
+    });
+    expect(ulang.statusCode, "ajukan ulang diterima server").toBe(200);
+    const h = isi(ulang).data as { pembayaran: { id: string; status: string } };
+    idUlang = h.pembayaran.id;
+    expect(idUlang).not.toBe(idBukti);
+    expect(h.pembayaran.status).toBe("menunggu_verifikasi");
+
+    const sesudah = await riwayat();
+    expect(sesudah.find((r) => r.id === idBukti)?.status, "baris lama tetap ditolak (jejak)").toBe("ditolak");
+    expect(sesudah.find((r) => r.id === idBukti)?.catatan, "alasan tidak tertimpa").toBe(ALASAN_TOLAK);
+    expect(sesudah.find((r) => r.id === idUlang)?.status, "baris pengajuan ulang menunggu").toBe(
+      "menunggu_verifikasi",
+    );
+  });
+
+  it("setujui → lunas + diverifikasiPada (dasar kuitansi PDF); baris ditolak tetap utuh", async () => {
+    const setujui = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/pembayaran/${idUlang}/setujui`,
+      cookies: sesiRt(),
+      headers: csrfRtHeader(),
+      payload: { catatan: "Sesuai mutasi (uji 15E)." },
+    });
+    expect(setujui.statusCode, "verifikasi lolos").toBe(200);
+    const h = isi(setujui).data as {
+      pembayaran: { status: string };
+      alokasi: Array<{ periode: string }>;
+      kelebihanBayar: number;
+    };
+    expect(h.pembayaran.status).toBe("lunas");
+    expect(h.kelebihanBayar, "tepat 60.000 terserap tagihan tertua").toBe(0);
+    expect(h.alokasi[0]?.periode, "FIFO: periode uji 2025-02 lebih dulu").toBe("2025-02");
+
+    const riwayatAkhir = await riwayat();
+    const lunas = riwayatAkhir.find((r) => r.id === idUlang);
+    expect(lunas?.status, "status lunas terbit di portal warga").toBe("lunas");
+    expect(lunas?.diverifikasiPada, "cap verifikasi terisi → dasar kuitansi PDF").toBeTruthy();
+    expect(Number.isNaN(new Date(lunas!.diverifikasiPada!).getTime()), "diverifikasiPada ISO valid").toBe(false);
+
+    // Jejak penolakan TIDAK tertimpa verifikasi — dokumen riwayat tetap utuh.
+    const ditolak = riwayatAkhir.find((r) => r.id === idBukti);
+    expect(ditolak?.status).toBe("ditolak");
+    expect(ditolak?.catatan).toBe(ALASAN_TOLAK);
+    expect(ditolak?.diverifikasiPada, "baris ditolak tidak pernah membawa cap verifikasi").toBeNull();
+  });
+});

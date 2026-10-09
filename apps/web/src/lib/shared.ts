@@ -268,6 +268,12 @@ export interface Pembayaran {
   metodeIcon: string;
   tanggal: string;
   status: StatusPembayaran;
+  /** Batch 15E — file bukti tersimpan (nama berkas/URL) atau referensi teks. */
+  bukti?: string | null;
+  /** Catatan pengajuan; baris Ditolak → alasan dari RT (Batch 15C). */
+  catatan?: string | null;
+  /** ISO verifikasi — hanya terisi setelah RT menyetujui (dasar PDF kuitansi). */
+  diverifikasiPada?: string | null;
 }
 
 /** Ambil alamat pendek ("Blok B4 No. 12") dari alamat lengkap untuk pencocokan. */

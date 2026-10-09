@@ -487,9 +487,15 @@ export interface BarisPembayaranServer {
   status: StatusServer;
   statusLabel: string;
   catatan: string | null;
+  /** Batch 15E — file struk tersimpan (nama berkas/URL) atau referensi teks. */
+  bukti: string | null;
   sumber: string;
   periode: string | null; // "YYYY-MM" | null
   alokasi: Array<{ tagihanId: string; kategori: string; periode: string; nominal: number }>;
+  /** Batch 15E — ISO waktu verifikasi (terisi hanya setelah RT menyetujui). */
+  diverifikasiPada: string | null;
+  /** ISO waktu pengajuan. */
+  diajukanPada: string;
   nama?: string;
   alamat?: string;
 }
@@ -523,17 +529,46 @@ export function tagihanIuran(periode?: string): Promise<RingkasTagihanServer> {
 /**
  * POST bukti bayar warga → `menunggu_verifikasi`. `kunciIdempotensi` dikirim
  * sebagai header `Idempotency-Key` (id baris dari FE) agar klik ganda tidak
- * menggandakan pengajuan.
+ * menggandakan pengajuan. Batch 15E: bila `berkas` (file struk) diberikan,
+ * permintaan dikirim `multipart/form-data` (≤5 MB, JPG/PNG/PDF — server yang
+ * menyimpannya); tanpa file → JSON polos seperti jalur lama.
  */
 export function ajukanBuktiIuran(
   payload: { nominal: number; metode: string; catatan?: string; buktiUrl?: string },
   kunciIdempotensi: string,
+  berkas?: File,
 ): Promise<{ pembayaran: BarisPembayaranServer; ulang: boolean; statusLabel: string }> {
-  return minta("/warga/iuran/bukti", {
-    method: "POST",
-    body: payload,
-    headers: { "Idempotency-Key": kunciIdempotensi },
-  });
+  const header = { "Idempotency-Key": kunciIdempotensi };
+  if (berkas) {
+    const form = new FormData();
+    form.append("nominal", String(payload.nominal));
+    form.append("metode", payload.metode);
+    if (payload.catatan) form.append("catatan", payload.catatan);
+    form.append("bukti", berkas, berkas.name);
+    return minta("/warga/iuran/bukti", { method: "POST", body: form, headers: header });
+  }
+  return minta("/warga/iuran/bukti", { method: "POST", body: payload, headers: header });
+}
+
+/**
+ * Batch 15E — URL file bukti untuk tautan "Lihat Bukti" di DUA portal:
+ *   • nama berkas tersimpan (UUID+ekstensi, hasil tulisan server) → rute unduh
+ *     portal sesi (`/warga|/rt/iuran/pembayaran/:id/bukti`);
+ *   • URL http(s) eksternal → dipakai apa adanya;
+ *   • referensi teks biasa (mis. "TRF-2026-0001") / kosong → null — bukan file,
+ *     jangan diklaim bisa dibuka.
+ */
+export function buktiHref(
+  id: string,
+  bukti: string | null | undefined,
+  portal: "warga" | "rt",
+): string | null {
+  if (!bukti) return null;
+  if (/^https?:\/\//i.test(bukti)) return bukti;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]{1,8}$/i.test(bukti)) {
+    return `/api/v1/${portal}/iuran/pembayaran/${encodeURIComponent(id)}/bukti`;
+  }
+  return null;
 }
 
 /** GET antrean pembayaran sesi RT (`?status=` & `?periode=` opsional). */
@@ -1043,6 +1078,12 @@ export function barisKePembayaran(
     metodeIcon: metode.ikon,
     tanggal: tanggalServer(r.tanggal),
     status: statusKeFe(r.status),
+    // Batch 15E — bukti lintas portal: file tersimpan/URL/referensi; `catatan`
+    // berisi alasan penolakan untuk baris ditolak (RT menulisnya saat menolak);
+    // `diverifikasiPada` hanya terisi setelah RT menyetujui.
+    bukti: r.bukti ?? null,
+    catatan: r.catatan ?? null,
+    diverifikasiPada: r.diverifikasiPada ?? null,
   };
 }
 

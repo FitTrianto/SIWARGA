@@ -2183,9 +2183,11 @@ export default function App() {
             nama={kkList[0]?.kepala ?? "Warga"}
             pembayaran={pembayaran}
             ringkasServer={ringkasTagihanWarga}
-            onBayar={async (p) => {
+            onBayar={async (p, berkas) => {
               // F-6: ajukan ke API; OFFLINE → baris lokal (mode demo). Galat lain
               // (mis. sesi habis) diteruskan agar halaman menampilkan gagal, bukan sukses.
+              // Batch 15E: balikan "server"|"lokal" dipakai halaman untuk flash yang
+              // jujur — OFFLINE + file TIDAK pernah mengaku file tersimpan.
               let baris: Pembayaran;
               let dariApi = false;
               try {
@@ -2196,6 +2198,7 @@ export default function App() {
                     ...(p.paket ? { catatan: `Paket ${p.paket}` } : {}),
                   },
                   p.id,
+                  berkas,
                 );
                 baris = barisKePembayaran(hasil.pembayaran, p.alamat, p.nama);
                 dariApi = true;
@@ -2213,6 +2216,7 @@ export default function App() {
                 const t = await tagihanIuran().catch(() => null);
                 setRingkasTagihanWarga(t ? t.ringkas : null);
               }
+              return dariApi ? ("server" as const) : ("lokal" as const);
             }}
             kasRt={kasRtList}
             tagihanTambahan={tagihanTambahanList}

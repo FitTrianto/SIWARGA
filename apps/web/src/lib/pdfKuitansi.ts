@@ -55,6 +55,12 @@ export interface DataKuitansi {
   status: string;
   /** Catatan tambahan (opsional) — mis. tujuan pembayaran kondisional. */
   catatan?: string | null;
+  /**
+   * Batch 15E — tanggal verifikasi pengurus ("9 Okt 2026"); HANYA diisi untuk
+   * baris yang benar-benar sudah disetujui server — kuitansi resmi memuat cap
+   * verifikasi nyata, bukan tanggal karangan.
+   */
+  diverifikasi?: string | null;
 }
 
 /** Teks satu baris yang otomatis mengecil sampai muat dalam `lebar` mm. */
@@ -163,6 +169,10 @@ export function buatPdfKuitansi(d: DataKuitansi): jsPDF {
   y += 7;
 
   y = barisField(doc, y, "Status", d.status, { tebal: true });
+  // Batch 15E — cap verifikasi nyata: hanya baris yang sudah disetujui RT
+  // yang membawa tanggal; baris menunggu/ditolak tidak pernah menampilkan
+  // tanggal verifikasi yang tidak ada.
+  if (d.diverifikasi) y = barisField(doc, y, "Diverifikasi", d.diverifikasi);
   if (d.catatan) y = barisField(doc, y, "Keterangan", d.catatan.slice(0, 60));
 
   // --- Keterangan kaki (jujur tentang status) -------------------------------

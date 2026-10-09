@@ -19,7 +19,7 @@ import {
   shortAlamat,
 } from "../../lib/shared";
 import { useFlash } from "../../lib/useFlash";
-import { labelPeriodeServer, type RingkasTagihanServer } from "../../lib/api";
+import { buktiHref, labelPeriodeServer, type RingkasTagihanServer } from "../../lib/api";
 
 interface IuranTagihanProps {
   onNavigate?: (page: string) => void;
@@ -30,8 +30,12 @@ interface IuranTagihanProps {
   pembayaran: Pembayaran[];
   /** F-6: ringkas tagihan dari API (null = mode demo → turunan riwayat lokal). */
   ringkasServer?: RingkasTagihanServer["ringkas"] | null;
-  /** Bisa async (API-first) — komponen menunggu sebelum menampilkan flash. */
-  onBayar: (p: Pembayaran) => void | Promise<void>;
+  /**
+   * API-first (Batch 15E) — komponen menunggu sebelum flash; balikan
+   * `"server"` (benar-benar terkirim) | `"lokal"` (mode demo/OFFLINE) dipakai
+   * untuk flash yang jujur. `berkas` = file struk (dikirim multipart).
+   */
+  onBayar: (p: Pembayaran, berkas?: File) => Promise<"server" | "lokal">;
   kasRt: KasRt[];
   tagihanTambahan: TagihanTambahan[];
   /** Bayar tagihan kondisional → ajukan bukti (true = terkirim ke server). */
@@ -68,6 +72,12 @@ interface BarisRiwayat {
   status: StatusPembayaran;
   atasNama: string;
   hunian: string;
+  /** Batch 15E — file bukti tersimpan/URL (null = baris arsip/demo). */
+  bukti?: string | null;
+  /** Baris Ditolak → alasan penolakan dari RT (dasar "Ajukan Ulang"). */
+  alasan?: string | null;
+  /** ISO verifikasi — hanya baris server yang sudah diverifikasi. */
+  diverifikasiPada?: string | null;
 }
 
 const periodeBayar = [
@@ -177,7 +187,33 @@ export function IuranTagihan({
   const [showTunai, setShowTunai] = useState(false);
   const [tunaiNominal, setTunaiNominal] = useState("");
   const [tunaiPeriode, setTunaiPeriode] = useState("");
+  // Batch 15E — unggah bukti nyata: file dipilih warga & dikirim multipart;
+  // `ulangDari` = baris Ditolak yang diajukan ulang lewat modal yang sama.
+  const [fileBukti, setFileBukti] = useState<File | null>(null);
+  const [ulangDari, setUlangDari] = useState<BarisRiwayat | null>(null);
+  const [uploadSedang, setUploadSedang] = useState(false);
   const { flash, toast } = useFlash();
+
+  /** Tutup modal unggah + buang state sementara (file & konteks ulang). */
+  function tutupUpload() {
+    setShowUpload(false);
+    setUlangDari(null);
+    setFileBukti(null);
+  }
+
+  /** Buka modal unggah dalam mode reguler (tanpa konteks ulang). */
+  function bukaUpload() {
+    setUlangDari(null);
+    setFileBukti(null);
+    setShowUpload(true);
+  }
+
+  /** Buka modal unggah untuk AJUKAN ULANG baris yang ditolak (Batch 15E). */
+  function bukaUploadUlang(rb: BarisRiwayat) {
+    setUlangDari(rb);
+    setFileBukti(null);
+    setShowUpload(true);
+  }
 
   // Sumber kebenaran rincian & total tagihan = kategori iuran dari Pengurus RT.
   // Rincian hanya memuat kategori yang ditagihkan (nonaktif/insidental ditiadakan)
@@ -287,6 +323,11 @@ export function IuranTagihan({
       status: p.status,
       atasNama: p.nama,
       hunian: p.alamat,
+      // Batch 15E — bukti & alasan server: baris Ditolak membawa alasan RT
+      // (ditulis ulang saat penolakan) + file untuk tautan "Lihat Bukti".
+      bukti: p.bukti ?? null,
+      alasan: p.status === "Ditolak" ? p.catatan ?? null : null,
+      diverifikasiPada: p.diverifikasiPada ?? null,
     })),
     ...arsipRiwayat.map((rb) => ({
       id: rb.id,
@@ -322,29 +363,54 @@ export function IuranTagihan({
    * Ajukan pembayaran → diverifikasi Pengurus RT (status: Menunggu Verifikasi).
    * Periode SELALU `PERIODE_AKTIF` (pencocokan status lintas portal); label paket
    * hanya disimpan untuk tampilan riwayat. `onBayar` API-first — flash sukses hanya
-   * muncul setelah pengajuan benar-benar diterima (atau tersimpan mode offline).
+   * muncul setelah pengajuan benar-benar diterima server; OFFLINE (`"lokal"`):
+   * mode demo, jujur — termasuk kabar bahwa FILE BUKTI TIDAK ikut tersimpan.
+   * Batch 15E: `berkas` = file struk (multipart); `pesanUlang` dipakai aksi
+   * "Ajukan Ulang" baris ditolak.
    */
-  async function ajukanPembayaran(metode: string, metodeIcon: string, jumlah: number, paketLabel?: string) {
+  async function ajukanPembayaran(
+    metode: string,
+    metodeIcon: string,
+    jumlah: number,
+    paketLabel?: string,
+    berkas?: File,
+    pesanUlang?: string,
+  ) {
     if (!jumlah || jumlah <= 0) {
       flash("Nominal pembayaran belum diisi.");
       return;
     }
+    if (uploadSedang) return; // anti submit ganda — tunggu permintaan selesai
+    setUploadSedang(true);
     try {
-      await onBayar({
-        id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        alamat,
-        nama,
-        periode: PERIODE_AKTIF,
-        paket: paketLabel,
-        jumlah,
-        metode,
-        metodeIcon,
-        tanggal: tanggalHariIni(),
-        status: "Menunggu Verifikasi",
-      });
-      flash("Pembayaran diajukan — menunggu verifikasi pengurus RT.");
+      const asal = await onBayar(
+        {
+          id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          alamat,
+          nama,
+          periode: PERIODE_AKTIF,
+          paket: paketLabel,
+          jumlah,
+          metode,
+          metodeIcon,
+          tanggal: tanggalHariIni(),
+          status: "Menunggu Verifikasi",
+        },
+        berkas,
+      );
+      if (asal === "server") {
+        flash(pesanUlang ?? "Pembayaran diajukan — menunggu verifikasi pengurus RT.");
+      } else {
+        flash(
+          berkas
+            ? "Mode demo (server mati): pengajuan TIDAK terkirim — file bukti tidak tersimpan di mana pun."
+            : "Mode demo (server mati): pengajuan dicatat lokal — tidak terkirim ke pengurus RT.",
+        );
+      }
     } catch {
       flash("Pengajuan pembayaran gagal — periksa koneksi lalu coba lagi.");
+    } finally {
+      setUploadSedang(false);
     }
   }
 
@@ -372,6 +438,10 @@ export function IuranTagihan({
         jumlah: r.jumlah,
         metode: r.metode,
         status: r.status,
+        // Batch 15E — cap verifikasi hanya bila server benar-benar mencatatnya.
+        diverifikasi: r.diverifikasiPada
+          ? new Date(r.diverifikasiPada).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })
+          : null,
       });
       flash(
         r.status === "Lunas"
@@ -419,7 +489,7 @@ export function IuranTagihan({
           </div>
           <div className="flex flex-wrap items-center gap-3 shrink-0">
             {statusTagihanAktif === "Belum Dibayar" && (
-              <button className="h-11 px-5 rounded-lg text-on-primary bg-primary-container shadow-md hover:bg-primary transition-all flex items-center gap-2" onClick={() => setShowUpload(true)}>
+              <button className="h-11 px-5 rounded-lg text-on-primary bg-primary-container shadow-md hover:bg-primary transition-all flex items-center gap-2" onClick={bukaUpload}>
                 <span className="material-symbols-outlined text-[20px]">cloud_upload</span>
                 + Unggah Bukti Bayar
               </button>
@@ -808,12 +878,46 @@ export function IuranTagihan({
                         <span className={`w-2 h-2 rounded-full ${dotStatus[rb.status]}`} />
                         {rb.status}
                       </span>
+                      {/* Batch 15E — alasan penolakan dari RT (warga berhak tahu
+                          apa yang harus diperbaiki sebelum mengajukan ulang). */}
+                      {rb.status === "Ditolak" && rb.alasan && (
+                        <span className="mt-1 block text-[11px] leading-snug text-error max-w-[240px]" title={rb.alasan}>
+                          {rb.alasan}
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 px-6 text-right">
-                      <button className="h-9 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-sm font-semibold inline-flex items-center gap-1 transition-colors" onClick={() => unduhKuitansi(rb)}>
-                        <span className="material-symbols-outlined text-[16px]">download</span>
-                        Unduh Kuitansi
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Batch 15E — tautan file bukti milik sendiri (null bila
+                            baris tanpa file / baris arsip statis). */}
+                        {buktiHref(rb.id, rb.bukti, "warga") && (
+                          <a
+                            className="h-9 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-sm font-semibold inline-flex items-center gap-1 transition-colors"
+                            href={buktiHref(rb.id, rb.bukti, "warga")!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Buka file bukti yang Anda unggah"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">receipt_long</span>
+                            Bukti
+                          </a>
+                        )}
+                        {/* Batch 15E — ajukan ulang setelah ditolak: baris lama
+                            tetap (jejak audit), pengajuan baru menyusul. */}
+                        {rb.status === "Ditolak" && (
+                          <button
+                            className="h-9 px-3 rounded-lg bg-error-container/40 text-error hover:bg-error-container text-sm font-semibold inline-flex items-center gap-1 transition-colors"
+                            onClick={() => bukaUploadUlang(rb)}
+                          >
+                            <span className="material-symbols-outlined text-[16px]">redo</span>
+                            Ajukan Ulang
+                          </button>
+                        )}
+                        <button className="h-9 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-sm font-semibold inline-flex items-center gap-1 transition-colors" onClick={() => unduhKuitansi(rb)}>
+                          <span className="material-symbols-outlined text-[16px]">download</span>
+                          Unduh Kuitansi
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -951,27 +1055,76 @@ export function IuranTagihan({
         </div>
       )}
 
-      {/* Modal: Unggah Bukti */}
+      {/* Modal: Unggah Bukti — mode reguler atau AJUKAN ULANG baris ditolak */}
       {showUpload && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-on-background/60 backdrop-blur-sm">
           <div className="bg-surface-container-lowest rounded-2xl shadow-xl max-w-lg w-full mx-4 sm:mx-auto p-6 relative space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-primary text-[24px]">upload_file</span>
-                <h3 className="text-base font-bold text-on-surface">Unggah Bukti Transfer Manual</h3>
+                <h3 className="text-base font-bold text-on-surface">
+                  {ulangDari ? "Ajukan Ulang Pengajuan" : "Unggah Bukti Transfer Manual"}
+                </h3>
               </div>
-              <button className="p-1 rounded-full text-on-surface-variant hover:bg-surface-container-low" onClick={() => setShowUpload(false)}>
+              <button className="p-1 rounded-full text-on-surface-variant hover:bg-surface-container-low" onClick={tutupUpload}>
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
-            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); setShowUpload(false); ajukanPembayaran("Transfer Bank", "account_balance", totalPaket, paket.label); }}>
-              <div className="space-y-1">
-                <label className="text-sm font-semibold text-on-surface">Pilih Tagihan yang Dibayar</label>
-                <select className="w-full h-11 px-3 rounded-lg bg-surface-container-low text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary">
-                  <option>Iuran {periodeBayar[selectedPeriode].label} ({formatRupiah(totalPaket)})</option>
-                  <option>Iuran Kondisional Lainnya</option>
-                </select>
+
+            {/* Batch 15E — pengajuan ulang: alasan penolakan RT ditampilkan
+                apa adanya agar warga tahu apa yang harus diperbaiki. */}
+            {ulangDari && (
+              <div className="p-3 rounded-lg bg-error-container/40 border border-error/30 space-y-1">
+                <div className="text-xs font-bold text-error flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[16px]">cancel</span>
+                  Pengajuan sebelumnya ditolak ({ulangDari.tanggal})
+                </div>
+                <p className="text-xs text-on-surface">
+                  <strong>Alasan RT:</strong> {ulangDari.alasan || "Tidak ada alasan tercatat."}
+                </p>
+                <p className="text-xs text-on-surface-variant">
+                  {ulangDari.total} · {ulangDari.metode} — baris lama tetap tersimpan sebagai jejak; kirim
+                  pengajuan baru dengan bukti yang sudah diperbaiki.
+                </p>
               </div>
+            )}
+
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                // File WAJIB pada modal ini — inilah bukti yang diminta; tanpa
+                // file pengajuan sama dengan menutup jalan verifikasi.
+                if (!fileBukti) {
+                  flash("Pilih file struk terlebih dahulu.");
+                  return;
+                }
+                const berkas = fileBukti;
+                tutupUpload();
+                if (ulangDari) {
+                  const target = ulangDari;
+                  void ajukanPembayaran(
+                    target.metode,
+                    target.metodeIcon,
+                    target.jumlah,
+                    target.periodeDetail !== "-" ? target.periodeDetail : undefined,
+                    berkas,
+                    "Pengajuan ulang dikirim — menunggu verifikasi pengurus RT.",
+                  );
+                } else {
+                  void ajukanPembayaran("Transfer Bank", "account_balance", totalPaket, paket.label, berkas);
+                }
+              }}
+            >
+              {!ulangDari && (
+                <div className="space-y-1">
+                  <label className="text-sm font-semibold text-on-surface">Pilih Tagihan yang Dibayar</label>
+                  <select className="w-full h-11 px-3 rounded-lg bg-surface-container-low text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                    <option>Iuran {periodeBayar[selectedPeriode].label} ({formatRupiah(totalPaket)})</option>
+                    <option>Iuran Kondisional Lainnya</option>
+                  </select>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-sm font-semibold text-on-surface">Bank / Dompet Pengirim</label>
@@ -990,22 +1143,36 @@ export function IuranTagihan({
                     type="file"
                     accept=".jpg,.jpeg,.png,.pdf"
                     onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) flash(`File "${file.name}" siap dikirim untuk verifikasi.`);
+                      const file = e.target.files?.[0] ?? null;
+                      setFileBukti(file);
+                      // Tanpa flash "siap dikirim" — file BELUM dikirim apa pun;
+                      // pengiriman hanya terjadi saat tombol Kirim ditekan.
                     }}
                   />
                   <span className="material-symbols-outlined text-primary text-[36px] block">cloud_upload</span>
-                  <span className="text-sm text-on-surface font-bold mt-1 block">Klik untuk memilih file struk transfer</span>
-                  <span className="text-xs text-on-surface-variant block">atau seret dan lepas file di sini (JPG, PNG, PDF maks 5MB)</span>
+                  <span className="text-sm text-on-surface font-bold mt-1 block">
+                    {fileBukti ? fileBukti.name : "Klik untuk memilih file struk transfer"}
+                  </span>
+                  <span className="text-xs text-on-surface-variant block">
+                    {fileBukti
+                      ? `${Math.max(1, Math.round(fileBukti.size / 1024))} KB siap dikirim — tekan "Kirim Bukti Pembayaran"`
+                      : "atau seret dan lepas file di sini (JPG, PNG, PDF maks 5MB)"}
+                  </span>
                 </label>
               </div>
               <div className="p-3 rounded-lg bg-surface-container-low text-on-surface-variant text-xs flex items-start gap-2">
                 <span className="material-symbols-outlined text-primary text-[18px] shrink-0">info</span>
-                <span>Setelah diunggah, status tagihan akan berubah menjadi <strong>Menunggu Verifikasi</strong> sampai Bendahara mencocokkan mutasi kas.</span>
+                <span>Setelah dikirim, status tagihan akan berubah menjadi <strong>Menunggu Verifikasi</strong> sampai Bendahara mencocokkan mutasi kas.</span>
               </div>
               <div className="flex items-center justify-end gap-3 pt-1">
-                <button className="h-11 px-4 rounded-lg text-on-surface-variant text-sm hover:bg-surface-container-low" type="button" onClick={() => setShowUpload(false)}>Batal</button>
-                <button className="h-11 px-5 rounded-lg bg-primary text-on-primary text-sm font-bold hover:bg-primary-container shadow transition-all" type="submit">Kirim Bukti Pembayaran</button>
+                <button className="h-11 px-4 rounded-lg text-on-surface-variant text-sm hover:bg-surface-container-low" type="button" onClick={tutupUpload}>Batal</button>
+                <button
+                  className="h-11 px-5 rounded-lg bg-primary text-on-primary text-sm font-bold hover:bg-primary-container shadow transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  type="submit"
+                  disabled={uploadSedang || !fileBukti}
+                >
+                  {uploadSedang ? "Mengirim…" : "Kirim Bukti Pembayaran"}
+                </button>
               </div>
             </form>
           </div>

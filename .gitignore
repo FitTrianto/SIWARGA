@@ -35,3 +35,7 @@ packages/server/.data-impor/
 # Berkas lampiran pengajuan surat (Batch 9) — hanya disimpan lokal di server
 .data-lampiran/
 packages/server/.data-lampiran/
+
+# Berkas bukti bayar warga (Batch 15E / F-5) — hanya disimpan lokal di server
+.data-bukti/
+packages/server/.data-bukti/
