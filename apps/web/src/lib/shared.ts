@@ -720,6 +720,13 @@ export interface RtAgregat {
    * Baris demo (`rtAgregatDefault`) tidak memiliki flag ini.
    */
   iuranTersedia?: boolean;
+  /**
+   * Batch 21 · baris server agregat iuran membawa jumlah tagihan terbit &
+   * tagihan lunas — dasar kolom "Tagihan Wajib Bayar"/"Lunas" di tabel IuranRW
+   * (baris demo tidak memilikinya: memakai rumah terisi × kepatuhan).
+   */
+  jumlahTagihan?: number;
+  jumlahLunas?: number;
 }
 
 export const rtAgregatDefault: RtAgregat[] = [

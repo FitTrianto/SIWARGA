@@ -58,6 +58,7 @@ import {
   riwayatIuran,
   riwayatLoginWarga,
   rwAgregatHunianServer,
+  rwAgregatIuranServer,
   rwAgregatWargaServer,
   rwProfilServer,
   serverKeKategori,
@@ -87,6 +88,7 @@ import {
   type AksiSuratRt,
   type AnggotaBaruServer,
   type BarisAgregatHunianServer,
+  type BarisAgregatIuranServer,
   type BarisAuditServer,
   type BarisProfilIuran,
   type BarisSuratServer,
@@ -487,6 +489,13 @@ export default function App() {
    * dan LaporanRW.
    */
   const [rtAgregatList, setRtAgregatList] = useState<RtAgregat[] | null>(null);
+  /**
+   * Batch 21 · periode agregat iuran yang sedang ditampilkan (`YYYY-MM`);
+   * `null` = belum pernah dipilih (muat memakai default bulan berjalan
+   * server). Dipakai ulang oleh "Perbarui Data" DashboardRW supaya tidak
+   * salah label dengan pemilih periode LaporanRW.
+   */
+  const [periodeRw, setPeriodeRw] = useState<string | null>(null);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>(auditDefault);
 
   // Undangan portal warga (link & QR invitation) — dibagikan ke Portal RT
@@ -598,34 +607,92 @@ export default function App() {
   };
 
   /**
-   * Batch 20 · agregat RW per RT (§7.1) — Kependudukan + Hunian dari
-   * `GET /rw/agregat/*`. OFFLINE → baris contoh dipertahankan (banner mode
-   * demo); kegagalan lain saat daring → tetap kosong (bukan baris contoh
-   * yang menyamar sebagai data riil). Kolom iuran ditandai
-   * `iuranTersedia: false` sampai rekap iuran agregat tersedia (Batch 21).
+   * Batch 20/21 · agregat RW per RT (§7.1 + §7.2) — Kependudukan + Hunian +
+   * Iuran dari `GET /rw/agregat/*`. OFFLINE → baris contoh dipertahankan
+   * (banner mode demo); kegagalan daring pada agregat pokok → tetap kosong
+   * (bukan baris contoh yang menyamar data riil). Kegagalan agregat IURAN
+   * sajajar → baris tetap terbentuk dengan `iuranTersedia: false` (kolom
+   * iuran "—", bukan 0 palsu) sampai muat ulang berhasil.
    */
   const muatAgregatRwSesi = async (): Promise<void> => {
     try {
       const [w, h] = await Promise.all([rwAgregatWargaServer(), rwAgregatHunianServer()]);
+      // Iuran (Batch 21) gagal pun tidak membatalkan agregat pokok.
+      let petaIuran = new Map<string, BarisAgregatIuranServer>();
+      let iuranOk = false;
+      try {
+        const i = await rwAgregatIuranServer(periodeRw ?? undefined);
+        petaIuran = new Map(i.baris.map((b) => [b.rtId, b]));
+        iuranOk = true;
+      } catch (e) {
+        console.info("[rw] agregat iuran belum tersedia:", e instanceof GalatApi ? e.code : e);
+      }
       const petaHunian = new Map<string, BarisAgregatHunianServer>(h.baris.map((b) => [b.rtId, b]));
       setRtAgregatList(
-        w.baris.map((b) => ({
-          rt: `RT ${b.kodeRt}`,
-          kk: b.kk,
-          warga: b.warga,
-          totalRumah: petaHunian.get(b.rtId)?.total ?? 0,
-          hunian: petaHunian.get(b.rtId)?.terisi ?? 0,
-          kepatuhan: 0,
-          terkumpul: 0,
-          subsidiJumlah: 0,
-          subsidiNominal: 0,
-          tunggakan: 0,
-          iuranTersedia: false,
-        })),
+        w.baris.map((b) => {
+          const i = iuranOk ? petaIuran.get(b.rtId) : undefined;
+          return {
+            rt: `RT ${b.kodeRt}`,
+            kk: b.kk,
+            warga: b.warga,
+            totalRumah: petaHunian.get(b.rtId)?.total ?? 0,
+            hunian: petaHunian.get(b.rtId)?.terisi ?? 0,
+            kepatuhan: i?.kepatuhan ?? 0,
+            terkumpul: i?.terbayar ?? 0,
+            subsidiJumlah: i?.subsidiJumlah ?? 0,
+            subsidiNominal: i?.subsidiNominal ?? 0,
+            tunggakan: i?.sisa ?? 0,
+            jumlahTagihan: i?.jumlahTagihan,
+            jumlahLunas: i?.jumlahLunas,
+            iuranTersedia: i !== undefined,
+          };
+        }),
       );
     } catch (e) {
       console.info("[rw] agregat memakai baris contoh:", e instanceof GalatApi ? e.code : e);
       if (e instanceof GalatApi && e.code === "OFFLINE") setRtAgregatList(null);
+    }
+  };
+
+  /**
+   * Batch 21 · muat ulang agregat IURAN untuk periode tertentu (pemilih
+   * periode LaporanRW) lalu merge ke baris yang sudah tampil — kependudukan &
+   * hunian tidak dimuat ulang. Mode demo/OFFLINE (`null`) → no-op (baris
+   * contoh tetap). Gagal daring → seluruh baris ditandai `iuranTersedia:
+   * false` supaya kolom iuran kembali "—" (jujur), bukan angka periode lama
+   * yang menyamar periode baru.
+   */
+  const muatIuranRwSesi = async (periode: string): Promise<void> => {
+    setPeriodeRw(periode);
+    if (rtAgregatList === null) return;
+    try {
+      const i = await rwAgregatIuranServer(periode);
+      const peta = new Map<string, BarisAgregatIuranServer>(i.baris.map((b) => [`RT ${b.kodeRt}`, b]));
+      setRtAgregatList((prev) =>
+        prev === null
+          ? prev
+          : prev.map((r) => {
+              const b = peta.get(r.rt);
+              return b === undefined
+                ? r
+                : {
+                    ...r,
+                    kepatuhan: b.kepatuhan,
+                    terkumpul: b.terbayar,
+                    subsidiJumlah: b.subsidiJumlah,
+                    subsidiNominal: b.subsidiNominal,
+                    tunggakan: b.sisa,
+                    jumlahTagihan: b.jumlahTagihan,
+                    jumlahLunas: b.jumlahLunas,
+                    iuranTersedia: true,
+                  };
+            }),
+      );
+    } catch (e) {
+      console.info("[rw] agregat iuran gagal dimuat:", e instanceof GalatApi ? e.code : e);
+      setRtAgregatList((prev) =>
+        prev === null ? prev : prev.map((r) => ({ ...r, iuranTersedia: false })),
+      );
     }
   };
 
@@ -2763,6 +2830,7 @@ export default function App() {
         onNavigate={navigate}
         kasRw={kasRwList}
         rtAgregat={rtAgregatList}
+        onMuatPeriode={muatIuranRwSesi}
       />,
       "pengaturan-rw": <PengaturanRW onNavigate={navigate} />,
     };

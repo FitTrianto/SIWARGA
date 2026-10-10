@@ -872,16 +872,19 @@ describe("Portal RW hanya menerima agregat (§7.2)", () => {
     scopeRw.id = idRw;
   });
 
-  it("RW hanya membaca tabel agregat §7.1 (read-only); baris per-individu tetap 0", async () => {
+  it("RW hanya membaca tabel agregat §7.1/§7.2 (read-only); sisanya tetap 0", async () => {
     // Batch 20 · kebijakan SELECT rw-join (migrasi 20261010000100) membuka
     // warga/kartu_keluarga/rumah bagi scope RW HANYA untuk hitungan agregat
-    // per RT (§7.1) — tulis tetap tertutup `p_scope_rt` (diuji pada describe
-    // "Batch 20"). Data iuran/persuratan per-individu tetap nol total —
-    // §7.2 privasi: portal RW tidak pernah melihat data individu warga.
-    for (const tabel of ["warga", "kartu_keluarga", "rumah"]) {
+    // per RT (§7.1). Batch 21 · migrasi 20261010000200 menambah `tagihan`
+    // (serta `keringanan` — diuji pada describe "Batch 21") untuk agregat
+    // §7.2: baris terbaca HANYA milik RT di bawah RW, tulis tetap tertutup
+    // `p_scope_rt`, dan respons API tetap berisi hitungan/nominal agregat
+    // saja — tanpa nama/NIK/wargaId (§6.4.10). Pembayaran/persuratan/kas
+    // per-individu & pengurus RT lain tetap nol total.
+    for (const tabel of ["warga", "kartu_keluarga", "rumah", "tagihan"]) {
       expect(await hitung(scopeRw, `SELECT count(*)::int AS n FROM ${tabel}`), tabel).toBeGreaterThan(0);
     }
-    for (const tabel of ["tagihan", "pembayaran", "kas_entry", "surat", "pengurus_rt"]) {
+    for (const tabel of ["pembayaran", "kas_entry", "surat", "pengurus_rt"]) {
       expect(await hitung(scopeRw, `SELECT count(*)::int AS n FROM ${tabel}`), tabel).toBe(0);
     }
   });
@@ -10157,5 +10160,342 @@ describe("Batch 20 · portal RW fondasi (profil + agregat warga/hunian)", () => 
     const idRwAsing = (rwAsing.rows[0] as { rw_id: string }).rw_id;
     const n = await hitung({ level: "rw", id: idRwAsing }, "SELECT count(*)::int AS n FROM warga WHERE is_active");
     expect(n, "RW asing melihat warganya sendiri (1 baris uji)").toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batch 21 · Portal RW — agregat iuran per RT (§7.2): rute /rw/agregat/iuran
+// + kebijakan SELECT rw-join pada `tagihan`/`keringanan` (migrasi
+// 20261010000200). Fixture deterministik: 1 tagihan LUNAS + 1 keringanan
+// aktif/disetujui pada periode uji 2099-01 milik RT04 — dihapus afterAll.
+// Rute menghitung LANGSUNG dari tagihan/keringanan (join rt.rw_id + RLS),
+// bukan view v_rw_iuran_agregat yang mode definer-nya lintas tenant.
+// ---------------------------------------------------------------------------
+describe("Batch 21 · portal RW agregat iuran per RT (§7.2)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRw = "";
+  let sidRt04 = "";
+  let sidWarga = "";
+  let idRw012 = "";
+  let idRt04 = "";
+  let idKategoriUji = "";
+  let idTagihanUji = "";
+  let idKeringananUji = "";
+  const acak = randomUUID().slice(0, 8);
+  const PERIODE_UJI = "2099-01";
+
+  interface BarisIuranUji {
+    rtId: string;
+    kodeRt: string;
+    jumlahTagihan: number;
+    jumlahLunas: number;
+    kepatuhan: number;
+    terbayar: number;
+    sisa: number;
+    subsidiJumlah: number;
+    subsidiNominal: number;
+  }
+  interface HasilIuranUji {
+    periode: string;
+    baris: BarisIuranUji[];
+    total: {
+      jumlahTagihan: number;
+      jumlahLunas: number;
+      kepatuhan: number;
+      terbayar: number;
+      sisa: number;
+      subsidiJumlah: number;
+      subsidiNominal: number;
+    };
+  }
+
+  const login = async (payload: Record<string, string>): Promise<string> => {
+    const res = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload,
+    });
+    expect(res.statusCode, `login ${JSON.stringify(payload.email ?? payload.noHp)}`).toBe(200);
+    return cookieDari(res, "sid")!;
+  };
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+    sidRw = await login({ email: "rw012@siwarga.id", password: "rahasia123" });
+    sidRt04 = await login({ email: "rt04@siwarga.id", password: "rahasia123" });
+    const w = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(w.statusCode, "login warga Bambang").toBe(200);
+    sidWarga = cookieDari(w, "sid")!;
+
+    const rt = await dalamScopePlat((c) => c.query("SELECT id, rw_id FROM rt WHERE kode_rt = '004'"));
+    const barisRt = rt.rows[0] as { id: string; rw_id: string };
+    idRt04 = barisRt.id;
+    idRw012 = barisRt.rw_id;
+
+    const warga = await dalamScopePlat((c) =>
+      c.query("SELECT id FROM warga WHERE rt_id = $1 AND is_active LIMIT 1", [idRt04]),
+    );
+    const idWargaUji = (warga.rows[0] as { id: string }).id;
+    expect(idWargaUji, "RT04 punya warga aktif (Bambang)").toBeTruthy();
+
+    const kat = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO kategori_iuran
+           (id, rt_id, nama, tipe_tarif, nominal_default, wajib_opsional, status_aktif, urutan, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, 'Iuran Uji B21 ${acak}', 'flat', 50000, 'wajib', true, 99, now(), now())
+         RETURNING id`,
+        [idRt04],
+      ),
+    );
+    idKategoriUji = (kat.rows[0] as { id: string }).id;
+
+    const tagihan = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO tagihan
+           (id, rt_id, warga_id, kategori_id, periode, nominal, nominal_awal, sisa, tenggat, status, sumber)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, 50000, 50000, 0, '2099-01-10', 'lunas', 'bulk')
+         RETURNING id`,
+        [idRt04, idWargaUji, idKategoriUji, PERIODE_UJI],
+      ),
+    );
+    idTagihanUji = (tagihan.rows[0] as { id: string }).id;
+
+    const ker = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO keringanan
+           (id, rt_id, warga_id, kategori_id, nominal_keringanan, alasan, periode_mulai, status_approval, status)
+         VALUES (gen_random_uuid(), $1, $2, $3, 15000, 'Uji B21', $4, 'disetujui', 'aktif')
+         RETURNING id`,
+        [idRt04, idWargaUji, idKategoriUji, PERIODE_UJI],
+      ),
+    );
+    idKeringananUji = (ker.rows[0] as { id: string }).id;
+  }, 60_000);
+
+  afterAll(async () => {
+    if (idKeringananUji) await dalamScopePlat((c) => c.query("DELETE FROM keringanan WHERE id = $1", [idKeringananUji]));
+    if (idTagihanUji) await dalamScopePlat((c) => c.query("DELETE FROM tagihan WHERE id = $1", [idTagihanUji]));
+    if (idKategoriUji) await dalamScopePlat((c) => c.query("DELETE FROM kategori_iuran WHERE id = $1", [idKategoriUji]));
+    await tutupAplikasiUji();
+  });
+
+  it("guard: tanpa sesi / sesi RT / sesi warga DITOLAK di /rw/agregat/iuran", async () => {
+    const tanpa = await app.inject({ method: "GET", url: `${api}/rw/agregat/iuran` });
+    expect(tanpa.statusCode, "tanpa sesi").toBe(401);
+    expect(isi(tanpa).error?.code).toBe("UNAUTHORIZED");
+    for (const sid of [sidRt04, sidWarga]) {
+      const res = await app.inject({ method: "GET", url: `${api}/rw/agregat/iuran`, cookies: { sid } });
+      expect(res.statusCode, "sesi non-RW").toBe(401);
+      expect(isi(res).error?.code).toBe("UNAUTHORIZED");
+    }
+  });
+
+  it("periode tidak valid → VALIDATION 400 (bukan baris nol yang menyamar data)", async () => {
+    for (const p of ["2099-13", "okt-2099", "2099/01"]) {
+      const res = await app.inject({
+        method: "GET",
+        url: `${api}/rw/agregat/iuran?periode=${encodeURIComponent(p)}`,
+        cookies: { sid: sidRw },
+      });
+      expect(res.statusCode, `periode ${p}`).toBe(400);
+      expect(isi(res).error?.code).toBe("VALIDATION");
+    }
+  });
+
+  it("agregat periode uji: RT04 lunas+subsidi, RT05 nol — hitungan tanpa data individu", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `${api}/rw/agregat/iuran?periode=${PERIODE_UJI}`,
+      cookies: { sid: sidRw },
+    });
+    expect(res.statusCode).toBe(200);
+    const data = isi(res).data as HasilIuranUji;
+    expect(data.periode).toBe(PERIODE_UJI);
+    expect(data.baris.length).toBeGreaterThanOrEqual(2);
+
+    // bentuk respons = agregat saja (privasi §6.4.10/PDP): tanpa nama/NIK/wargaId
+    expect(Object.keys(data.baris[0]).sort()).toEqual([
+      "jumlahLunas",
+      "jumlahTagihan",
+      "kepatuhan",
+      "kodeRt",
+      "rtId",
+      "sisa",
+      "subsidiJumlah",
+      "subsidiNominal",
+      "terbayar",
+    ]);
+    const mentah = JSON.stringify(data);
+    expect(mentah, "tanpa nama").not.toMatch(/"nama"/);
+    expect(mentah, "tanpa NIK").not.toMatch(/"nik/);
+    expect(mentah, "tanpa wargaId").not.toMatch(/wargaId/);
+
+    const r04 = data.baris.find((b) => b.kodeRt === "004");
+    expect(r04, "RT04 wajib tampil").toBeTruthy();
+    expect(r04).toMatchObject({
+      jumlahTagihan: 1,
+      jumlahLunas: 1,
+      kepatuhan: 100,
+      terbayar: 50000,
+      sisa: 0,
+      subsidiJumlah: 1,
+      subsidiNominal: 15000,
+    });
+
+    const r05 = data.baris.find((b) => b.kodeRt === "005");
+    expect(r05, "RT05 wajib tampil dengan angka nol (jujur, bukan hilang)").toBeTruthy();
+    expect(r05).toMatchObject({
+      jumlahTagihan: 0,
+      jumlahLunas: 0,
+      kepatuhan: 0,
+      terbayar: 0,
+      sisa: 0,
+      subsidiJumlah: 0,
+      subsidiNominal: 0,
+    });
+
+    // total = jumlah baris; kepatuhan total = rasio tertimbang (bukan mean)
+    expect(data.total.jumlahTagihan).toBe(data.baris.reduce((s, b) => s + b.jumlahTagihan, 0));
+    expect(data.total.terbayar).toBe(data.baris.reduce((s, b) => s + b.terbayar, 0));
+    expect(data.total.subsidiJumlah).toBe(data.baris.reduce((s, b) => s + b.subsidiJumlah, 0));
+    expect(data.total.kepatuhan).toBe(
+      data.total.jumlahTagihan > 0
+        ? Math.round((data.total.jumlahLunas / data.total.jumlahTagihan) * 1000) / 10
+        : 0,
+    );
+  });
+
+  it("identik hitungan platform di semua RT; tanpa parameter → default bulan berjalan", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `${api}/rw/agregat/iuran?periode=${PERIODE_UJI}`,
+      cookies: { sid: sidRw },
+    });
+    expect(res.statusCode).toBe(200);
+    const data = isi(res).data as HasilIuranUji;
+    expect(data.baris.length).toBeGreaterThan(0);
+
+    for (const b of data.baris) {
+      const t = await dalamScopePlat((c) =>
+        c.query(
+          `SELECT COUNT(*)::int AS n,
+                  COUNT(*) FILTER (WHERE t.status = 'lunas')::int AS lunas,
+                  COALESCE(SUM(t.nominal_awal - t.sisa), 0)::float AS terbayar,
+                  COALESCE(SUM(t.sisa), 0)::float AS sisa
+             FROM tagihan t
+            WHERE t.rt_id = $1 AND t.periode = $2`,
+          [b.rtId, PERIODE_UJI],
+        ),
+      );
+      const n = t.rows[0] as { n: number; lunas: number; terbayar: number; sisa: number };
+      expect(b.jumlahTagihan, `tagihan RT ${b.kodeRt}`).toBe(n.n);
+      expect(b.jumlahLunas, `lunas RT ${b.kodeRt}`).toBe(n.lunas);
+      expect(b.terbayar, `terbayar RT ${b.kodeRt}`).toBeCloseTo(n.terbayar, 6);
+      expect(b.sisa, `sisa RT ${b.kodeRt}`).toBeCloseTo(n.sisa, 6);
+
+      const k = await dalamScopePlat((c) =>
+        c.query(
+          `SELECT COUNT(DISTINCT k.warga_id)::int AS jumlah,
+                  COALESCE(SUM(k.nominal_keringanan), 0)::float AS nominal
+             FROM keringanan k
+            WHERE k.rt_id = $1
+              AND k.status = 'aktif' AND k.status_approval = 'disetujui'
+              AND k.periode_mulai <= $2
+              AND (k.periode_sampai IS NULL OR k.periode_sampai >= $2)`,
+          [b.rtId, PERIODE_UJI],
+        ),
+      );
+      const kn = k.rows[0] as { jumlah: number; nominal: number };
+      expect(b.subsidiJumlah, `subsidi RT ${b.kodeRt}`).toBe(kn.jumlah);
+      expect(b.subsidiNominal, `nominal subsidi RT ${b.kodeRt}`).toBeCloseTo(kn.nominal, 6);
+    }
+
+    // tanpa ?periode → bulan berjalan server, tetap bentuk agregat valid
+    const dflt = await app.inject({ method: "GET", url: `${api}/rw/agregat/iuran`, cookies: { sid: sidRw } });
+    expect(dflt.statusCode).toBe(200);
+    const dd = isi(dflt).data as HasilIuranUji;
+    expect(dd.periode).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
+    expect(dd.baris.length).toBe(data.baris.length);
+  });
+
+  it("RLS: tagihan/keringanan RT binaan terbaca, milik RW lain TIDAK, tulis ditolak", async () => {
+    // RW + RT asing berisi 1 tagihan + 1 keringanan pada periode uji (acak —
+    // ditinggalkan di DB uji), pola sama dengan tes isolasi Batch 20.
+    const baris = await dalamScopePlat((c) =>
+      c.query(
+        `WITH kli AS (INSERT INTO kelurahan (id, nama, kecamatan_id)
+              SELECT gen_random_uuid(), $1, kecamatan_id FROM kelurahan LIMIT 1
+              RETURNING id),
+              rwx AS (INSERT INTO rw (id, kelurahan_id, kode_rw, nama_ketua, updated_at)
+              SELECT gen_random_uuid(), id, $2, $3, now() FROM kli RETURNING id, kelurahan_id),
+              rtx AS (INSERT INTO rt (id, rw_id, kode_rt, kelurahan_id, status, updated_at)
+              SELECT gen_random_uuid(), rwx.id, $4, rwx.kelurahan_id, 'aktif', now() FROM rwx RETURNING id),
+              ktx AS (INSERT INTO kategori_iuran (id, rt_id, nama, tipe_tarif, nominal_default, wajib_opsional, status_aktif, urutan, created_at, updated_at)
+              SELECT gen_random_uuid(), rtx.id, 'Iuran Asing B21 ' || $5, 'flat', 10000, 'wajib', true, 1, now(), now() FROM rtx RETURNING id, rt_id),
+              kkm AS (INSERT INTO kartu_keluarga (id, rt_id, no_kk, kepala_keluarga, alamat, updated_at)
+              SELECT gen_random_uuid(), ktx.rt_id, $6, $7, 'Alamat Asing', now() FROM ktx RETURNING id, rt_id),
+              wx AS (INSERT INTO warga (id, rt_id, kk_id, nama, updated_at)
+              SELECT gen_random_uuid(), kkm.rt_id, kkm.id, $7, now() FROM kkm RETURNING id, rt_id),
+              tx AS (INSERT INTO tagihan (id, rt_id, warga_id, kategori_id, periode, nominal, nominal_awal, sisa, tenggat, status, sumber)
+              SELECT gen_random_uuid(), wx.rt_id, wx.id, ktx.id, $8, 10000, 10000, 10000, '2099-01-10', 'belum_bayar', 'bulk'
+                FROM wx, ktx RETURNING id),
+              krx AS (INSERT INTO keringanan (id, rt_id, warga_id, kategori_id, nominal_keringanan, alasan, periode_mulai, status_approval, status)
+              SELECT gen_random_uuid(), wx.rt_id, wx.id, ktx.id, 5000, 'Asing B21', $8, 'disetujui', 'aktif'
+                FROM wx, ktx RETURNING id)
+         SELECT (SELECT id::text FROM rtx) AS rt_id,
+                (SELECT count(*)::int FROM tx) + (SELECT count(*)::int FROM krx) AS n`,
+        [
+          `Kelurahan Asing B21 ${acak}`,
+          "96",
+          `Ketua Asing B21 ${acak}`,
+          "95",
+          acak,
+          `8888${acak}`,
+          `Warga Asing B21 ${acak}`,
+          PERIODE_UJI,
+        ],
+      ),
+    );
+    const asing = baris.rows[0] as { rt_id: string; n: number };
+    expect(asing.n, "fixture asing = 1 tagihan + 1 keringanan").toBe(2);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `${api}/rw/agregat/iuran?periode=${PERIODE_UJI}`,
+      cookies: { sid: sidRw },
+    });
+    expect(res.statusCode).toBe(200);
+    const data = isi(res).data as HasilIuranUji;
+    expect(
+      data.baris.some((b) => b.rtId === asing.rt_id),
+      "RT milik RW lain tidak pernah tampil di agregat",
+    ).toBe(false);
+
+    // Hitungan scope rw = hitungan platform MILIK RT sendiri — bila kebijakan
+    // bocor, tagihan/keringanan lintas-tenant menaikkan angka scope rw.
+    const rwTagihan = await hitung({ level: "rw", id: idRw012 }, "SELECT count(*)::int AS n FROM tagihan");
+    const rwKeringanan = await hitung({ level: "rw", id: idRw012 }, "SELECT count(*)::int AS n FROM keringanan");
+    const milik = await dalamScopePlat((c) =>
+      c.query(
+        `SELECT (SELECT COUNT(*) FROM tagihan t JOIN rt r ON r.id = t.rt_id WHERE r.rw_id = $1)::int AS tagihan,
+                (SELECT COUNT(*) FROM keringanan k JOIN rt r ON r.id = k.rt_id WHERE r.rw_id = $1)::int AS keringanan`,
+        [idRw012],
+      ),
+    );
+    const n = milik.rows[0] as { tagihan: number; keringanan: number };
+    expect(rwTagihan, "tagihan lintas-tenant tidak bocor ke sesi RW").toBe(n.tagihan);
+    expect(rwKeringanan, "keringanan lintas-tenant tidak bocor ke sesi RW").toBe(n.keringanan);
+
+    // Tulis tetap ditolak (kebijakan SELECT-only, migrasi 20261010000200).
+    const tulisT = await denganScope({ level: "rw", id: idRw012 }, (c) => c.query("UPDATE tagihan SET sisa = sisa"));
+    expect(tulisT.rowCount, "UPDATE tagihan dari scope rw ditolak").toBe(0);
+    const tulisK = await denganScope({ level: "rw", id: idRw012 }, (c) => c.query("UPDATE keringanan SET alasan = alasan"));
+    expect(tulisK.rowCount, "UPDATE keringanan dari scope rw ditolak").toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { tenant } from "../../lib/tenant";
 import {
   KasRw,
@@ -18,6 +18,12 @@ interface LaporanRWProps {
    * OFFLINE/mode demo (baris contoh + banner), `[]` = daring kosong.
    */
   rtAgregat?: RtAgregat[] | null;
+  /**
+   * Batch 21 · muat agregat iuran server untuk periode terpilih (`YYYY-MM`);
+   * dipanggil saat mount & setiap ganti bulan/tahun supaya label periode di
+   * laporan selalu sama dengan data yang tampil (bukan angka periode lain).
+   */
+  onMuatPeriode?: (periode: string) => void;
 }
 
 const BULAN = [
@@ -31,13 +37,21 @@ const TAHUN = ["2025", "2026", "2027"];
  * §7.7 — Laporan agregat lintas-RT untuk pelaporan Kelurahan/Kecamatan.
  * Seluruh data disajikan dalam bentuk agregat per RT (§6.4.10, §4.3).
  */
-export function LaporanRW({ onNavigate, kasRw, rtAgregat = null }: LaporanRWProps) {
+export function LaporanRW({ onNavigate, kasRw, rtAgregat = null, onMuatPeriode }: LaporanRWProps) {
   const [bulan, setBulan] = useState("September");
   const [tahun, setTahun] = useState("2026");
   const { flash, toast } = useFlash();
 
 
   const periode = `${bulan} ${tahun}`;
+  // Batch 21 · kunci YYYY-MM dari pemilih bulan/tahun — muat agregat iuran
+  // server saat mount & setiap ganti periode, jadi label dan data tak pernah
+  // berbeda periode (mode demo: muat no-op, baris contoh tetap).
+  const kunciPeriode = `${tahun}-${String(BULAN.indexOf(bulan) + 1).padStart(2, "0")}`;
+  useEffect(() => {
+    onMuatPeriode?.(kunciPeriode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kunciPeriode]);
   // Batch 20 · baris SERVER bila termuat; OFFLINE (null) → baris contoh.
   const rows: RtAgregat[] = rtAgregat === null ? rtAgregatDefault : rtAgregat;
   // false = baris server TANPA rekap iuran (Batch 21) → Bagian B tampil "—",

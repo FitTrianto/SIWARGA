@@ -827,8 +827,9 @@ export function auditLogRt(ambil = 100): Promise<{ baris: BarisAuditServer[] }> 
 
 // ===========================================================================
 // PORTAL RW — Batch 20 (fondasi §7.1): identitas RW + agregat kependudukan
-// dan hunian per RT. Respons agregat HANYA berisi hitungan (privasi PDP —
-// tanpa nama/NIK/al­amat warga).
+// dan hunian per RT; Batch 21 (§7.2): agregat iuran per RT + periode.
+// Respons agregat HANYA berisi hitungan & nominal (privasi PDP — tanpa
+// nama/NIK/alamat/wargaId warga).
 // ===========================================================================
 
 /** `GET /rw/profil` — identitas RW login dari DB (bukan konstanta FE). */
@@ -879,6 +880,42 @@ export function rwAgregatHunianServer(): Promise<{
   total: { total: number; terisi: number; kosong: number };
 }> {
   return minta("/rw/agregat/hunian");
+}
+
+/** Satu baris agregat IURAN (`GET /rw/agregat/iuran`) — §7.2, tanpa data individu. */
+export interface BarisAgregatIuranServer {
+  rtId: string;
+  kodeRt: string;
+  jumlahTagihan: number;
+  jumlahLunas: number;
+  /** Persen (lunas ÷ tagihan terbit, 1 desimal); 0 bila belum ada tagihan. */
+  kepatuhan: number;
+  /** nominal_awal − sisa. */
+  terbayar: number;
+  sisa: number;
+  /** Warga unik dengan keringanan aktif/disetujui yang mencakup periode. */
+  subsidiJumlah: number;
+  subsidiNominal: number;
+}
+
+/**
+ * GET `/rw/agregat/iuran?periode=YYYY-MM` (opsional — default bulan berjalan
+ * server) — kepatuhan, penerimaan, tunggakan & subsidi per RT.
+ */
+export function rwAgregatIuranServer(periode?: string): Promise<{
+  periode: string;
+  baris: BarisAgregatIuranServer[];
+  total: {
+    jumlahTagihan: number;
+    jumlahLunas: number;
+    kepatuhan: number;
+    terbayar: number;
+    sisa: number;
+    subsidiJumlah: number;
+    subsidiNominal: number;
+  };
+}> {
+  return minta(periode ? `/rw/agregat/iuran?periode=${encodeURIComponent(periode)}` : "/rw/agregat/iuran");
 }
 
 /** POST `/rt/iuran/kategori` — tambah master kategori (wajib CSRF, nama unik per RT). */

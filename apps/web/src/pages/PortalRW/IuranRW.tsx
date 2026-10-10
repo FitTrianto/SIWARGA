@@ -29,13 +29,19 @@ export function IuranRW({ onNavigate, rtAgregat = null }: IuranRWProps) {
   const iuranTersedia = rows.some((r) => r.iuranTersedia !== false);
 
   // Turunan agregat — bukan data individu.
-  const lunasOf = (r: RtAgregat) => Math.round((r.hunian * r.kepatuhan) / 100);
+  // Batch 21 · baris server membawa jumlah tagihan/lunas RIIL; baris demo
+  // memakai rumah terisi × kepatuhan (estimasi contoh). `pakaiTagihan`
+  // menentukan label kolom: "Tagihan Wajib Bayar" (data riil) vs "Rumah
+  // Wajib Bayar" (estimasi contoh) — supaya angka tidak pernah berpura-pura.
+  const lunasOf = (r: RtAgregat) => r.jumlahLunas ?? Math.round((r.hunian * r.kepatuhan) / 100);
+  const wajibBayarOf = (r: RtAgregat) => r.jumlahTagihan ?? r.hunian;
+  const pakaiTagihan = rows.some((r) => r.jumlahTagihan !== undefined);
   const rataKepatuhan = rows.length > 0 ? rows.reduce((sum, r) => sum + r.kepatuhan, 0) / rows.length : 0;
   const totalTerkumpul = rows.reduce((sum, r) => sum + r.terkumpul, 0);
   const totalSubsidiNominal = rows.reduce((sum, r) => sum + r.subsidiNominal, 0);
   const totalSubsidiRumah = rows.reduce((sum, r) => sum + r.subsidiJumlah, 0);
   const totalTunggakan = rows.reduce((sum, r) => sum + r.tunggakan, 0);
-  const totalHunian = rows.reduce((sum, r) => sum + r.hunian, 0);
+  const totalHunian = rows.reduce((sum, r) => sum + wajibBayarOf(r), 0);
   const totalLunas = rows.reduce((sum, r) => sum + lunasOf(r), 0);
   const totalSubsidiJumlah = totalSubsidiRumah;
 
@@ -84,11 +90,11 @@ export function IuranRW({ onNavigate, rtAgregat = null }: IuranRWProps) {
     lines.push("Data bersifat agregat per RT — tanpa data individu warga (§6.4.10).");
     lines.push("");
     lines.push(
-      "RT,Rumah Wajib Bayar,Lunas,Kepatuhan (%),Terkumpul (Rp),Subsidi (Rumah),Subsidi (Rp),Tunggakan (Rp)"
+      `RT,${pakaiTagihan ? "Tagihan" : "Rumah"} Wajib Bayar,Lunas,Kepatuhan (%),Terkumpul (Rp),Subsidi (Rumah),Subsidi (Rp),Tunggakan (Rp)`
     );
     rows.forEach((r) => {
       lines.push(
-        `${r.rt},${r.hunian},${lunasOf(r)},${r.kepatuhan},${r.terkumpul},${r.subsidiJumlah},${r.subsidiNominal},${r.tunggakan}`
+        `${r.rt},${wajibBayarOf(r)},${lunasOf(r)},${r.kepatuhan},${r.terkumpul},${r.subsidiJumlah},${r.subsidiNominal},${r.tunggakan}`
       );
     });
     lines.push(
@@ -197,7 +203,7 @@ export function IuranRW({ onNavigate, rtAgregat = null }: IuranRWProps) {
             <thead className="bg-surface-container-low text-xs text-on-surface-variant uppercase tracking-wider">
               <tr>
                 <th className="py-3 px-4">RT</th>
-                <th className="py-3 px-4 text-right">Rumah Wajib Bayar</th>
+                <th className="py-3 px-4 text-right">{pakaiTagihan ? "Tagihan" : "Rumah"} Wajib Bayar</th>
                 <th className="py-3 px-4 text-right">Lunas</th>
                 <th className="py-3 px-4">Kepatuhan %</th>
                 <th className="py-3 px-4 text-right">Terkumpul</th>
@@ -220,7 +226,7 @@ export function IuranRW({ onNavigate, rtAgregat = null }: IuranRWProps) {
                       </div>
                     </td>
                     <td className="py-4 px-4 text-right">
-                      <span className="text-sm font-mono text-on-surface">{r.hunian}</span>
+                      <span className="text-sm font-mono text-on-surface">{wajibBayarOf(r)}</span>
                     </td>
                     <td className="py-4 px-4 text-right">
                       <span className="text-sm font-mono text-on-surface">{lunasOf(r)}</span>
