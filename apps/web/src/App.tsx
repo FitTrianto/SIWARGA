@@ -1435,6 +1435,22 @@ export default function App() {
     }
   };
 
+  // Bug laporan · bukti lunas PDF di tabel tagihan tercatat: riwayat pembayaran
+  // sesi (semua status, maks. 500 baris) untuk mengisi metode + cap verifikasi
+  // kuitansi. API-first: OFFLINE → `null` (kuitansi terbit dari baris tagihan
+  // dengan metode "—"); galat lain DITERUSKAN agar pesan server tampil.
+  const muatPembayaranRtSesi = async (): Promise<
+    Awaited<ReturnType<typeof pembayaranRt>>["pembayaran"] | null
+  > => {
+    try {
+      return (await pembayaranRt()).pembayaran;
+    } catch (err) {
+      if (err instanceof GalatApi && err.code === "OFFLINE") return null;
+      tanganiSesiHabis(err);
+      throw err;
+    }
+  };
+
   const muatProfilIuranSesi = async (
     wargaId: string,
   ): Promise<{ warga: { id: string; nama: string }; baris: BarisProfilIuran[] } | null> => {
@@ -2747,6 +2763,7 @@ export default function App() {
         onMuatProfilIuran={muatProfilIuranSesi}
         onSimpanProfilIuran={simpanProfilIuranSesi}
         onUbahNominalTagihan={ubahNominalTagihanSesi}
+        onMuatPembayaranRt={muatPembayaranRtSesi}
       />,
       "kas-rt": <KasRT onNavigate={navigate} kasRt={kasRtList} onTambahKas={tambahKasRt} onKoreksiKas={koreksiEntriKas} />,
       "surat-pengantar-rt": <SuratPengantarRT

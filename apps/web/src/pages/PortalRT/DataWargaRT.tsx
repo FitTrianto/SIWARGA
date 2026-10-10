@@ -193,6 +193,18 @@ const AKSES_KELAS: Record<AksiAkses, string> = {
   nonaktifkan: "bg-error-container/30 text-error hover:bg-error-container hover:text-on-error-container",
 };
 
+/**
+ * Bug laporan · status kiriman undangan harus terbaca dari tabel Data Warga.
+ * Baris KK hanya memuat badge agregat "X/Y aktif" (anggota Aktif tidak lagi
+ * butuh perhatian) — daftar status di bawahnya melengkapi yang sisanya.
+ */
+const LABEL_STATUS_PORTAL: Record<string, string> = {
+  "Belum Aktif": "belum aktif",
+  "Undangan Dikirim": "undangan dikirim",
+  "Kedaluwarsa": "kedaluwarsa",
+  Dinonaktifkan: "dinonaktifkan",
+};
+
 // Opsi form Edit Data Warga (14 kolom data KK) — daftarnya sama dengan yang
 // dipakai Data Keluarga di Portal Warga supaya nilainya selalu cocok.
 const agamaOpsi = ["Islam", "Kristen Protestan", "Kristen Katolik", "Hindu", "Buddha", "Konghucu", "Lainnya"];
@@ -229,6 +241,15 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
   const [editing, setEditing] = useState<WargaRt | null>(null);
   const [detailWarga, setDetailWarga] = useState<WargaRt | null>(null);
   const [kartuUndangan, setKartuUndangan] = useState<Undangan | null>(null);
+  /**
+   * Bug laporan · antrean kartu QR untuk kirim massal (baris keluarga / modal
+   * "Kirim Undangan"). Kosong = kartu tunggal (jalur per-warga). Token hanya
+   * ada saat penerbitan, jadi QR SEMUA penerima wajib ditampilkan berurutan di
+   * sesi ini — tidak bisa dipanggil ulang tanpa memutar token.
+   */
+  const [antreanKartu, setAntreanKartu] = useState<Undangan[]>([]);
+  /** Indeks kartu aktif di antrean massal (−1 = kartu tunggal → pager disembunyikan). */
+  const idxKartu = kartuUndangan ? antreanKartu.findIndex((u) => u === kartuUndangan) : -1;
   const [selectedWarga, setSelectedWarga] = useState<string[]>([]);
   /** Menceklik dua kali saat penerbitan undangan masih berjalan (menunggu API). */
   const [kirimSedang, setKirimSedang] = useState(false);
@@ -992,12 +1013,73 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
       // offline → daftar lokal mode demo. Galat API non-OFFLINE ditampilkan via flash.
       const u = await onUndanganWarga({ nama: w.nama, alamat: w.alamat, noWa: w.noWa, idWarga: w.idWarga });
       markUndangan([w.id]);
+      setAntreanKartu([]);
       setKartuUndangan(u);
       flash(`Kartu undangan ${w.nama} siap — bagikan link atau QR-nya.`);
     } catch (err) {
       flash(pesanGalatUndangan(err));
     } finally {
       setKirimSedang(false);
+    }
+  }
+
+  /**
+   * Bug laporan · terbitkan undangan untuk SEMUA anggota ber-status "Belum Aktif"
+   * pada satu keluarga, lalu tampilkan kartu QR-nya berantai (bila >1 penerima).
+   *
+   * Sebelumnya baris keluarga tidak punya pintu sama sekali — modal massal pun
+   * hanya menampilkan `flash` tanpa QR, padahal token tidak bisa diminta ulang
+   * (server menyimpan hash-nya). Status "Undangan Dikirim" ikut diperbarui supaya
+   * keluhan "status kirim undangan tidak ada" ikut terjawab di tabel.
+   */
+  async function kirimUndanganKelompok(sasaran: WargaRt[]) {
+    if (kirimSedang) return;
+    if (sasaran.length === 0) {
+      flash("Tidak ada anggota ber-status Belum Aktif pada keluarga ini.");
+      return;
+    }
+    setKirimSedang(true);
+    const kartuBaru: Undangan[] = [];
+    const idBerhasil: string[] = [];
+    const gagal: { nama: string; pesan: string }[] = [];
+    // Kunci dedup sama dengan modal massal: satu token per no. HP.
+    const sudah = new Set<string>();
+    let dilewati = 0;
+    for (const w of sasaran) {
+      const kunci = digitsOnly(w.noWa) ? `wa:${digitsOnly(w.noWa)}` : `baris:${w.id}`;
+      if (sudah.has(kunci)) {
+        dilewati += 1;
+        continue;
+      }
+      sudah.add(kunci);
+      try {
+        kartuBaru.push(
+          await onUndanganWarga({ nama: w.nama, alamat: w.alamat, noWa: w.noWa, idWarga: w.idWarga }),
+        );
+        idBerhasil.push(w.id);
+      } catch (err) {
+        gagal.push({ nama: w.nama, pesan: pesanGalatUndangan(err) });
+      }
+    }
+    setKirimSedang(false);
+    markUndangan(idBerhasil);
+    if (kartuBaru.length > 0) {
+      setAntreanKartu(kartuBaru);
+      setKartuUndangan(kartuBaru[0]);
+    }
+    const catatan = dilewati > 0 ? ` · ${dilewati} dilewati (no. HP sama)` : "";
+    if (gagal.length === 0) {
+      flash(
+        kartuBaru.length === 1
+          ? `Kartu undangan ${kartuBaru[0].nama} siap — bagikan link atau QR-nya.${catatan}`
+          : `${kartuBaru.length} undangan dibuat — pindai/tukar kartu QR satu per satu lewat tombol panah di kartu.${catatan}`,
+      );
+    } else if (kartuBaru.length === 0) {
+      flash(`Undangan gagal dibuat — ${gagal[0].pesan}`);
+    } else {
+      flash(
+        `${kartuBaru.length} undangan terkirim — gagal untuk ${gagal.map((x) => x.nama).join(", ")}: ${gagal[0].pesan}${catatan}`,
+      );
     }
   }
 
@@ -1107,6 +1189,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
         }
         setKonfirmasiAksi(null);
         tandaiStatusPortal(w, "Undangan Dikirim");
+        setAntreanKartu([]);
         setKartuUndangan(hasil);
         flash(`Undangan ${w.nama} dikirim ulang — tautan lama sudah dicabut.`);
         return;
@@ -1261,6 +1344,19 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
   /** Jumlah anggota keluarga ber-status portal "Aktif". */
   function hitungAktif(anggota: WargaRt[]): number {
     return anggota.filter((w) => w.statusPortal === "Aktif").length;
+  }
+
+  /**
+   * Bug laporan — ringkasan status portal per anggota keluarga yang BELUM Aktif
+   * ("2 undangan dikirim · 1 belum aktif"); string kosong bila semua Aktif.
+   */
+  function ringkasPortal(anggota: WargaRt[]): string {
+    const hitung = new Map<string, number>();
+    for (const w of anggota) hitung.set(w.statusPortal, (hitung.get(w.statusPortal) ?? 0) + 1);
+    return [...hitung.entries()]
+      .filter(([s]) => s !== "Aktif")
+      .map(([s, n]) => `${n} ${LABEL_STATUS_PORTAL[s] ?? s.toLowerCase()}`)
+      .join(" · ");
   }
 
   /** Pilih/batal pilih SEMUA anggota 1 keluarga sekaligus (checkbox baris). */
@@ -1700,6 +1796,10 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                   anggotaSemua.find((w) => labelHubungan(w).toLowerCase().startsWith("kepala")) ?? anggotaSemua[0];
                 const portalAktif = hitungAktif(anggotaSemua);
                 const semuaAktif = anggotaSemua.length > 0 && portalAktif === anggotaSemua.length;
+                // Bug laporan — status kiriman undangan terlihat langsung di
+                // tabel + pintu QR per keluarga (anggota yang belum berportal).
+                const belumAktif = anggotaSemua.filter((w) => w.statusPortal === "Belum Aktif");
+                const ringkasStatus = ringkasPortal(anggotaSemua);
                 const idKeluarga = anggotaSemua.map((w) => w.id);
                 const semuaTerpilih = idKeluarga.length > 0 && idKeluarga.every((id) => selectedWarga.includes(id));
                 return (
@@ -1747,6 +1847,19 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                       >
                         {portalAktif}/{anggotaSemua.length} aktif
                       </span>
+                      {/* Bug laporan — status kirim undangan per anggota keluarga:
+                          "X/Y aktif" saja tidak pernah menunjukkan baris yang masih
+                          menunggu undangan / sudah dikirim / kedaluwarsa. */}
+                      {ringkasStatus && (
+                        <span
+                          className="mt-1 block text-[11px] leading-tight text-on-surface-variant"
+                          title={anggotaSemua
+                            .map((w) => `${w.nama}: ${w.statusPortal}`)
+                            .join("\n")}
+                        >
+                          {ringkasStatus}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <span className="text-xs font-mono text-on-surface">{fmtWa(kepalaBaris?.noWa ?? "")}</span>
@@ -1775,6 +1888,21 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                           <span className="material-symbols-outlined text-[14px]">person_add</span>
                           Tambah Anggota
                         </button>
+                        {/* Bug laporan — pintu QR dari tabel: baris keluarga tidak
+                            pernah punya tombol Undangan, padahal modal massal hanya
+                            menampilkan `flash`. Terbitkan untuk anggota "Belum Aktif"
+                            lalu kartu QR tampil berurutan. */}
+                        {belumAktif.length > 0 && (
+                          <button
+                            className="h-8 px-3 rounded-lg bg-tertiary-container/40 text-on-tertiary-container hover:bg-tertiary-container text-xs font-bold inline-flex items-center gap-1 transition-colors disabled:opacity-60"
+                            title={`Terbitkan undangan portal untuk ${belumAktif.length} anggota keluarga ${kk.kepala || ""} yang ber-status Belum Aktif, lalu tampilkan QR/link-nya`}
+                            disabled={kirimSedang}
+                            onClick={() => void kirimUndanganKelompok(belumAktif)}
+                          >
+                            <span className="material-symbols-outlined text-[14px]">qr_code_2</span>
+                            Undangan ({belumAktif.length})
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -2928,6 +3056,7 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                   // TANPA no. HP jangan sampai saling meniadakan (key "" sama).
                   const sudah: string[] = [];
                   const idBerhasil: string[] = [];
+                  const kartuBaru: Undangan[] = [];
                   const gagal: { nama: string; pesan: string }[] = [];
                   for (const id of selectedWarga) {
                     const r = rows.find((x) => x.id === id);
@@ -2936,7 +3065,11 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                     if (sudah.includes(kunci)) continue;
                     sudah.push(kunci);
                     try {
-                      await onUndanganWarga({ nama: r.nama, alamat: r.alamat, noWa: r.noWa, idWarga: r.idWarga });
+                      // Bug laporan — hasil penerbitan disimpan: token hanya ada
+                      // saat ini, jadi QR tiap penerima harus ditampilkan sekarang.
+                      kartuBaru.push(
+                        await onUndanganWarga({ nama: r.nama, alamat: r.alamat, noWa: r.noWa, idWarga: r.idWarga }),
+                      );
                       idBerhasil.push(r.id);
                     } catch (err) {
                       gagal.push({ nama: r.nama, pesan: pesanGalatUndangan(err) });
@@ -2946,8 +3079,16 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                   markUndangan(idBerhasil);
                   setShowInviteModal(false);
                   setSelectedWarga([]);
+                  if (kartuBaru.length > 0) {
+                    setAntreanKartu(kartuBaru);
+                    setKartuUndangan(kartuBaru[0]);
+                  }
                   if (gagal.length === 0) {
-                    flash(`Undangan aktivasi dibuat untuk ${idBerhasil.length} warga — buka tombol Undangan tiap baris untuk QR/link masing-masing.`);
+                    flash(
+                      kartuBaru.length === 1
+                        ? `Kartu undangan ${kartuBaru[0].nama} siap — bagikan link atau QR-nya.`
+                        : `Undangan aktivasi dibuat untuk ${idBerhasil.length} warga — pindai/tukar kartu QR satu per satu lewat tombol panah.`,
+                    );
                   } else if (idBerhasil.length === 0) {
                     flash(`Undangan gagal dibuat — ${gagal[0].pesan}`);
                   } else {
@@ -2986,9 +3127,40 @@ export function DataWargaRT({ onNavigate, modeDemo = false, kkList, wargaRt, hun
                   <p className="text-[11px] text-on-surface-variant">Link &amp; QR untuk {kartuUndangan.nama}</p>
                 </div>
               </div>
-              <button className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface" onClick={() => setKartuUndangan(null)}>
-                <span className="material-symbols-outlined text-[18px]">close</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Bug laporan — kirim massal menghasilkan banyak token; token tak
+                    bisa diminta ulang (server simpan hash), jadi tiap kartu harus
+                    bisa ditelusuri di sesi ini lewat pager. */}
+                {idxKartu >= 0 && antreanKartu.length > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="w-7 h-7 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface disabled:opacity-40"
+                      title="QR penerima sebelumnya"
+                      disabled={idxKartu === 0}
+                      onClick={() => setKartuUndangan(antreanKartu[idxKartu - 1])}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+                    </button>
+                    <span className="text-[11px] font-bold text-on-surface-variant tabular-nums min-w-[3.25rem] text-center">
+                      {idxKartu + 1} / {antreanKartu.length}
+                    </span>
+                    <button
+                      className="w-7 h-7 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface disabled:opacity-40"
+                      title="QR penerima berikutnya"
+                      disabled={idxKartu === antreanKartu.length - 1}
+                      onClick={() => setKartuUndangan(antreanKartu[idxKartu + 1])}
+                    >
+                      <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+                    </button>
+                  </div>
+                )}
+                <button
+                  className="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface"
+                  onClick={() => { setAntreanKartu([]); setKartuUndangan(null); }}
+                >
+                  <span className="material-symbols-outlined text-[18px]">close</span>
+                </button>
+              </div>
             </div>
             {/* `flex-1 min-h-0` + `overflow-y-auto`: badan modal dikunci pada
                 tinggi maksimal (92vh) lalu MENSCROLL — bukan memotong kartu. */}

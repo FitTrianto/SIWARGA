@@ -24,10 +24,12 @@ import {
 } from "../../lib/shared";
 import {
   GalatApi,
+  barisKePembayaran,
   buktiHref,
   labelPeriodeServer,
   periodeDariLabel,
   serverKeKategori,
+  type BarisPembayaranServer,
   type BarisProfilIuran,
   type BarisTagihanRtServer,
   type HasilGenerateTagihan,
@@ -145,6 +147,14 @@ interface IuranRTProps {
     id: string,
     nominal: number,
   ) => Promise<{ id: string; nominal: number; sisa: number; periode: string } | null>;
+  /**
+   * Bug laporan — bukti lunas PDF di tabel tagihan tercatat:
+   * `GET /rt/iuran/pembayaran` (semua baris sesi, termasuk yang Lunas) supaya
+   * kuitansi memuat metode & tanggal verifikasi ASLI. `null` = OFFLINE /
+   * riwayat tak terjangkau → kuitansi terbit dari baris tagihan (metode "—",
+   * tanpa cap verifikasi) — tidak pernah menebak cara bayar.
+   */
+  onMuatPembayaranRt?: () => Promise<BarisPembayaranServer[] | null>;
 }
 
 type StatusFilter = "all" | "lunas" | "pending" | "belum" | "sebagian" | "denda";
@@ -169,6 +179,12 @@ function isoKeTenggat(iso: string): string {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
   return `${Number(d)} ${BULAN_PENDEK[Number(m) - 1]} ${y}`;
+}
+
+/** "2026-10-05" → "5 Okt 2026"; nilai non-ISO dipertahankan apa adanya (jujur). */
+function isoTanggalBayar(v: string | null | undefined): string {
+  if (!v) return "-";
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? isoKeTenggat(v) : v;
 }
 
 function initials(nama: string): string {
@@ -215,6 +231,7 @@ export function IuranRT({
   onMuatProfilIuran,
   onSimpanProfilIuran,
   onUbahNominalTagihan,
+  onMuatPembayaranRt,
 }: IuranRTProps) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<StatusFilter>("all");
@@ -266,6 +283,9 @@ export function IuranRT({
   const [nominalTarget, setNominalTarget] = useState<BarisTagihanRtServer | null>(null);
   const [nominalForm, setNominalForm] = useState<Record<string, string>>({});
   const [nominalSedang, setNominalSedang] = useState(false);
+
+  // Bug laporan — penanda unduh bukti lunas (anti klik-ganda per baris).
+  const [kuitansiSedang, setKuitansiSedang] = useState<string | null>(null);
 
   // Batch 15D — pengingat iuran: penanda proses (anti submit ganda) + peta
   // tandai per alamat dari server. `null` = belum termuat / OFFLINE → chip
@@ -894,6 +914,73 @@ export function IuranRT({
       flash("Kuitansi PDF berhasil diunduh.");
     } catch {
       flash("Kuitansi gagal dibuat — coba lagi.");
+    }
+  }
+
+  /**
+   * Bug laporan · tabel tagihan TERCATAT (daring): warga sudah Lunas tapi tidak
+   * ada bukti lunas PDF — tombolnya selama ini hanya ada di modal "Detail"
+   * tabel demo yang memang disembunyikan pada sesi daring.
+   *
+   * Sumber isi: riwayat pembayaran server (`GET /rt/iuran/pembayaran`) supaya
+   * ref. kuitansi, metode, tanggal, dan cap verifikasi semuanya data asli.
+   * Bila riwayat tak termuat (OFFLINE/galat), kuitansi tetap terbit dari baris
+   * tagihan dengan metode "—" dan TANPA cap verifikasi — status Lunas-nya
+   * berasal dari server, jadi tidak ada yang dikarang (jujur, §4.4).
+   */
+  async function unduhBuktiLunasRt(r: BarisTagihanRtServer) {
+    if (kuitansiSedang) return flash("Permintaan masih diproses — tunggu sebentar.");
+    setKuitansiSedang(r.wargaId);
+    try {
+      let riwayat: BarisPembayaranServer[] | null = null;
+      try {
+        riwayat = onMuatPembayaranRt ? await onMuatPembayaranRt() : null;
+      } catch (err) {
+        // OFFLINE tidak mungkin sampai sini (App sudah mengubahnya jadi null);
+        // galat lain (sesi habis / server menolak) dilempar — jangan buat
+        // kuitansi dari data yang belum tentu utuh.
+        if (!(err instanceof GalatApi && err.code === "OFFLINE")) throw err;
+      }
+      const kandidat = (riwayat ?? [])
+        .filter((b) => b.status === "lunas" && b.wargaId === r.wargaId)
+        .sort((a, b) => {
+          const pa = a.periode === periodeServer ? 0 : 1;
+          const pb = b.periode === periodeServer ? 0 : 1;
+          if (pa !== pb) return pa - pb;
+          return a.diajukanPada < b.diajukanPada ? 1 : -1;
+        });
+      const bayar = kandidat[0]
+        ? barisKePembayaran(kandidat[0], kandidat[0].alamat ?? r.alamat, kandidat[0].nama ?? r.nama)
+        : null;
+      const { simpanPdfKuitansi } = await import("../../lib/pdfKuitansi");
+      simpanPdfKuitansi({
+        judul: "Kuitansi Pembayaran Iuran",
+        ref: (bayar?.id ?? r.perKategori[0]?.tagihanId ?? r.wargaId).toUpperCase(),
+        tanggal: bayar?.tanggal ?? isoTanggalBayar(r.tanggalBayar),
+        warga: r.nama,
+        hunian: shortAlamat(r.alamat),
+        periode: bayar?.periode || labelPeriodeServer(periodeServer || null),
+        jumlah: bayar?.jumlah ?? r.jumlah,
+        metode: bayar?.metode ?? "—",
+        status: "Lunas",
+        // Batch 15E — cap verifikasi HANYA bila server benar-benar mencatatnya.
+        diverifikasi: bayar?.diverifikasiPada
+          ? new Date(bayar.diverifikasiPada).toLocaleDateString("id-ID", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })
+          : null,
+      });
+      flash(
+        bayar
+          ? "Bukti lunas PDF berhasil diunduh."
+          : "Bukti lunas PDF diunduh dari baris tagihan — riwayat pembayaran tak terjangkau, jadi metode & tanggal bayar belum tercantum.",
+      );
+    } catch (err) {
+      flash(err instanceof GalatApi ? err.message : "Bukti lunas gagal dibuat — coba lagi.");
+    } finally {
+      setKuitansiSedang(null);
     }
   }
 
@@ -1543,7 +1630,20 @@ export function IuranRT({
                     <span className="text-xs text-on-surface-variant font-mono">{r.tanggalBayar ?? "-"}</span>
                   </td>
                   <td className="py-4 px-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {/* Bug laporan — bukti lunas PDF per baris tagihan tercatat
+                          (tabel demo + modal "Detail" tidak tampil pada sesi daring). */}
+                      {r.status === "Lunas" && (
+                        <button
+                          className="h-8 px-3 rounded-lg bg-secondary-container text-on-secondary-container hover:bg-secondary-container/70 text-xs font-bold inline-flex items-center gap-1 transition-colors disabled:opacity-60"
+                          title="Unduh bukti lunas warga ini sebagai PDF kuitansi"
+                          disabled={kuitansiSedang === r.wargaId}
+                          onClick={() => void unduhBuktiLunasRt(r)}
+                        >
+                          <span className="material-symbols-outlined text-[14px]">picture_as_pdf</span>
+                          {kuitansiSedang === r.wargaId ? "Menyiapkan…" : "Bukti Lunas"}
+                        </button>
+                      )}
                       <button
                         className="h-8 px-3 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-surface-container text-xs font-semibold inline-flex items-center gap-1 transition-colors"
                         onClick={() => void bukaProfilIuran(r)}
