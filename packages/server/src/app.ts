@@ -33,6 +33,7 @@ import { ruteRtAjuanPerubahan } from "./routes/rtAjuanPerubahan.js";
 import { ruteRtDataWarga } from "./routes/rtDataWarga.js";
 import { ruteRtHunian } from "./routes/rtHunian.js";
 import { ruteRtSurat } from "./routes/rtSurat.js";
+import { ruteRwPortal } from "./routes/rwPortal.js";
 import { ruteWargaKeluarga } from "./routes/wargaKeluarga.js";
 import { ruteWargaHunian } from "./routes/wargaHunian.js";
 import type { KodeApi } from "./types.js";
@@ -122,6 +123,10 @@ export async function buatAplikasi(): Promise<FastifyInstance> {
 
   // A10 · §9.1(6) Migrasi Data: impor CSV/XLSX warga → `impor_data` (§5.4)
   await app.register(ruteImporWarga, { prefix: PREFIX_API });
+
+  // Batch 20 · Portal RW fondasi (§7.1): identitas RW login dari DB +
+  // agregat kependudukan/hunian per RT — sebelumnya portal RW nol backend
+  await app.register(ruteRwPortal, { prefix: PREFIX_API });
 
   // Iuran · §6.4.3: generate tagihan bulanan OTOMATIS saat start + interval
   // 6 jam (idempoten; dilewati pada mode test agar fixture tes deterministik).

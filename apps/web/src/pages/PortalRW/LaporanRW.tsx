@@ -13,6 +13,11 @@ import { useFlash } from "../../lib/useFlash";
 interface LaporanRWProps {
   onNavigate?: (page: string) => void;
   kasRw: KasRw[];
+  /**
+   * Batch 20 · baris agregat per RT dari `GET /rw/agregat/*`; `null` =
+   * OFFLINE/mode demo (baris contoh + banner), `[]` = daring kosong.
+   */
+  rtAgregat?: RtAgregat[] | null;
 }
 
 const BULAN = [
@@ -26,14 +31,18 @@ const TAHUN = ["2025", "2026", "2027"];
  * §7.7 — Laporan agregat lintas-RT untuk pelaporan Kelurahan/Kecamatan.
  * Seluruh data disajikan dalam bentuk agregat per RT (§6.4.10, §4.3).
  */
-export function LaporanRW({ onNavigate, kasRw }: LaporanRWProps) {
+export function LaporanRW({ onNavigate, kasRw, rtAgregat = null }: LaporanRWProps) {
   const [bulan, setBulan] = useState("September");
   const [tahun, setTahun] = useState("2026");
   const { flash, toast } = useFlash();
 
 
   const periode = `${bulan} ${tahun}`;
-  const rows: RtAgregat[] = rtAgregatDefault;
+  // Batch 20 · baris SERVER bila termuat; OFFLINE (null) → baris contoh.
+  const rows: RtAgregat[] = rtAgregat === null ? rtAgregatDefault : rtAgregat;
+  // false = baris server TANPA rekap iuran (Batch 21) → Bagian B tampil "—",
+  // bukan angka 0 yang menyamar sebagai data riil.
+  const iuranTersedia = rows.some((r) => r.iuranTersedia !== false);
 
   // — Section A: Kependudukan —
   const totalKk = rows.reduce((s, r) => s + r.kk, 0);
@@ -41,8 +50,8 @@ export function LaporanRW({ onNavigate, kasRw }: LaporanRWProps) {
   const totalRumah = rows.reduce((s, r) => s + r.totalRumah, 0);
   const totalHunian = rows.reduce((s, r) => s + r.hunian, 0);
 
-  // — Section B: Iuran (agregat) —
-  const rataKepatuhan = rows.reduce((s, r) => s + r.kepatuhan, 0) / rows.length;
+  // — Section B: Iuran (agregat) — dibagi nol aman bila baris daring kosong —
+  const rataKepatuhan = rows.length > 0 ? rows.reduce((s, r) => s + r.kepatuhan, 0) / rows.length : 0;
   const totalTerkumpul = rows.reduce((s, r) => s + r.terkumpul, 0);
   const totalSubsidiJumlah = rows.reduce((s, r) => s + r.subsidiJumlah, 0);
   const totalSubsidiNominal = rows.reduce((s, r) => s + r.subsidiNominal, 0);
@@ -71,14 +80,21 @@ export function LaporanRW({ onNavigate, kasRw }: LaporanRWProps) {
     lines.push(`TOTAL,${totalKk},${totalWarga},${totalRumah},${totalHunian}`);
     lines.push("");
     lines.push("BAGIAN B — IURAN (AGREGAT PER RT)");
-    lines.push("RT,Kepatuhan (%),Terkumpul (Rp),Subsidi (Rumah),Subsidi (Rp),Tunggakan (Rp)");
-    rows.forEach((r) =>
-      lines.push(`${r.rt},${r.kepatuhan},${r.terkumpul},${r.subsidiJumlah},${r.subsidiNominal},${r.tunggakan}`)
-    );
-    lines.push(
-      `TOTAL,${rataKepatuhan.toFixed(1)},${totalTerkumpul},${totalSubsidiJumlah},${totalSubsidiNominal},${totalTunggakan}`
-    );
-    lines.push("Catatan: subsidi/keringanan disajikan dalam bentuk agregat per RT.");
+    if (iuranTersedia) {
+      lines.push("RT,Kepatuhan (%),Terkumpul (Rp),Subsidi (Rumah),Subsidi (Rp),Tunggakan (Rp)");
+      rows.forEach((r) =>
+        lines.push(`${r.rt},${r.kepatuhan},${r.terkumpul},${r.subsidiJumlah},${r.subsidiNominal},${r.tunggakan}`)
+      );
+      lines.push(
+        `TOTAL,${rataKepatuhan.toFixed(1)},${totalTerkumpul},${totalSubsidiJumlah},${totalSubsidiNominal},${totalTunggakan}`
+      );
+      lines.push("Catatan: subsidi/keringanan disajikan dalam bentuk agregat per RT.");
+    } else {
+      lines.push("RT,Kepatuhan (%),Terkumpul (Rp),Subsidi (Rumah),Subsidi (Rp),Tunggakan (Rp)");
+      rows.forEach((r) => lines.push(`${r.rt},-,-,-,-,-`));
+      lines.push("TOTAL,-,-,-,-,-");
+      lines.push("Catatan: rekap iuran per RT belum tersedia pada sistem (menyusul).");
+    }
     lines.push("");
     lines.push("BAGIAN C — KAS RW");
     lines.push("Indikator,Nilai (Rp/Jumlah)");
@@ -100,6 +116,7 @@ export function LaporanRW({ onNavigate, kasRw }: LaporanRWProps) {
         bulan: BULAN.indexOf(bulan) + 1,
         tahun: Number(tahun),
         rows,
+        iuranTersedia,
         totalKk,
         totalWarga,
         totalRumah,
@@ -326,34 +343,64 @@ export function LaporanRW({ onNavigate, kasRw }: LaporanRWProps) {
                   <td className="py-3 px-4">
                     <span className="text-sm font-bold text-on-surface">{r.rt}</span>
                   </td>
-                  <td className="py-3 px-4 text-right">
-                    <span className={`text-sm font-bold font-mono ${r.kepatuhan >= 90 ? "text-secondary" : "text-tertiary"}`}>
-                      {r.kepatuhan}%
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <span className="text-sm font-bold font-mono text-on-surface">{formatRupiah(r.terkumpul)}</span>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <span className="text-sm font-mono text-tertiary block">{r.subsidiJumlah} rumah</span>
-                    <span className="text-xs font-mono text-on-surface-variant">{formatRupiah(r.subsidiNominal)}</span>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <span className="text-sm font-mono text-error">{formatRupiah(r.tunggakan)}</span>
-                  </td>
+                  {r.iuranTersedia === false ? (
+                    <>
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-sm font-mono text-on-surface-variant">—</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-sm font-mono text-on-surface-variant">—</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-sm font-mono text-on-surface-variant">—</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-sm font-mono text-on-surface-variant">—</span>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="py-3 px-4 text-right">
+                        <span className={`text-sm font-bold font-mono ${r.kepatuhan >= 90 ? "text-secondary" : "text-tertiary"}`}>
+                          {r.kepatuhan}%
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-sm font-bold font-mono text-on-surface">{formatRupiah(r.terkumpul)}</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-sm font-mono text-tertiary block">{r.subsidiJumlah} rumah</span>
+                        <span className="text-xs font-mono text-on-surface-variant">{formatRupiah(r.subsidiNominal)}</span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-sm font-mono text-error">{formatRupiah(r.tunggakan)}</span>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
             <tfoot className="bg-surface-container-low">
               <tr>
                 <td className="py-3 px-4 font-bold text-sm">TOTAL</td>
-                <td className="py-3 px-4 text-right font-bold font-mono text-sm">{rataKepatuhan.toFixed(1)}%</td>
-                <td className="py-3 px-4 text-right font-bold font-mono text-sm text-secondary">{formatRupiah(totalTerkumpul)}</td>
-                <td className="py-3 px-4 text-right">
-                  <span className="text-sm font-bold font-mono text-tertiary block">{totalSubsidiJumlah} rumah</span>
-                  <span className="text-xs font-mono text-on-surface-variant">{formatRupiah(totalSubsidiNominal)}</span>
-                </td>
-                <td className="py-3 px-4 text-right font-bold font-mono text-sm text-error">{formatRupiah(totalTunggakan)}</td>
+                {iuranTersedia ? (
+                  <>
+                    <td className="py-3 px-4 text-right font-bold font-mono text-sm">{rataKepatuhan.toFixed(1)}%</td>
+                    <td className="py-3 px-4 text-right font-bold font-mono text-sm text-secondary">{formatRupiah(totalTerkumpul)}</td>
+                    <td className="py-3 px-4 text-right">
+                      <span className="text-sm font-bold font-mono text-tertiary block">{totalSubsidiJumlah} rumah</span>
+                      <span className="text-xs font-mono text-on-surface-variant">{formatRupiah(totalSubsidiNominal)}</span>
+                    </td>
+                    <td className="py-3 px-4 text-right font-bold font-mono text-sm text-error">{formatRupiah(totalTunggakan)}</td>
+                  </>
+                ) : (
+                  <>
+                    <td className="py-3 px-4 text-right font-mono text-sm text-on-surface-variant">—</td>
+                    <td className="py-3 px-4 text-right font-mono text-sm text-on-surface-variant">—</td>
+                    <td className="py-3 px-4 text-right font-mono text-sm text-on-surface-variant">—</td>
+                    <td className="py-3 px-4 text-right font-mono text-sm text-on-surface-variant">—</td>
+                  </>
+                )}
               </tr>
             </tfoot>
           </table>
@@ -361,8 +408,18 @@ export function LaporanRW({ onNavigate, kasRw }: LaporanRWProps) {
         <div className="mt-4 flex items-start gap-2 p-3 rounded-xl bg-primary-container/40">
           <span className="material-symbols-outlined text-[16px] text-primary shrink-0 mt-0.5">info</span>
           <span className="text-xs text-on-surface leading-relaxed">
-            Catatan: subsidi/keringanan iuran disajikan dalam bentuk agregat per RT (jumlah rumah &amp; total nominal), tanpa
-            rincian warga penerima — sesuai prinsip privasi §4.3 dan §6.4.10.
+            {iuranTersedia ? (
+              <>
+                Catatan: subsidi/keringanan iuran disajikan dalam bentuk agregat per RT (jumlah rumah &amp; total nominal),
+                tanpa rincian warga penerima — sesuai prinsip privasi §4.3 dan §6.4.10.
+              </>
+            ) : (
+              <>
+                Catatan: rekap iuran per RT (kepatuhan, terkumpul, subsidi, tunggakan) belum tersedia pada sistem untuk
+                periode ini — baris tampil "—" sampai modul iuran agregat RT dihidupkan. Kependudukan &amp; hunian di atas
+                adalah data riil dari server.
+              </>
+            )}
           </span>
         </div>
       </section>

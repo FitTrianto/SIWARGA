@@ -57,6 +57,9 @@ import {
   prosesSuratRt,
   riwayatIuran,
   riwayatLoginWarga,
+  rwAgregatHunianServer,
+  rwAgregatWargaServer,
+  rwProfilServer,
   serverKeKategori,
   sesiWarga,
   setujuiPembayaranRt,
@@ -83,6 +86,7 @@ import {
   verifikasiAjuanPerubahanRt,
   type AksiSuratRt,
   type AnggotaBaruServer,
+  type BarisAgregatHunianServer,
   type BarisAuditServer,
   type BarisProfilIuran,
   type BarisSuratServer,
@@ -168,6 +172,7 @@ import {
   KopSurat, suratPerluRw, noSuratOtomatis, StatusSurat,
   PermintaanAkses, aksesDefault, MIN_JUSTIFIKASI,
   KasRw, kasRwDefault,
+  RtAgregat,
   AuditEntry, auditDefault, badgeAksi, badgePortal,
   waktuSekarang, hariIni, tanggalPlusHari,
   KkData,
@@ -475,6 +480,13 @@ export default function App() {
   const [suratList, setSuratList] = useState<Surat[]>(suratDefault);
   const [aksesList, setAksesList] = useState<PermintaanAkses[]>(aksesDefault);
   const [kasRwList, setKasRwList] = useState<KasRw[]>(kasRwDefault);
+  /**
+   * Batch 20 · agregat RW per RT (§7.1) — `null` = OFFLINE/mode demo (baris
+   * contoh + banner), `[]` = sesi daring (sebelum/selagi muat, atau RW tanpa
+   * RT), berisi baris server bila termuat. Sumber KPI & tabel DashboardRW
+   * dan LaporanRW.
+   */
+  const [rtAgregatList, setRtAgregatList] = useState<RtAgregat[] | null>(null);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>(auditDefault);
 
   // Undangan portal warga (link & QR invitation) — dibagikan ke Portal RT
@@ -565,6 +577,8 @@ export default function App() {
     // Batch 19 · `[]` (bukan null) = sesi daring sedang berjalan — selagi
     // muatDataRtSesi belum selesai, tampil 0/empty, bukan baris contoh.
     setTagihanRtList([]);
+    // Batch 20 · agregat RW: `[]` = daring (muatTenantSesi mengisi baris server).
+    setRtAgregatList([]);
     setPengurus([]);
     setSuratList([]);
     setAksesList([]);
@@ -584,10 +598,41 @@ export default function App() {
   };
 
   /**
+   * Batch 20 · agregat RW per RT (§7.1) — Kependudukan + Hunian dari
+   * `GET /rw/agregat/*`. OFFLINE → baris contoh dipertahankan (banner mode
+   * demo); kegagalan lain saat daring → tetap kosong (bukan baris contoh
+   * yang menyamar sebagai data riil). Kolom iuran ditandai
+   * `iuranTersedia: false` sampai rekap iuran agregat tersedia (Batch 21).
+   */
+  const muatAgregatRwSesi = async (): Promise<void> => {
+    try {
+      const [w, h] = await Promise.all([rwAgregatWargaServer(), rwAgregatHunianServer()]);
+      const petaHunian = new Map<string, BarisAgregatHunianServer>(h.baris.map((b) => [b.rtId, b]));
+      setRtAgregatList(
+        w.baris.map((b) => ({
+          rt: `RT ${b.kodeRt}`,
+          kk: b.kk,
+          warga: b.warga,
+          totalRumah: petaHunian.get(b.rtId)?.total ?? 0,
+          hunian: petaHunian.get(b.rtId)?.terisi ?? 0,
+          kepatuhan: 0,
+          terkumpul: 0,
+          subsidiJumlah: 0,
+          subsidiNominal: 0,
+          tunggakan: 0,
+          iuranTersedia: false,
+        })),
+      );
+    } catch (e) {
+      console.info("[rw] agregat memakai baris contoh:", e instanceof GalatApi ? e.code : e);
+      if (e instanceof GalatApi && e.code === "OFFLINE") setRtAgregatList(null);
+    }
+  };
+
+  /**
    * Isi identitas tenant (`lib/tenant`) dari server sesuai peran — DARING
-   * saja; PORTAL RW belum punya backend tenant (belum ada rute `/rw/**`)
-   * sehingga tetap memakai identitas contoh sampai batch server RW dikerjakan
-   * (dicatat jujur di laporan batch 18). Galat/OFFLINE di tengah jalan:
+   * saja. Portal RW kini (Batch 20) memakai `GET /rw/profil`; OFFLINE tetap
+   * identitas contoh + banner MODE DEMO. Galat/OFFLINE di tengah jalan:
    * pertahankan identitas contoh + pesan konsol (tanpa menyamar sukses).
    */
   const muatTenantSesi = async (peran: "warga" | "rt" | "rw"): Promise<void> => {
@@ -645,8 +690,18 @@ export default function App() {
           kembalikanTenantContoh();
         }
       } else {
-        // Portal RW: identitas contoh dipertahankan (belum ada backend tenant).
-        kembalikanTenantContoh();
+        // Batch 20 · Portal RW: identitas + agregat dari server (sebelumnya
+        // identitas contoh — portal RW belum punya backend).
+        const p = await rwProfilServer();
+        setTenantSesi({
+          rt: "",
+          rw: p.rw.kodeRw,
+          kelurahan: p.rw.kelurahan,
+          kecamatan: p.rw.kecamatan,
+          kota: p.rw.kota,
+          ketuaRw: p.rw.namaKetua,
+        });
+        await muatAgregatRwSesi();
       }
     } catch (e) {
       console.info("[tenant] memakai identitas contoh:", e instanceof GalatApi ? e.code : e);
@@ -2679,8 +2734,10 @@ export default function App() {
         surat={suratList}
         akses={aksesList}
         kasRw={kasRwList}
+        rtAgregat={rtAgregatList}
+        onMuatData={muatAgregatRwSesi}
       />,
-      "iuran-rw": <IuranRW onNavigate={navigate} />,
+      "iuran-rw": <IuranRW onNavigate={navigate} rtAgregat={rtAgregatList} />,
       "kas-rw": <KasRW
         onNavigate={navigate}
         kasRw={kasRwList}
@@ -2705,6 +2762,7 @@ export default function App() {
       "laporan-rw": <LaporanRW
         onNavigate={navigate}
         kasRw={kasRwList}
+        rtAgregat={rtAgregatList}
       />,
       "pengaturan-rw": <PengaturanRW onNavigate={navigate} />,
     };

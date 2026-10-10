@@ -3,10 +3,12 @@ import {
   Surat,
   PermintaanAkses,
   KasRw,
+  RtAgregat,
   rtAgregatDefault,
   trenPenduduk,
   formatRupiah,
 } from "../../lib/shared";
+import { EmptyState } from "../../components/EmptyState";
 import { useFlash } from "../../lib/useFlash";
 
 interface DashboardRWProps {
@@ -14,19 +16,31 @@ interface DashboardRWProps {
   surat: Surat[];
   akses: PermintaanAkses[];
   kasRw: KasRw[];
+  /**
+   * Batch 20 · baris agregat per RT dari `GET /rw/agregat/*`; `null` =
+   * OFFLINE/mode demo (baris contoh + banner), `[]` = daring kosong.
+   */
+  rtAgregat?: RtAgregat[] | null;
+  /** Muat ulang agregat dari server (tombol "Perbarui Data"). */
+  onMuatData?: () => void;
 }
 
-export function DashboardRW({ onNavigate, surat, akses, kasRw }: DashboardRWProps) {
+export function DashboardRW({ onNavigate, surat, akses, kasRw, rtAgregat = null, onMuatData }: DashboardRWProps) {
   const { flash, toast } = useFlash();
 
 
   // — Agregat lintas-RT (§7.1): hanya data agregat, tanpa detail individu warga —
-  const totalWarga = rtAgregatDefault.reduce((sum, r) => sum + r.warga, 0);
-  const totalKk = rtAgregatDefault.reduce((sum, r) => sum + r.kk, 0);
-  const totalRumah = rtAgregatDefault.reduce((sum, r) => sum + r.totalRumah, 0);
-  const hunianTerisi = rtAgregatDefault.reduce((sum, r) => sum + r.hunian, 0);
-  const jumlahRt = rtAgregatDefault.length;
+  // Batch 20 · baris SERVER bila termuat; OFFLINE (null) → baris contoh.
+  const rows = rtAgregat === null ? rtAgregatDefault : rtAgregat;
+  const totalWarga = rows.reduce((sum, r) => sum + r.warga, 0);
+  const totalKk = rows.reduce((sum, r) => sum + r.kk, 0);
+  const totalRumah = rows.reduce((sum, r) => sum + r.totalRumah, 0);
+  const hunianTerisi = rows.reduce((sum, r) => sum + r.hunian, 0);
+  const jumlahRt = rows.length;
   const persenHunian = totalRumah > 0 ? Math.round((hunianTerisi / totalRumah) * 1000) / 10 : 0;
+  // Batch 20 · baris server belum membawa rekap iuran (Batch 21) → kolom
+  // kepatuhan tampil "—" (bukan 0% yang menyamar sebagai data riil).
+  const iuranTersedia = rows.some((r) => r.iuranTersedia !== false);
 
   const suratMenungguRw = surat.filter((s) => s.perluRw && s.status === "Menunggu RW").length;
   const aksesMenunggu = akses.filter((a) => a.status === "Menunggu").length;
@@ -78,7 +92,14 @@ export function DashboardRW({ onNavigate, surat, akses, kasRw }: DashboardRWProp
         </div>
         <button
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-surface-container-lowest border border-surface-container-high text-on-surface text-sm font-bold shadow-sm hover:bg-surface-container-high transition-all shrink-0"
-          onClick={() => flash(`Data agregat ${tenant.rwFull} ditampilkan per ${new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })} — Portal RW belum punya backend, tombol ini hanya menampilkan ulang data sesi ini.`)}
+          onClick={() => {
+            onMuatData?.();
+            flash(
+              rtAgregat === null
+                ? "Mode demo — data agregat dimuat ulang dari server bila tersedia."
+                : "Memuat ulang agregat kependudukan & hunian dari server…",
+            );
+          }}
         >
           <span className="material-symbols-outlined text-[18px]">sync</span>
           Perbarui Data
@@ -284,7 +305,7 @@ export function DashboardRW({ onNavigate, surat, akses, kasRw }: DashboardRWProp
                 </tr>
               </thead>
               <tbody>
-                {rtAgregatDefault.map((r) => (
+                {rows.map((r) => (
                   <tr key={r.rt} className="border-b border-surface-container-high last:border-0 hover:bg-surface-container-low transition-colors">
                     <td className="py-3 pr-3 font-bold text-on-surface">{r.rt}</td>
                     <td className="py-3 px-3 text-right font-mono text-on-surface">{r.kk.toLocaleString("id-ID")}</td>
@@ -295,15 +316,19 @@ export function DashboardRW({ onNavigate, surat, akses, kasRw }: DashboardRWProp
                       <span className="text-[11px] text-on-surface-variant">/{r.totalRumah.toLocaleString("id-ID")}</span>
                     </td>
                     <td className="py-3 pl-3">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-surface-container-high h-2 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${r.kepatuhan >= 90 ? "bg-primary" : r.kepatuhan >= 85 ? "bg-tertiary" : "bg-error"}`}
-                            style={{ width: `${r.kepatuhan}%` }}
-                          />
+                      {r.iuranTersedia === false ? (
+                        <span className="text-xs text-on-surface-variant">— rekap menyusul</span>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-surface-container-high h-2 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${r.kepatuhan >= 90 ? "bg-primary" : r.kepatuhan >= 85 ? "bg-tertiary" : "bg-error"}`}
+                              style={{ width: `${r.kepatuhan}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-extrabold font-mono text-on-surface w-12 text-right">{r.kepatuhan.toFixed(1)}%</span>
                         </div>
-                        <span className="text-xs font-extrabold font-mono text-on-surface w-12 text-right">{r.kepatuhan.toFixed(1)}%</span>
-                      </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -318,11 +343,18 @@ export function DashboardRW({ onNavigate, surat, akses, kasRw }: DashboardRWProp
                     {hunianTerisi.toLocaleString("id-ID")}
                     <span className="text-[11px] text-on-surface-variant">/{totalRumah.toLocaleString("id-ID")}</span>
                   </td>
-                  <td className="py-3 pl-3 text-xs text-on-surface-variant">Rata-rata per RT</td>
+                  <td className="py-3 pl-3 text-xs text-on-surface-variant">{iuranTersedia ? "Rata-rata per RT" : "Rekap iuran menyusul"}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
+          {rows.length === 0 && (
+            <EmptyState
+              icon="location_city"
+              judul="Belum ada RT terdaftar"
+              pesan="Agregat kependudukan tampil setelah ada RT terdaftar di bawah RW Anda."
+            />
+          )}
         </section>
 
         {/* Chart Tren Pertumbuhan Warga */}
@@ -330,50 +362,62 @@ export function DashboardRW({ onNavigate, surat, akses, kasRw }: DashboardRWProp
           <div className="flex items-center justify-between pb-4 mb-4 border-b border-surface-container-high">
             <div>
               <h2 className="text-lg font-bold text-on-surface">Tren Pertumbuhan Warga</h2>
-              <p className="text-xs text-on-surface-variant mt-0.5">6 bulan terakhir &bull; agregat seluruh RT</p>
+              <p className="text-xs text-on-surface-variant mt-0.5">
+                {rtAgregat !== null ? "Rekap berkala per bulan" : "6 bulan terakhir"} &bull; agregat seluruh RT
+              </p>
             </div>
             <span className="material-symbols-outlined text-primary text-[24px]">monitoring</span>
           </div>
 
-          <div className="overflow-x-auto">
-            <div className="flex items-end gap-3 h-40 min-w-[280px]">
-              {trenPenduduk.map((t) => {
-                // Skala 0–100% berdasarkan rentang data agar perubahan terlihat.
-                const heightPct = 35 + ((t.warga - minTren) / rentangTren) * 65;
-                const isLast = t.bulan === trenPenduduk[trenPenduduk.length - 1].bulan;
-                return (
-                  <div key={t.bulan} className="flex-1 flex flex-col items-center justify-end h-full gap-1.5">
-                    <span className={`text-[11px] font-bold font-mono ${isLast ? "text-primary" : "text-on-surface-variant"}`}>
-                      {t.warga.toLocaleString("id-ID")}
-                    </span>
-                    <div
-                      className={`w-full rounded-t-lg ${isLast ? "bg-primary" : "bg-primary/45"}`}
-                      style={{ height: `${heightPct}%` }}
-                    />
-                    <span className="text-[11px] font-semibold text-on-surface-variant">{t.bulan}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          {rtAgregat !== null ? (
+            <EmptyState
+              icon="monitoring"
+              judul="Riwayat kependudukan belum tersedia"
+              pesan="Grafik tren memerlukan rekap kependudukan berkala per bulan — belum tersedia pada sistem. Rekapitulasi terkini per RT tetap tampil pada tabel di samping."
+            />
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <div className="flex items-end gap-3 h-40 min-w-[280px]">
+                  {trenPenduduk.map((t) => {
+                    // Skala 0–100% berdasarkan rentang data agar perubahan terlihat.
+                    const heightPct = 35 + ((t.warga - minTren) / rentangTren) * 65;
+                    const isLast = t.bulan === trenPenduduk[trenPenduduk.length - 1].bulan;
+                    return (
+                      <div key={t.bulan} className="flex-1 flex flex-col items-center justify-end h-full gap-1.5">
+                        <span className={`text-[11px] font-bold font-mono ${isLast ? "text-primary" : "text-on-surface-variant"}`}>
+                          {t.warga.toLocaleString("id-ID")}
+                        </span>
+                        <div
+                          className={`w-full rounded-t-lg ${isLast ? "bg-primary" : "bg-primary/45"}`}
+                          style={{ height: `${heightPct}%` }}
+                        />
+                        <span className="text-[11px] font-semibold text-on-surface-variant">{t.bulan}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
-          <div className="mt-4 pt-4 border-t border-surface-container-high flex items-center justify-between gap-4">
-            <div>
-              <div className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Delta Apr → Sep</div>
-              <div className="text-lg font-extrabold text-secondary font-mono mt-0.5">
-                +{deltaPersen.toFixed(1)}%
+              <div className="mt-4 pt-4 border-t border-surface-container-high flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Delta Apr → Sep</div>
+                  <div className="text-lg font-extrabold text-secondary font-mono mt-0.5">
+                    +{deltaPersen.toFixed(1)}%
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Pertambahan</div>
+                  <div className="text-lg font-extrabold text-on-surface font-mono mt-0.5">
+                    +{(trenAkhir - trenAwal).toLocaleString("id-ID")} jiwa
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">Pertambahan</div>
-              <div className="text-lg font-extrabold text-on-surface font-mono mt-0.5">
-                +{(trenAkhir - trenAwal).toLocaleString("id-ID")} jiwa
-              </div>
-            </div>
-          </div>
-          <p className="text-[11px] text-on-surface-variant mt-3">
-            Sumber: rekapitulasi agregat {trenPenduduk[0].bulan}–{trenPenduduk[trenPenduduk.length - 1].bulan} dari seluruh RT di {tenant.rwFull}.
-          </p>
+              <p className="text-[11px] text-on-surface-variant mt-3">
+                Sumber: rekapitulasi agregat {trenPenduduk[0].bulan}–{trenPenduduk[trenPenduduk.length - 1].bulan} dari seluruh RT di {tenant.rwFull}.
+              </p>
+            </>
+          )}
         </section>
       </div>
 

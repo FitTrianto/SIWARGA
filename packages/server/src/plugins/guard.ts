@@ -54,3 +54,14 @@ export function wajibRt(req: FastifyRequest): { sesi: SesiAktif; rtId: string } 
   const rtId = scopeRt(req);
   return { sesi: req.sesi, rtId };
 }
+
+/** Pengurus RW (RW_ADMIN) — seluruh rute `/rw/**` dijaga ini (Batch 20). */
+export function wajibRw(req: FastifyRequest): { sesi: SesiAktif; rwId: string } {
+  if (!req.sesi) throw new GalatTolak("UNAUTHORIZED", PESAN_SESI_HABIS);
+  if (req.sesi.peran !== "rw_admin") {
+    throw new GalatTolak("UNAUTHORIZED", "Hanya Pengurus RW yang boleh mengakses rute ini.");
+  }
+  const rwId = req.pemohon?.level === "rw" ? req.pemohon.id : null;
+  if (!rwId) throw new GalatTolak("FORBIDDEN_SCOPE", "Scope RW tidak tersedia untuk sesi ini.");
+  return { sesi: req.sesi, rwId };
+}

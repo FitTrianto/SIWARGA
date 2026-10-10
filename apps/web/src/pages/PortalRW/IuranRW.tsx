@@ -1,9 +1,17 @@
 import { tenant } from "../../lib/tenant";
 import { RtAgregat, rtAgregatDefault, formatRupiah, downloadText } from "../../lib/shared";
+import { EmptyState } from "../../components/EmptyState";
 import { useFlash } from "../../lib/useFlash";
 
 interface IuranRWProps {
   onNavigate?: (page: string) => void;
+  /**
+   * Batch 20 · baris agregat per RT dari `GET /rw/agregat/*`; `null` =
+   * OFFLINE/mode demo (baris contoh + banner), `[]` = daring. Sesi daring
+   * TANPA rekap iuran server (Batch 21) → tabel/KPI contoh disembunyikan dan
+   * diganti EmptyState jujur, bukan angka karangan.
+   */
+  rtAgregat?: RtAgregat[] | null;
 }
 
 /**
@@ -11,15 +19,18 @@ interface IuranRWProps {
  * HANYA data agregat per RT. Tidak ada nama warga, status, nominal, atau
  * kategori iuran individu — keputusan desain eksplisit (§6.4.10, §4.3).
  */
-export function IuranRW({ onNavigate }: IuranRWProps) {
+export function IuranRW({ onNavigate, rtAgregat = null }: IuranRWProps) {
   const { flash, toast } = useFlash();
 
 
-  const rows: RtAgregat[] = rtAgregatDefault;
+  const rows: RtAgregat[] = rtAgregat === null ? rtAgregatDefault : rtAgregat;
+  // Batch 20 · baris server belum membawa rekap iuran (Batch 21) → jangan
+  // menampilkan 0% / Rp 0 yang menyamar sebagai data riil.
+  const iuranTersedia = rows.some((r) => r.iuranTersedia !== false);
 
   // Turunan agregat — bukan data individu.
   const lunasOf = (r: RtAgregat) => Math.round((r.hunian * r.kepatuhan) / 100);
-  const rataKepatuhan = rows.reduce((sum, r) => sum + r.kepatuhan, 0) / rows.length;
+  const rataKepatuhan = rows.length > 0 ? rows.reduce((sum, r) => sum + r.kepatuhan, 0) / rows.length : 0;
   const totalTerkumpul = rows.reduce((sum, r) => sum + r.terkumpul, 0);
   const totalSubsidiNominal = rows.reduce((sum, r) => sum + r.subsidiNominal, 0);
   const totalSubsidiRumah = rows.reduce((sum, r) => sum + r.subsidiJumlah, 0);
@@ -113,13 +124,15 @@ export function IuranRW({ onNavigate }: IuranRWProps) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 shrink-0">
-          <button
-            className="h-11 px-5 rounded-xl bg-primary text-on-primary text-sm shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2"
-            onClick={handleUnduhCsv}
-          >
-            <span className="material-symbols-outlined text-[20px]">download</span>
-            Unduh Rekap CSV
-          </button>
+          {iuranTersedia && (
+            <button
+              className="h-11 px-5 rounded-xl bg-primary text-on-primary text-sm shadow-md hover:bg-primary-container active:scale-[0.98] transition-all flex items-center gap-2"
+              onClick={handleUnduhCsv}
+            >
+              <span className="material-symbols-outlined text-[20px]">download</span>
+              Unduh Rekap CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -144,6 +157,16 @@ export function IuranRW({ onNavigate }: IuranRWProps) {
         </div>
       </div>
 
+      {!iuranTersedia ? (
+        <div className="bg-surface-container-lowest rounded-xl shadow-sm">
+          <EmptyState
+            icon="request_quote"
+            judul="Rekap iuran per RT belum tersedia"
+            pesan="Rekap kepatuhan, penerimaan, subsidi, dan tunggakan iuran lintas-RT belum tersedia pada sistem — modul ini dihidupkan setelah rekap iuran agregat per RT tersedia di server. Mode demo tetap menampilkan data contoh dengan tanda MODE DEMO."
+          />
+        </div>
+      ) : (
+        <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiData.map((kpi) => (
           <div key={kpi.label} className="bg-surface-container-lowest rounded-xl p-5 shadow-sm flex flex-col justify-between">
@@ -305,6 +328,8 @@ export function IuranRW({ onNavigate }: IuranRWProps) {
           </div>
         </div>
       </div>
+        </>
+      )}
 
       <div className="flex items-start gap-3 p-4 rounded-xl bg-surface-container-lowest shadow-sm">
         <span className="material-symbols-outlined text-on-surface-variant text-[20px] shrink-0">info</span>

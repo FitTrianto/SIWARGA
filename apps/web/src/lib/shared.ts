@@ -714,6 +714,12 @@ export interface RtAgregat {
   subsidiJumlah: number;
   subsidiNominal: number;
   tunggakan: number;
+  /**
+   * Batch 20 · false = baris AGREGAT SERVER tanpa data iuran (rekap iuran
+   * per RT menyusul Batch 21) — kolom iuran dirender "—" (bukan 0 palsu).
+   * Baris demo (`rtAgregatDefault`) tidak memiliki flag ini.
+   */
+  iuranTersedia?: boolean;
 }
 
 export const rtAgregatDefault: RtAgregat[] = [

@@ -872,8 +872,16 @@ describe("Portal RW hanya menerima agregat (§7.2)", () => {
     scopeRw.id = idRw;
   });
 
-  it("RW tidak melihat satu pun baris per-warga/per-RT", async () => {
-    for (const tabel of ["warga", "tagihan", "pembayaran", "kas_entry", "surat", "pengurus_rt", "kartu_keluarga"]) {
+  it("RW hanya membaca tabel agregat §7.1 (read-only); baris per-individu tetap 0", async () => {
+    // Batch 20 · kebijakan SELECT rw-join (migrasi 20261010000100) membuka
+    // warga/kartu_keluarga/rumah bagi scope RW HANYA untuk hitungan agregat
+    // per RT (§7.1) — tulis tetap tertutup `p_scope_rt` (diuji pada describe
+    // "Batch 20"). Data iuran/persuratan per-individu tetap nol total —
+    // §7.2 privasi: portal RW tidak pernah melihat data individu warga.
+    for (const tabel of ["warga", "kartu_keluarga", "rumah"]) {
+      expect(await hitung(scopeRw, `SELECT count(*)::int AS n FROM ${tabel}`), tabel).toBeGreaterThan(0);
+    }
+    for (const tabel of ["tagihan", "pembayaran", "kas_entry", "surat", "pengurus_rt"]) {
       expect(await hitung(scopeRw, `SELECT count(*)::int AS n FROM ${tabel}`), tabel).toBe(0);
     }
   });
@@ -9976,5 +9984,178 @@ describe("Batch 18 · multi-tenant tampilan (profil RT · audit log · sesi warg
     );
     const rt2 = await tampil();
     expect(rt2.namaBendaharaRt, "bendahara tercatat ikut terbawa ke sesi warga").toBe(namaBend);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batch 20 · Portal RW fondasi (§7.1) — identitas RW dari DB + agregat
+// kependudukan/hunian per RT. Sebelum batch ini portal RW nol backend.
+// ---------------------------------------------------------------------------
+
+describe("Batch 20 · portal RW fondasi (profil + agregat warga/hunian)", () => {
+  let app: FastifyInstance;
+  let api = "/api/v1";
+  let sidRw = "";
+  let sidRt04 = "";
+  let sidWarga = "";
+  let idRw012 = "";
+  const acak = randomUUID().slice(0, 8);
+
+  const login = async (payload: Record<string, string>): Promise<string> => {
+    const res = await app.inject({
+      method: "POST",
+      url: `${api}/auth/pengurus/login`,
+      payload,
+    });
+    expect(res.statusCode, `login ${JSON.stringify(payload.email ?? payload.noHp)}`).toBe(200);
+    return cookieDari(res, "sid")!;
+  };
+
+  beforeAll(async () => {
+    app = await bukaAplikasiUji();
+    api = apiUji;
+    sidRw = await login({ email: "rw012@siwarga.id", password: "rahasia123" });
+    sidRt04 = await login({ email: "rt04@siwarga.id", password: "rahasia123" });
+    const warga = await app.inject({
+      method: "POST",
+      url: `${api}/auth/warga/login`,
+      payload: { noHp: "081234567890", password: SANDI_WARGA_UJI },
+    });
+    expect(warga.statusCode, "login warga Bambang").toBe(200);
+    sidWarga = cookieDari(warga, "sid")!;
+    const baris = await dalamScopePlat((c) =>
+      c.query("SELECT rw_id FROM rt WHERE kode_rt = '004'"),
+    );
+    idRw012 = (baris.rows[0] as { rw_id: string }).rw_id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await tutupAplikasiUji();
+  });
+
+  it("guard: sesi RT & warga DITOLAK di seluruh rute /rw/**", async () => {
+    for (const sid of [sidRt04, sidWarga]) {
+      for (const path of ["/rw/profil", "/rw/agregat/warga", "/rw/agregat/hunian"]) {
+        const res = await app.inject({ method: "GET", url: `${api}${path}`, cookies: { sid } });
+        expect(res.statusCode, `${path} untuk sesi non-RW`).toBe(401);
+        expect(isi(res).error?.code).toBe("UNAUTHORIZED");
+      }
+    }
+  });
+
+  it("GET /rw/profil: kode RW + daftar RT dari DB (bukan konstanta FE)", async () => {
+    const res = await app.inject({ method: "GET", url: `${api}/rw/profil`, cookies: { sid: sidRw } });
+    expect(res.statusCode).toBe(200);
+    const rw = isi(res).data.rw as {
+      kodeRw: string; namaKetua: string | null; kelurahan: string;
+      pengurus: unknown[]; rts: Array<{ kodeRt: string; perumahan: string | null }>;
+    };
+    expect(rw.kodeRw, "RW seed = 012").toBe("012");
+    expect(rw.kelurahan).toMatch(/Rawa Buaya/i);
+    expect(Array.isArray(rw.pengurus)).toBe(true);
+    expect(rw.rts.some((r) => r.kodeRt === "004"), "RT04 di bawah RW ini").toBe(true);
+  });
+
+  it("GET /rw/agregat/warga: hitungan per RT identik hitungan platform, tanpa data individu", async () => {
+    const res = await app.inject({ method: "GET", url: `${api}/rw/agregat/warga`, cookies: { sid: sidRw } });
+    expect(res.statusCode).toBe(200);
+    const data = isi(res).data as {
+      baris: Array<{ rtId: string; kodeRt: string; kk: number; warga: number }>;
+      total: { kk: number; warga: number };
+    };
+    expect(data.baris.length).toBeGreaterThan(0);
+
+    // bentuk respons = HITUNGAN saja (privasi §7.1/PDP: tanpa nama/NIK/al­amat)
+    expect(Object.keys(data.baris[0]).sort()).toEqual(["kk", "kodeRt", "rtId", "warga"]);
+
+    // kelengkapan: jumlah warga per RT = hitungan platform pada RT yang sama
+    for (const b of data.baris) {
+      const p = await dalamScopePlat((c) =>
+        c.query(
+          `SELECT (SELECT COUNT(*) FROM kartu_keluarga k WHERE k.rt_id = $1)::int AS kk,
+                  (SELECT COUNT(*) FROM warga w WHERE w.rt_id = $1 AND w.is_active)::int AS warga`,
+          [b.rtId],
+        ),
+      );
+      const n = p.rows[0] as { kk: number; warga: number };
+      expect(b.kk, `KK RT ${b.kodeRt}`).toBe(n.kk);
+      expect(b.warga, `warga RT ${b.kodeRt}`).toBe(n.warga);
+    }
+    expect(data.total.kk).toBe(data.baris.reduce((s, b) => s + b.kk, 0));
+    expect(data.total.warga).toBe(data.baris.reduce((s, b) => s + b.warga, 0));
+  });
+
+  it("GET /rw/agregat/hunian: total/kosong/terisi per RT dari baris rumah", async () => {
+    const res = await app.inject({ method: "GET", url: `${api}/rw/agregat/hunian`, cookies: { sid: sidRw } });
+    expect(res.statusCode).toBe(200);
+    const data = isi(res).data as {
+      baris: Array<{ rtId: string; kodeRt: string; total: number; kosong: number; terisi: number }>;
+      total: { total: number; terisi: number; kosong: number };
+    };
+    expect(data.baris.length).toBeGreaterThan(0);
+    for (const b of data.baris) {
+      const p = await dalamScopePlat((c) =>
+        c.query(
+          `SELECT COUNT(*)::int AS total,
+                  COUNT(*) FILTER (WHERE h.status_huni = 'kos')::int AS kosong
+             FROM rumah h WHERE h.rt_id = $1`,
+          [b.rtId],
+        ),
+      );
+      const n = p.rows[0] as { total: number; kosong: number };
+      expect(b.total, `rumah RT ${b.kodeRt}`).toBe(n.total);
+      expect(b.kosong, `kosong RT ${b.kodeRt}`).toBe(n.kosong);
+      expect(b.terisi).toBe(b.total - b.kosong);
+    }
+    expect(data.total.total).toBe(data.baris.reduce((s, b) => s + b.total, 0));
+  });
+
+  it("RLS: scope rw membaca warga anak-RT, TETAPI tulis ditolak (kebijakan SELECT-only)", async () => {
+    const total = await hitung(PLATFORM, "SELECT count(*)::int AS n FROM warga WHERE is_active");
+    const dariSesiRw = await hitung({ level: "rw", id: idRw012 }, "SELECT count(*)::int AS n FROM warga WHERE is_active");
+    expect(dariSesiRw, "seluruh warga aktif RT di bawah RW ini terbaca").toBe(total);
+
+    const tulis = await denganScope({ level: "rw", id: idRw012 }, (c) =>
+      c.query("UPDATE warga SET nama = nama"),
+    );
+    expect(tulis.rowCount, "kebijakan SELECT-only: nol baris bisa ditulis sesi RW").toBe(0);
+  });
+
+  it("isolasi: RT milik RW lain tidak pernah muncul di agregat RW ini", async () => {
+    // Buat RW + RT + KK + warga milik RW lain (acak — ditinggalkan di DB uji).
+    const baris = await dalamScopePlat((c) =>
+      c.query(
+        `WITH kli AS (INSERT INTO kelurahan (id, nama, kecamatan_id)
+             SELECT gen_random_uuid(), $1, kecamatan_id FROM kelurahan LIMIT 1
+             RETURNING id),
+             rw AS (INSERT INTO rw (id, kelurahan_id, kode_rw, nama_ketua, updated_at)
+             SELECT gen_random_uuid(), id, $2, $3, now() FROM kli RETURNING id, kelurahan_id),
+             r AS (INSERT INTO rt (id, rw_id, kode_rt, kelurahan_id, status, updated_at)
+             SELECT gen_random_uuid(), rw.id, $4, rw.kelurahan_id, 'aktif', now() FROM rw RETURNING id),
+             kk AS (INSERT INTO kartu_keluarga (id, rt_id, no_kk, kepala_keluarga, alamat, updated_at)
+             SELECT gen_random_uuid(), r.id, $5, $6, 'Alamat Uji', now() FROM r RETURNING id, rt_id)
+         INSERT INTO warga (id, rt_id, kk_id, nama, updated_at)
+         SELECT gen_random_uuid(), kk.rt_id, kk.id, $6, now() FROM kk RETURNING rt_id`,
+        [
+          `Kelurahan Asing ${acak}`,
+          "99",
+          `Ketua Asing ${acak}`,
+          "98",
+          `9999${acak}`,
+          `Warga Asing ${acak}`,
+        ],
+      ),
+    );
+    const idRtAsing = (baris.rows[0] as { rt_id: string }).rt_id;
+
+    const res = await app.inject({ method: "GET", url: `${api}/rw/agregat/warga`, cookies: { sid: sidRw } });
+    const data = isi(res).data as { baris: Array<{ rtId: string }> };
+    expect(data.baris.some((b) => b.rtId === idRtAsing), "RT RW lain tidak terlihat").toBe(false);
+
+    // ...namun terlihat untuk scope RW pemiliknya sendiri (kebijakan join bekerja dua arah)
+    const rwAsing = await dalamScopePlat((c) => c.query("SELECT rw_id FROM rt WHERE id = $1", [idRtAsing]));
+    const idRwAsing = (rwAsing.rows[0] as { rw_id: string }).rw_id;
+    const n = await hitung({ level: "rw", id: idRwAsing }, "SELECT count(*)::int AS n FROM warga WHERE is_active");
+    expect(n, "RW asing melihat warganya sendiri (1 baris uji)").toBe(1);
   });
 });

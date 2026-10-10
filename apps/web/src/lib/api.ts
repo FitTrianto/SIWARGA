@@ -825,6 +825,62 @@ export function auditLogRt(ambil = 100): Promise<{ baris: BarisAuditServer[] }> 
   return minta(`/rt/audit-log?ambil=${ambil}`);
 }
 
+// ===========================================================================
+// PORTAL RW — Batch 20 (fondasi §7.1): identitas RW + agregat kependudukan
+// dan hunian per RT. Respons agregat HANYA berisi hitungan (privasi PDP —
+// tanpa nama/NIK/al­amat warga).
+// ===========================================================================
+
+/** `GET /rw/profil` — identitas RW login dari DB (bukan konstanta FE). */
+export interface ProfilRwServer {
+  kodeRw: string;
+  namaKetua: string | null;
+  kelurahan: string;
+  kecamatan: string;
+  /** Kota dari pendaftaran mandiri RT mana pun di bawah RW ini; null bila nol. */
+  kota: string | null;
+  pengurus: Array<{ id: string; nama: string; jabatan: string; email: string }>;
+  rts: Array<{ id: string; kodeRt: string; perumahan: string | null }>;
+}
+
+/** GET `/rw/profil` — dasbor RW memakai identitas milik sesi berjalan. */
+export function rwProfilServer(): Promise<{ rw: ProfilRwServer }> {
+  return minta("/rw/profil");
+}
+
+/** Satu baris agregat kependudukan (`GET /rw/agregat/warga`). */
+export interface BarisAgregatWargaServer {
+  rtId: string;
+  kodeRt: string;
+  kk: number;
+  warga: number;
+}
+
+/** Satu baris agregat hunian (`GET /rw/agregat/hunian`). */
+export interface BarisAgregatHunianServer {
+  rtId: string;
+  kodeRt: string;
+  total: number;
+  terisi: number;
+  kosong: number;
+}
+
+/** GET `/rw/agregat/warga` — jumlah KK & warga aktif per RT + total. */
+export function rwAgregatWargaServer(): Promise<{
+  baris: BarisAgregatWargaServer[];
+  total: { kk: number; warga: number };
+}> {
+  return minta("/rw/agregat/warga");
+}
+
+/** GET `/rw/agregat/hunian` — jumlah rumah, terisi & kosong per RT + total. */
+export function rwAgregatHunianServer(): Promise<{
+  baris: BarisAgregatHunianServer[];
+  total: { total: number; terisi: number; kosong: number };
+}> {
+  return minta("/rw/agregat/hunian");
+}
+
 /** POST `/rt/iuran/kategori` — tambah master kategori (wajib CSRF, nama unik per RT). */
 export function tambahKategoriRt(
   payload: TambahKategoriRtPayload,

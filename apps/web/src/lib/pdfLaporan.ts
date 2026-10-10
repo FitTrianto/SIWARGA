@@ -725,6 +725,11 @@ export interface DataLaporanRw {
   bulan: number;
   tahun: number;
   rows: RtAgregat[];
+  /**
+   * Batch 20 · false = baris TANPA rekap iuran (sumber server agregat iuran
+   * menyusul) → Bagian B & KPI iuran dicetak "—" (bukan angka 0 palsu).
+   */
+  iuranTersedia?: boolean;
   totalKk: number;
   totalWarga: number;
   totalRumah: number;
@@ -766,9 +771,10 @@ export function buatPdfLaporanRw(d: DataLaporanRw): jsPDF {
       },
       {
         label: "Rata-rata Kepatuhan",
-        nilai: `${d.rataKepatuhan.toFixed(1)}%`,
-        warna: warnaKepatuhan(d.rataKepatuhan),
-        catatan: `Terkumpul ${rp(d.totalTerkumpul)}`,
+        nilai: d.iuranTersedia === false ? "—" : `${d.rataKepatuhan.toFixed(1)}%`,
+        warna: d.iuranTersedia === false ? C.primer : warnaKepatuhan(d.rataKepatuhan),
+        catatan:
+          d.iuranTersedia === false ? "Rekap iuran per RT menyusul" : `Terkumpul ${rp(d.totalTerkumpul)}`,
       },
       {
         label: "Saldo Akhir Kas RW",
@@ -778,13 +784,18 @@ export function buatPdfLaporanRw(d: DataLaporanRw): jsPDF {
       },
       {
         label: "Tunggakan Agregat",
-        nilai: rp(d.totalTunggakan),
-        warna: C.error,
-        catatan: `Subsidi ${d.totalSubsidiJumlah} rumah`,
+        nilai: d.iuranTersedia === false ? "—" : rp(d.totalTunggakan),
+        warna: d.iuranTersedia === false ? C.primer : C.error,
+        catatan:
+          d.iuranTersedia === false
+            ? "Rekap iuran per RT menyusul"
+            : `Subsidi ${d.totalSubsidiJumlah} rumah`,
       },
     ],
     catatan: [
-      `Laporan ini memuat data agregat per RT untuk periode ${d.periode} dan disusun dalam format siap dikirim ke Kelurahan/Kecamatan. Seluruh angka iuran — termasuk subsidi/keringanan — disajikan dalam bentuk agregat per RT tanpa rincian individu warga, sesuai prinsip privasi §4.3 dan §6.4.10.`,
+      d.iuranTersedia === false
+        ? `Laporan ini memuat data agregat per RT untuk periode ${d.periode} dan disusun dalam format siap dikirim ke Kelurahan/Kecamatan. Bagian A (kependudukan & hunian) memuat data riil sistem; rekap iuran per RT belum tersedia pada periode ini dan dicetak \"—\" sampai sumbernya tersedia — tanpa angka estimasi.`
+        : `Laporan ini memuat data agregat per RT untuk periode ${d.periode} dan disusun dalam format siap dikirim ke Kelurahan/Kecamatan. Seluruh angka iuran — termasuk subsidi/keringanan — disajikan dalam bentuk agregat per RT tanpa rincian individu warga, sesuai prinsip privasi §4.3 dan §6.4.10.`,
     ],
   });
 
@@ -828,43 +839,60 @@ export function buatPdfLaporanRw(d: DataLaporanRw): jsPDF {
     doc,
     y,
     ["RT", "Kepatuhan", "Terkumpul", "Subsidi (Agregat)", "Tunggakan"],
-    d.rows.map((r) => [
-      r.rt,
-      `${r.kepatuhan}%`,
-      rp(r.terkumpul),
-      `${r.subsidiJumlah} rumah — ${rp(r.subsidiNominal)}`,
-      rp(r.tunggakan),
-    ]),
+    d.rows.map((r) =>
+      d.iuranTersedia === false
+        ? [r.rt, "—", "—", "—", "—"]
+        : [
+            r.rt,
+            `${r.kepatuhan}%`,
+            rp(r.terkumpul),
+            `${r.subsidiJumlah} rumah — ${rp(r.subsidiNominal)}`,
+            rp(r.tunggakan),
+          ]
+    ),
     {
       kanan: [1, 2, 3, 4],
-      foot: [
-        "TOTAL",
-        `${d.rataKepatuhan.toFixed(1)}%`,
-        rp(d.totalTerkumpul),
-        `${d.totalSubsidiJumlah} rumah — ${rp(d.totalSubsidiNominal)}`,
-        rp(d.totalTunggakan),
-      ],
+      foot:
+        d.iuranTersedia === false
+          ? ["TOTAL", "—", "—", "—", "—"]
+          : [
+              "TOTAL",
+              `${d.rataKepatuhan.toFixed(1)}%`,
+              rp(d.totalTerkumpul),
+              `${d.totalSubsidiJumlah} rumah — ${rp(d.totalSubsidiNominal)}`,
+              rp(d.totalTunggakan),
+            ],
     }
   );
   y = kotakInfo(
     doc,
     y + 7,
-    "Catatan: subsidi/keringanan iuran disajikan dalam bentuk agregat per RT (jumlah rumah & total nominal), tanpa rincian warga penerima — sesuai prinsip privasi §4.3 dan §6.4.10."
+    d.iuranTersedia === false
+      ? "Catatan: rekap iuran per RT (kepatuhan, terkumpul, subsidi, tunggakan) belum tersedia pada sistem untuk periode ini — seluruh kolom dicetak \"—\" sampai modul iuran agregat RT dihidupkan. Data kependudukan & hunian pada Bagian A adalah data riil."
+      : "Catatan: subsidi/keringanan iuran disajikan dalam bentuk agregat per RT (jumlah rumah & total nominal), tanpa rincian warga penerima — sesuai prinsip privasi §4.3 dan §6.4.10."
   );
-  y = grafikBatang(
-    doc,
-    y + 6,
-    "Grafik — Kepatuhan Iuran per RT",
-    "Persentase ketercapaian iuran tiap RT pada periode berjalan",
-    d.rows.map((r) => ({ label: r.rt, nilai: r.kepatuhan, warna: warnaKepatuhan(r.kepatuhan) })),
-    (n) => `${n}%`,
-    100
-  );
-  y = legenda(doc, y + 2, [
-    { warna: C.sekunder, teks: "Baik (min. 90%)" },
-    { warna: C.tersier, teks: "Cukup (min. 80%)" },
-    { warna: C.error, teks: "Kurang (< 80%)" },
-  ]);
+  if (d.iuranTersedia === false) {
+    y = kotakInfo(
+      doc,
+      y + 6,
+      "Grafik kepatuhan iuran per RT ditampilkan setelah rekap iuran agregat tersedia pada sistem."
+    );
+  } else {
+    y = grafikBatang(
+      doc,
+      y + 6,
+      "Grafik — Kepatuhan Iuran per RT",
+      "Persentase ketercapaian iuran tiap RT pada periode berjalan",
+      d.rows.map((r) => ({ label: r.rt, nilai: r.kepatuhan, warna: warnaKepatuhan(r.kepatuhan) })),
+      (n) => `${n}%`,
+      100
+    );
+    y = legenda(doc, y + 2, [
+      { warna: C.sekunder, teks: "Baik (min. 90%)" },
+      { warna: C.tersier, teks: "Cukup (min. 80%)" },
+      { warna: C.error, teks: "Kurang (< 80%)" },
+    ]);
+  }
 
   // — 3. Kas RW —
   y = mulaiBagian(
