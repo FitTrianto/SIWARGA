@@ -4748,22 +4748,44 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
   }
 
   /**
-   * B9 — jumlah kombinasi (warga `status_akses='aktif'` × kategori aktif
-   * non-insidental) yang BELUM punya tagihan pada `periode`. Inilah angka yang
-   * harus persis dilaporkan `dibuat` oleh generate, dihitung dari DB agar tes
-   * tidak menggantungkan jumlah warga seed secara manual.
+   * B9 — aturan kelayakan tagihan (harus CERMIN `generateTagihanPeriode`):
+   * warga `status_demografis='aktif'` × kategori aktif, non-insidental, dan
+   * (wajib ATAU per_unit). `kombinasiTotal` = seluruh kombinasi kelayakan;
+   * `kombinasiBelumAda` = yang AKAN dibuat (belum ada tagihan & nominal > 0).
+   * Dihitung dari DB agar tes tidak menggantungkan jumlah warga seed secara manual.
    */
-  const kombinasiBelumAda = (periode: string): Promise<number> =>
+  const kombinasiTotal = (): Promise<number> =>
     hitung(
       { level: "rt", id: idRt04 },
       `SELECT count(*)::int AS n
          FROM warga w
          CROSS JOIN kategori_iuran k
         WHERE w.rt_id = $1
-          AND w.status_akses = 'aktif'
+          AND w.status_demografis = 'aktif'
           AND k.rt_id = $1
           AND k.status_aktif
           AND k.tipe_tarif <> 'insidental'
+          AND (k.wajib_opsional = 'wajib' OR k.tipe_tarif = 'per_unit')`,
+      [idRt04],
+    );
+
+  const kombinasiBelumAda = (periode: string): Promise<number> =>
+    hitung(
+      { level: "rt", id: idRt04 },
+      `SELECT count(*)::int AS n
+         FROM warga w
+         CROSS JOIN kategori_iuran k
+         LEFT JOIN profil_iuran_warga p
+                ON p.warga_id = w.id AND p.kategori_id = k.id
+        WHERE w.rt_id = $1
+          AND w.status_demografis = 'aktif'
+          AND k.rt_id = $1
+          AND k.status_aktif
+          AND k.tipe_tarif <> 'insidental'
+          AND (k.wajib_opsional = 'wajib' OR k.tipe_tarif = 'per_unit')
+          AND round(COALESCE(p.nominal_berlaku, k.nominal_default)
+                    * (CASE WHEN k.tipe_tarif = 'per_unit'
+                            THEN COALESCE(p.jumlah_unit, 1) ELSE 1 END), 2) > 0
           AND NOT EXISTS (
                 SELECT 1 FROM tagihan t
                  WHERE t.warga_id = w.id AND t.kategori_id = k.id AND t.periode = $2)`,
@@ -5166,7 +5188,9 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
   it("B9 · generate tagihan: nominal ikut profil, tenggat ikut pengaturan, idempoten & audit", async () => {
     const periode = "2026-11";
     const belumAda = await kombinasiBelumAda(periode);
+    const total = await kombinasiTotal();
     expect(belumAda, "belum ada tagihan 2026-11 sebelum generate").toBeGreaterThan(0);
+    expect(total, "kombinasi kelayakan >= yang akan dibuat").toBeGreaterThanOrEqual(belumAda);
     expect(await tagihanPeriode(periode)).toBe(0);
 
     const hasil = await app.inject({
@@ -5179,8 +5203,8 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
     expect(hasil.statusCode).toBe(200);
     const data = isi(hasil).data as { dibuat: number; dilewati: number; periode: string };
     expect(data.periode).toBe(periode);
-    expect(data.dibuat, "seluruh kombinasi warga×kategori belum ber-tagihan").toBe(belumAda);
-    expect(data.dilewati).toBe(0);
+    expect(data.dibuat, "seluruh kombinasi bernominal > 0 belum ber-tagihan").toBe(belumAda);
+    expect(data.dibuat + data.dilewati, "dibuat + dilewati = seluruh kombinasi kelayakan").toBe(total);
     expect(await tagihanPeriode(periode)).toBe(data.dibuat);
 
     // nominal mengikuti profil iuran (B9): unit override & nominal override
@@ -5225,7 +5249,7 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
     });
     expect(ulang.statusCode).toBe(200);
     // `sinkron: 0` — tanpa `sinkronProfil` tidak ada tagihan yang disentuh
-    expect(isi(ulang).data).toEqual({ dibuat: 0, dilewati: belumAda, sinkron: 0, periode });
+    expect(isi(ulang).data).toEqual({ dibuat: 0, dilewati: total, sinkron: 0, periode });
     expect(await tagihanPeriode(periode), "generate ulang tidak menduplikasi baris").toBe(data.dibuat);
 
     // `periode` opsional → mengikuti periode aktif sistem (2026-10)
@@ -5241,7 +5265,7 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
     const dataOtomatis = isi(otomatis).data as { dibuat: number; dilewati: number; periode: string };
     expect(dataOtomatis.periode, "tanpa periode → periode aktif").toBe("2026-10");
     expect(dataOtomatis.dibuat).toBe(belumOktober);
-    expect(dataOtomatis.dibuat + dataOtomatis.dilewati, "total kombinasi = warga aktif × kategori").toBe(belumAda);
+    expect(dataOtomatis.dibuat + dataOtomatis.dilewati, "total kombinasi = warga demografis aktif × kategori").toBe(total);
 
     expect(
       await hitung(
@@ -5251,6 +5275,88 @@ describe("B7/B9/B10 · pengaturan iuran, generate tagihan & tagihan tercatat", (
       ),
       "tiga panggilan generate = tiga audit",
     ).toBe(3);
+  });
+
+  it("B9 · warga demografis aktif tetap ditagih walau portal belum aktivasi (§6.4.3)", async () => {
+    // RT05 (seed) tepat satu warga kepala `Rudi Setiawan`: status_akses
+    // 'belum_diundang' (portal belum diaktivasi) namun status_demografis
+    // 'aktif' (masih tinggal). Sebelum perbaikan Okt 2026, generate menyaring
+    // `status_akses='aktif'` → 0 tagihan — inilah bug yang dilaporkan
+    // ("ada 1 warga aktif tetapi Buat Tagihan Bulan Ini kosong").
+    const w05 = await denganScope({ level: "rt", id: idRt05 }, (c) =>
+      c.query("SELECT id, status_akses, status_demografis FROM warga WHERE rt_id = $1", [idRt05]),
+    );
+    expect(w05.rows.length, "RT05 punya 1 warga seed").toBe(1);
+    const baris = w05.rows[0] as { id: string; status_akses: string; status_demografis: string };
+    expect(baris.status_akses, "portal belum diaktivasi").toBe("belum_diundang");
+    expect(baris.status_demografis, "tetapi masih tinggal/aktif").toBe("aktif");
+
+    const periode = "2026-12";
+    expect(
+      await hitung(
+        { level: "rt", id: idRt05 },
+        "SELECT count(*)::int AS n FROM tagihan WHERE rt_id = $1 AND periode = $2",
+        [idRt05, periode],
+      ),
+      "belum ada tagihan 2026-12 di RT05",
+    ).toBe(0);
+
+    const gen = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tagihan/generate`,
+      cookies: sesiRt05(),
+      headers: { "x-csrf-token": csrfRt05 },
+      payload: { periode },
+    });
+    expect(gen.statusCode).toBe(200);
+    expect(
+      (isi(gen).data as { dibuat: number }).dibuat,
+      "warga belum aktivasi portal tetap ditagih",
+    ).toBe(1);
+    expect(
+      await hitung(
+        { level: "rt", id: idRt05 },
+        "SELECT count(*)::int AS n FROM tagihan WHERE rt_id = $1 AND periode = $2 AND warga_id = $3",
+        [idRt05, periode, baris.id],
+      ),
+      "tagihan benar-benar menunjuk warga tadi",
+    ).toBe(1);
+  });
+
+  it("B9 · kategori opsional non-unit TIDAK ikut generate otomatis (§6.4.1/§6.4.3)", async () => {
+    // Aturan kategori `wajib || per_unit` (mirror FE `kategoriTagihan` & seed).
+    // Sebelum perbaikan Okt 2026, runtime hanya menyaring `<> 'insidental'`
+    // sehingga kategori opsional flat ikut ter-generate — bertentangan dengan FE.
+    const kOpsional = await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO kategori_iuran
+           (id, rt_id, nama, tipe_tarif, nominal_default, wajib_opsional, status_aktif, urutan, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, 'Opsional Uji (non-unit)', 'flat', 9999, 'opsional', true, 99, now(), now())
+         RETURNING id`,
+        [idRt05],
+      ),
+    );
+    const idOpsional = (kOpsional.rows[0] as { id: string }).id;
+    const periode = "2027-01";
+    const gen = await app.inject({
+      method: "POST",
+      url: `${api}/rt/iuran/tagihan/generate`,
+      cookies: sesiRt05(),
+      headers: { "x-csrf-token": csrfRt05 },
+      payload: { periode },
+    });
+    expect(gen.statusCode).toBe(200);
+    // RT05: 1 warga × 1 kategori wajib = 1; kategori opsional flat dilewati.
+    expect((isi(gen).data as { dibuat: number }).dibuat, "hanya kategori wajib ditagih").toBe(1);
+    expect(
+      await hitung(
+        { level: "rt", id: idRt05 },
+        "SELECT count(*)::int AS n FROM tagihan WHERE rt_id = $1 AND periode = $2 AND kategori_id = $3",
+        [idRt05, periode, idOpsional],
+      ),
+      "kategori opsional tidak menghasilkan tagihan",
+    ).toBe(0);
+    await dalamScopePlat((c) => c.query("DELETE FROM kategori_iuran WHERE id = $1", [idOpsional]));
   });
 
   it("Iuran kondisional (money-path): RT buat → warga lihat & bayar → setujui → lunas sinkron di dua portal", async () => {

@@ -63,10 +63,17 @@ export interface HasilGeneratePeriode {
  * Generate (dan opsional sinkron) tagihan satu periode untuk SATU RT —
  * dijalankan di dalam transaksi ber-scope `rt` milik RT bersangkutan.
  *
- * Aturan (§6.4.3): warga `status_aktif` × kategori `aktif` dan bukan
- * `insidental`; nominal = `(profil.nominal_berlaku ?? kategori.nominal_default)
- * × (per_unit ? profil.jumlah_unit : 1)`; nominal ≤ 0 dilewati; tenggat =
- * `min(tenggat_hari, hari_akhir_bulan)`.
+ * Aturan (§6.4.3) — sama persis dengan seed & FE `kategoriTagihan`:
+ *   • Ditagih = warga yang masih tinggal di RT ini (`status_demografis='aktif'`),
+ *     BUKAN bergantung status portal (`status_akses`). Warga yang belum/tidak
+ *     mengaktivasi portal tetap ditagih — perbaikan Okt 2026 (sebelumnya filter
+ *     `status_akses='aktif'` membuat RT dengan warga baru menghasilkan 0 tagihan).
+ *   • Kategori = aktif, bukan `insidental`, dan (wajib ATAU per_unit). Kategori
+ *     opsional non-unit tidak pernah ditagih otomatis; per_unit ikut walau
+ *     opsional karena nominal mengikuti jumlah unit (unit 0 → Rp 0 → dilewati).
+ *   • nominal = `(profil.nominal_berlaku ?? kategori.nominal_default)`
+ *     × (per_unit ? profil.jumlah_unit : 1)`; nominal ≤ 0 dilewati;
+ *     tenggat = `min(tenggat_hari, hari_akhir_bulan)`.
  */
 export async function generateTagihanPeriode(
   tx: DbTransaksi,
@@ -80,12 +87,23 @@ export async function generateTagihanPeriode(
   });
   const tenggatHari = pengaturan?.tenggatHari ?? PENGATURAN_IURAN_DASAR.tenggatHari;
 
+  // Warga yang ditagih = yang masih tinggal (status_demografis='aktif'),
+  // tanpa memandang status akses portal. `belum_diundang`/`menunggu_aktivasi`/
+  // `dinonaktifkan` tetap ditagih; pindah/meninggal/nonaktif tidak.
   const warga = await tx.warga.findMany({
-    where: { rtId, statusAkses: "aktif" },
+    where: { rtId, statusDemografis: "aktif" },
     select: { id: true },
   });
+  // Kategori yang ditagihkan otomatis: bukan insidental DAN (wajib ATAU
+  // per_unit). Penyaring `sifat` ini menutup celah tagihan opsional flat
+  // ikut ter-generate — aturannya kini identik dengan seed & FE.
   const kategori = await tx.kategoriIuran.findMany({
-    where: { rtId, statusAktif: true, tipeTarif: { not: "insidental" } },
+    where: {
+      rtId,
+      statusAktif: true,
+      tipeTarif: { not: "insidental" },
+      OR: [{ sifat: "wajib" }, { tipeTarif: "per_unit" }],
+    },
     select: { id: true, tipeTarif: true, nominalDefault: true },
   });
   const profil = await tx.profilIuranWarga.findMany({
