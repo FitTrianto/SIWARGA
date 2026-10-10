@@ -188,6 +188,23 @@ export const ruteIuranWarga: FastifyPluginAsync = async (app) => {
       const menunggu = await tx.pembayaran.count({
         where: { rtId, wargaId, status: "menunggu_verifikasi" },
       });
+      // Batch 19 · master kategori iuran RT milik warga login — sumber rincian
+      // tagihan di Portal Warga. Sebelumnya FE jatuh ke kategori CONTOH bila
+      // state kosong (laporan bug: warga RT baru melihat "Iuran RT Rp 25.000…
+      // Kasbon RW" fiktif). Tenant baru → daftar KOSONG (jujur).
+      const kategoriMaster = await tx.kategoriIuran.findMany({
+        where: { rtId },
+        orderBy: [{ urutan: "asc" }, { nama: "asc" }],
+        select: {
+          id: true,
+          nama: true,
+          tipeTarif: true,
+          nominalDefault: true,
+          sifat: true,
+          statusAktif: true,
+          urutan: true,
+        },
+      });
 
       const baris = tagihan.map((t) => {
         const keringananAktif = keringanan.some(
@@ -237,6 +254,10 @@ export const ruteIuranWarga: FastifyPluginAsync = async (app) => {
 
       return {
         periode,
+        kategori: kategoriMaster.map((k) => ({
+          ...k,
+          nominalDefault: Number(k.nominalDefault),
+        })),
         tagihan: baris,
         ringkas: {
           totalTagihan,

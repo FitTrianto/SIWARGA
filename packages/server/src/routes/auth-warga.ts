@@ -200,6 +200,14 @@ export const ruteAuthWarga: FastifyPluginAsync = async (app) => {
           kodeRt: true,
           // Nama ketua — penandatangan blok TTD surat di Portal Warga.
           ketuaRt: { select: { nama: true } },
+          // Batch 19 · bendahara tercatat — tampilan nama asli di halaman
+          // iuran warga (tanpa baris → FE memakai label umum, bukan nama contoh).
+          pengurusList: {
+            where: { jabatan: "bendahara" },
+            select: { nama: true },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+          },
           rw: { select: { kodeRw: true } },
           kelurahan: {
             select: { nama: true, kecamatan: { select: { nama: true } } },
@@ -221,6 +229,7 @@ export const ruteAuthWarga: FastifyPluginAsync = async (app) => {
             kecamatan: rt.kelurahan.kecamatan.nama,
             kota: rt.pendaftaran?.kota ?? null,
             namaKetuaRt: rt.ketuaRt?.nama ?? null,
+            namaBendaharaRt: rt.pengurusList[0]?.nama ?? null,
           }
         : null,
     });

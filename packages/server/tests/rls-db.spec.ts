@@ -2536,6 +2536,17 @@ describe("F-3 · API iuran (Portal Warga + Portal RT)", () => {
     expect(data.tagihan.length).toBeGreaterThan(0);
     expect(data.ringkas.totalTagihan).toBeGreaterThan(0);
     expect(data.ringkas.totalSisa).toBeGreaterThan(0);
+    // Batch 19 · master kategori RT ikut terkirim — rincian tagihan Portal
+    // Warga memakai daftar ini (tanpa field ini FE jatuh ke kategori contoh).
+    expect(Array.isArray(data.kategori), "respons memuat master kategori").toBe(true);
+    expect(data.kategori.length, "RT04 seed punya kategori").toBeGreaterThan(0);
+    expect(data.kategori[0]).toMatchObject({
+      nama: expect.any(String),
+      tipeTarif: expect.stringMatching(/^(flat|per_unit|insidental)$/),
+      nominalDefault: expect.any(Number),
+      sifat: expect.stringMatching(/^(wajib|opsional)$/),
+      statusAktif: expect.any(Boolean),
+    });
     // Seed memuat satu bukti Bambang berstatus menunggu_verifikasi (antrean RT)
     // → status turunan periode aktif = menunggu_verifikasi, bukan belum_bayar.
     expect(data.ringkas.status).toBe("menunggu_verifikasi");
@@ -9928,16 +9939,42 @@ describe("Batch 18 · multi-tenant tampilan (profil RT · audit log · sesi warg
   });
 
   it("GET /auth/warga/sesi membawa identitas RT milik warga login", async () => {
-    const res = await app.inject({ method: "GET", url: `${api}/auth/warga/sesi`, cookies: { sid: sidWarga } });
-    expect(res.statusCode).toBe(200);
-    const rt = isi(res).data.rt as {
-      kodeRt: string; kodeRw: string; kelurahan: string; kota: string | null;
-      namaKetuaRt: string | null;
+    const tampil = async () => {
+      const res = await app.inject({ method: "GET", url: `${api}/auth/warga/sesi`, cookies: { sid: sidWarga } });
+      expect(res.statusCode).toBe(200);
+      return isi(res).data.rt as {
+        kodeRt: string; kodeRw: string; kelurahan: string; kota: string | null;
+        namaKetuaRt: string | null; namaBendaharaRt: string | null;
+      };
     };
+    const rt = await tampil();
     expect(rt.kodeRt, "warga Bambang = RT04").toBe("004");
     expect(rt.kodeRw).toBe("012");
     expect(rt.kelurahan).toMatch(/Rawa Buaya/i);
     expect(rt.kota, "RT seed tanpa pendaftaran → kota null").toBeNull();
     expect(rt.namaKetuaRt, "ketua RT penandatangan blok TTD surat warga").toBe("Joko Santoso");
+
+    // Batch 19 · bendahara tercatat → nama asli di halaman iuran warga.
+    // Baris uji run sebelumnya dibersihkan dulu supaya tes idempoten.
+    await dalamScopePlat((c) =>
+      c.query(
+        `DELETE FROM pengurus_rt
+         WHERE rt_id = (SELECT id FROM rt WHERE kode_rt = '004')
+           AND jabatan = 'bendahara' AND email LIKE 'bendahara.%@siwarga.id'`,
+      ),
+    );
+    const rtTanpaBendahara = await tampil();
+    expect(rtTanpaBendahara.namaBendaharaRt, "tanpa baris bendahara → null, bukan nama contoh").toBeNull();
+
+    const namaBend = `Bendahara Uji 19 ${acak}`;
+    await dalamScopePlat((c) =>
+      c.query(
+        `INSERT INTO pengurus_rt (id, rt_id, nama, jabatan, email, status)
+         SELECT gen_random_uuid(), id, $1, 'bendahara', $2, 'active' FROM rt WHERE kode_rt = '004'`,
+        [namaBend, `bendahara.${acak}@siwarga.id`],
+      ),
+    );
+    const rt2 = await tampil();
+    expect(rt2.namaBendaharaRt, "bendahara tercatat ikut terbawa ke sesi warga").toBe(namaBend);
   });
 });

@@ -5,6 +5,7 @@ import {
   KasRt,
   KkData,
   Pembayaran,
+  Pengurus,
   PERIODE_AKTIF,
   StatusSurat,
   Surat,
@@ -12,10 +13,8 @@ import {
   deskripsiIuran,
   formatRupiah,
   hitungIuranBulanan,
-  kategoriIuranDefault,
   kategoriTagihan,
   maskedNoKk,
-  pengurusDefault,
   rekapKasRt,
   saldoKasRt,
   shortAlamat,
@@ -32,6 +31,8 @@ interface PortalWargaProps {
   surat: Surat[];
   tagihanTambahan: TagihanTambahan[];
   pembayaran: Pembayaran[];
+  /** Batch 19 · pengurus RT tercatat (sesi daring dari /rt/profil; kosong = belum ada). */
+  pengurus?: Pengurus[];
   onBayarTagihanTambahan: (t: TagihanTambahan) => Promise<boolean> | boolean;
 }
 
@@ -67,6 +68,7 @@ export function PortalWarga({
   surat = [],
   tagihanTambahan = [],
   pembayaran = [],
+  pengurus = [],
   onBayarTagihanTambahan,
 }: PortalWargaProps) {
   const [showQrisModal, setShowQrisModal] = useState(false);
@@ -76,23 +78,26 @@ export function PortalWarga({
 
   // Konteks wilayah & hunian selalu derive dari tenant + KK warga (bukan seed lokal).
   const alamatWilayah = `${tenant.label} Kel. ${tenant.kelurahan}, Kec. ${tenant.kecamatan}, ${tenant.kota}`;
-  const alamatHunian = kkList[0]?.alamat ?? `Blok B4 No. 12, ${tenant.label}`;
+  const alamatHunian = kkList[0]?.alamat ?? "";
   const alamatPendek = shortAlamat(alamatHunian);
   const noKkWarga = kkList[0]?.noKk ?? "";
   const namaWarga = kkList[0]?.kepala ?? "Warga";
   const kepalaKk =
     kkList[0]?.anggota.find((m) => m.filter === "kepala") ?? kkList[0]?.anggota[0];
-  const nikMasked = kepalaKk?.nik ?? "3171-xxxx-xxxx-0004";
-  const bendahara = pengurusDefault.find((p) => p.jabatan === "Bendahara");
-  const namaBendahara = bendahara?.nama ?? "Hj. Siti Rahmawati";
-  const inisialBendahara = bendahara?.initials ?? "SR";
+  // Batch 19 · NIK hanya dari baris KK milik sendiri — tanpa KK, chip NIK
+  // disembunyikan (sebelumnya memalsukan "3171-xxxx-xxxx-0004").
+  const nikMasked = kepalaKk?.nik ?? null;
+  // Batch 19 · bendahara dari pengurus tercatat RT (bukan nama contoh) —
+  // tanpa baris, label umum "RT" dipakai pada teks bantuan.
+  const ketuaRt = pengurus.find((p) => p.jabatan === "Ketua RT" || p.jabatan.startsWith("Ketua"));
+  const bendahara = pengurus.find((p) => p.jabatan === "Bendahara");
+  const namaBendahara = bendahara?.nama ?? "RT";
+  const inisialBendahara = bendahara?.initials ?? "RT";
 
   // Sumber kebenaran angka iuran & kas = shared (sama dengan Portal RT).
-  // Baris rincian = kategori yang benar-benar ditagihkan, sehingga jumlahnya
-  // selalu sama dengan `totalBulanan` di bawah.
-  const rincianKategori = kategoriTagihan(
-    kategoriIuran.length > 0 ? kategoriIuran : kategoriIuranDefault
-  );
+  // Batch 19 · TANPA fallback kategori contoh — tenant baru tampil rincian
+  // kosong (jujur), bukan "Iuran RT Rp 25.000 / Kasbon RW" karangan.
+  const rincianKategori = kategoriTagihan(kategoriIuran);
   const totalBulanan = hitungIuranBulanan(rincianKategori, kendaraanR4Count);
   const saldoKas = saldoKasRt(kasRt);
   const rekap = rekapKasRt(kasRt);
@@ -132,20 +137,24 @@ export function PortalWarga({
                     </span>
                     Warga Aktif Terverifikasi
                   </span>
-                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-surface-container-low text-on-surface-variant text-[11px]">
-                    <span className="material-symbols-outlined text-outline text-[14px]">lock</span>
-                    NIK Terenkripsi:{" "}
-                    <span className="font-mono font-semibold text-on-surface">
-                      {nikMasked}
+                  {/* Batch 19 · chip NIK hanya bila baris KK milik sendiri ada —
+                      tanpa data, tidak ada NIK palsu yang ditampilkan. */}
+                  {nikMasked && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-surface-container-low text-on-surface-variant text-[11px]">
+                      <span className="material-symbols-outlined text-outline text-[14px]">lock</span>
+                      NIK Terenkripsi:{" "}
+                      <span className="font-mono font-semibold text-on-surface">
+                        {nikMasked}
+                      </span>
                     </span>
-                  </span>
+                  )}
                 </div>
                 <h1 className="text-2xl lg:text-[32px] font-extrabold text-on-surface tracking-tight leading-tight">
                   Selamat Pagi, {namaWarga}!
                 </h1>
                 <p className="text-sm text-on-surface-variant flex items-center gap-2">
                   <span className="material-symbols-outlined text-primary text-[18px]">home</span>
-                  Rumah {alamatPendek} • {alamatWilayah}
+                  {alamatPendek ? `Rumah ${alamatPendek} • ${alamatWilayah}` : alamatWilayah}
                 </p>
               </div>
               <div className="flex items-center gap-2 self-start lg:self-center">
@@ -665,7 +674,10 @@ export function PortalWarga({
                 </div>
               </section>
 
-              {/* Pengurus RT */}
+              {/* Pengurus RT — Batch 19: nama dari pengurus tercatat; tanpa baris
+                  → catatan kosong (jujur). Tombol WA dihilangkan sementara:
+                  sistem belum menyimpan nomor WA pengurus (tidak ada field `wa`),
+                  sehingga tautan wa.me sebelumnya SELALU memakai nomor karangan. */}
               <section className="bg-surface-container-lowest rounded-xl p-4 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-base font-bold text-on-surface">Pengurus {tenant.rtFull} Siaga</h2>
@@ -675,55 +687,53 @@ export function PortalWarga({
                   </span>
                 </div>
                 <p className="text-xs text-on-surface-variant mb-3">
-                  Butuh bantuan mendesak atau konsultasi lingkungan? Hubungi pengurus via WhatsApp
-                  resmi.
+                  Butuh bantuan mendesak atau konsultasi lingkungan? Hubungi pengurus RT
+                  tercatat di bawah ini.
                 </p>
-                <div className="space-y-3">
-                  <div className="p-2 rounded-lg bg-surface flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary font-bold text-xs">
-                        JS
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-on-surface">Bpk. Joko Santoso</div>
-                        <div className="text-[11px] text-on-surface-variant">Ketua {tenant.rtFull}</div>
-                      </div>
-                    </div>
-                    <a
-                      className="inline-flex items-center justify-center gap-1 px-3 py-2 min-h-[44px] rounded-lg bg-secondary-container hover:bg-secondary-fixed-dim text-on-secondary-container text-[11px] font-bold transition-all"
-                      href={`https://wa.me/6281234567890?text=${encodeURIComponent(`Halo Pak RT Joko, saya ${namaWarga} (${alamatPendek})`)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">chat</span>
-                      Chat WA
-                    </a>
-                  </div>
-                  <div className="p-2 rounded-lg bg-surface flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-on-surface font-bold text-xs">
-                        {inisialBendahara}
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-on-surface">
-                          {namaBendahara}
-                        </div>
-                        <div className="text-[11px] text-on-surface-variant">
-                          Bendahara {tenant.rtFull}
+                {pengurus.length === 0 ? (
+                  <p className="text-xs text-on-surface-variant p-2 rounded-lg bg-surface">
+                    Belum ada data pengurus RT — hubungi pengurus melalui grup WhatsApp
+                    lingkungan Anda.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {ketuaRt && (
+                      <div className="p-2 rounded-lg bg-surface flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary font-bold text-xs">
+                            {ketuaRt.initials}
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-on-surface">{ketuaRt.nama}</div>
+                            <div className="text-[11px] text-on-surface-variant">Ketua {tenant.rtFull}</div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <a
-                      className="inline-flex items-center justify-center gap-1 px-3 py-2 min-h-[44px] rounded-lg bg-secondary-container hover:bg-secondary-fixed-dim text-on-secondary-container text-[11px] font-bold transition-all"
-                      href={`https://wa.me/6281987654321?text=${encodeURIComponent(`Halo ${namaBendahara}, saya ${namaWarga} (${alamatPendek}) ingin konfirmasi iuran`)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">chat</span>
-                      Chat WA
-                    </a>
+                    )}
+                    {bendahara && (
+                      <div className="p-2 rounded-lg bg-surface flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-on-surface font-bold text-xs">
+                            {inisialBendahara}
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-on-surface">
+                              {namaBendahara}
+                            </div>
+                            <div className="text-[11px] text-on-surface-variant">
+                              Bendahara {tenant.rtFull}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {ketuaRt && !bendahara && (
+                      <p className="text-[11px] text-on-surface-variant px-2">
+                        Bendahara belum tercatat — konfirmasi iuran melalui Ketua RT.
+                      </p>
+                    )}
                   </div>
-                </div>
+                )}
               </section>
 
               {/* Aktivitas Terakhir */}

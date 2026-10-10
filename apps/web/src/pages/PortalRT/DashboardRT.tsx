@@ -8,6 +8,7 @@ import {
   Pembayaran,
   Pengurus,
   Surat,
+  TagihanRow,
   TagihanTambahan,
   hitungPopulasi,
   hitungHunian,
@@ -20,7 +21,7 @@ import {
 } from "../../lib/shared";
 import { EmptyState } from "../../components/EmptyState";
 import { useFlash } from "../../lib/useFlash";
-import { type ProfilLogin } from "../../lib/api";
+import { type BarisTagihanRtServer, type ProfilLogin } from "../../lib/api";
 
 interface DashboardRTProps {
   onNavigate?: (page: string) => void;
@@ -32,6 +33,8 @@ interface DashboardRTProps {
   kasRt: KasRt[];
   kategoriIuran: KategoriIuran[];
   pembayaran: Pembayaran[];
+  /** Batch 19 · baris tagihan server (`GET /rt/iuran/tagihan`); null = OFFLINE/mode demo. */
+  tagihanServer?: BarisTagihanRtServer[] | null;
   surat: Surat[];
   tagihanTambahan: TagihanTambahan[];
   /** Pengurus tercatat RT login (`GET /rt/profil`, Batch 18) — kosong = belum ada. */
@@ -47,14 +50,15 @@ export function DashboardRT({
   kasRt,
   kategoriIuran,
   pembayaran,
+  tagihanServer = null,
   surat,
   pengurus,
 }: DashboardRTProps) {
   const { flash, toast } = useFlash();
 
   // Sapaan hero mengikuti PROFIL LOGIN (nama pengurus dari respons login) —
-  // fallback = tampilan lama bila profil tak tersedia.
-  const namaSesi = profil?.nama?.trim() || profil?.email?.trim() || "Bpk. Joko Santoso";
+  // fallback = tampilan generik (bukan nama karangan "Bpk. Joko Santoso").
+  const namaSesi = profil?.nama?.trim() || profil?.email?.trim() || "Pengurus RT";
 
   const today = new Date();
   const dayNames = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
@@ -79,7 +83,25 @@ export function DashboardRT({
   const mutasi = kas.pemasukan + kas.pengeluaran;
   const porsi = (n: number) => (mutasi ? (n / mutasi) * 100 : 0);
 
-  const tagihanRows = hitungTagihanRows(kategoriIuran, pembayaran);
+  // Batch 19 · baris tagihan = baris SERVER bila termuat (tenant baru → 0 —
+  // jujur, bukan 9 rumah contoh Blok B4 dll.); OFFLINE (`tagihanServer` null)
+  // → baris demo lokal — mode demo sudah ditandai banner.
+  const tagihanRows: TagihanRow[] =
+    tagihanServer === null
+      ? hitungTagihanRows(kategoriIuran, pembayaran)
+      : tagihanServer.map((r) => ({
+          id: r.wargaId,
+          alamat: r.alamat,
+          kepalaKk: r.nama,
+          kkCount: 1,
+          unitR4: 0,
+          periode: PERIODE_AKTIF,
+          seedStatus: r.status,
+          seedTanggalBayar: r.tanggalBayar ?? "-",
+          jumlah: r.jumlah,
+          status: r.status,
+          tanggalBayar: r.tanggalBayar ?? "-",
+        }));
   const rekap = rekapIuran(tagihanRows, pembayaran);
 
   const suratMenungguRt = surat.filter((s) => s.status === "Menunggu RT");
@@ -116,17 +138,38 @@ export function DashboardRT({
 
   const arusKas = kasRt.slice(-3).reverse();
 
-  // Riwayat 5 bulan sebelumnya + mutasi berjalan periode berjalan (dari buku kas).
-  const chartData = [
-    { label: "Mei", pemasukan: 4200000, pengeluaran: 3800000 },
-    { label: "Jun", pemasukan: 4500000, pengeluaran: 3950000 },
-    { label: "Jul", pemasukan: 4100000, pengeluaran: 4200000 },
-    { label: "Ags", pemasukan: 4600000, pengeluaran: 3700000 },
-    { label: "Sep", pemasukan: 4800000, pengeluaran: 4100000 },
-    { label: "Okt", pemasukan: kas.pemasukan, pengeluaran: kas.pengeluaran },
+  // Batch 19 · grafik mutasi kas HANYA dari entri buku kas nyata, dikelompokkan
+  // per bulan (maks. 6 bulan terakhir yang punya mutasi). Sebelumnya riwayat
+  // Mei–Sep di-hardcode → angka fiktif di semua tenant, dan label "Okt" basi.
+  const NAMA_BULAN = [
+    "Jan", "Peb", "Mar", "Apr", "Mei", "Jun",
+    "Jul", "Ags", "Sep", "Okt", "Nov", "Des",
   ];
+  const IDX_BULAN = new Map(NAMA_BULAN.map((n, i) => [n, i]));
+  const petaBulan = new Map<number, { pemasukan: number; pengeluaran: number }>();
+  for (const k of kasRt) {
+    const m = /^\d{2}\s+(\S+)\s+(\d{4})$/.exec(k.tanggal);
+    if (!m) continue;
+    const idx = IDX_BULAN.get(m[1]);
+    if (idx === undefined) continue;
+    const key = Number(m[2]) * 12 + idx;
+    const e = petaBulan.get(key) ?? { pemasukan: 0, pengeluaran: 0 };
+    if (k.tipe === "Pemasukan") e.pemasukan += k.nominal;
+    else e.pengeluaran += Math.abs(k.nominal);
+    petaBulan.set(key, e);
+  }
+  const chartData = [...petaBulan.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .slice(-6)
+    .map(([key, e]) => ({
+      label: `${NAMA_BULAN[key % 12]} ${String(Math.floor(key / 12)).slice(2)}`,
+      pemasukan: e.pemasukan,
+      pengeluaran: e.pengeluaran,
+    }));
 
-  const maxVal = Math.max(...chartData.map((d) => Math.max(d.pemasukan, d.pengeluaran)));
+  const maxVal = chartData.length
+    ? Math.max(...chartData.map((d) => Math.max(d.pemasukan, d.pengeluaran)), 1)
+    : 0;
   const barWidth = 28;
   const gap = 16;
   const chartH = 140;
@@ -441,7 +484,7 @@ export function DashboardRT({
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-surface-container-high">
               <div>
                 <h2 className="text-lg font-bold text-on-surface">Transparansi Keuangan</h2>
-                <p className="text-xs text-on-surface-variant mt-0.5">6 Bulan Terakhir &bull; Pemasukan vs Pengeluaran</p>
+                <p className="text-xs text-on-surface-variant mt-0.5">Bulan dengan mutasi kas (maks. 6 terakhir) &bull; Pemasukan vs Pengeluaran</p>
               </div>
               <button
                 className="text-xs font-bold text-primary hover:underline"
@@ -452,22 +495,30 @@ export function DashboardRT({
             </div>
 
             <div className="overflow-x-auto">
-              <svg viewBox={`0 0 ${chartW} ${chartH + 40}`} className="w-full h-auto" style={{ minWidth: 300 }}>
-                {chartData.map((d, i) => {
-                  const x = i * (barWidth * 2 + gap + 8) + 10;
-                  const pH = (d.pemasukan / maxVal) * chartH;
-                  const eH = (d.pengeluaran / maxVal) * chartH;
-                  return (
-                    <g key={d.label}>
-                      <rect x={x} y={chartH - pH + 10} width={barWidth} height={pH} rx={4} fill="#0F5132" />
-                      <rect x={x + barWidth + 4} y={chartH - eH + 10} width={barWidth} height={eH} rx={4} fill="#8B5CF6" />
-                      <text x={x + barWidth + 2} y={chartH + 30} textAnchor="middle" className="fill-on-surface-variant" fontSize="11" fontWeight="600">
-                        {d.label}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
+              {chartData.length === 0 ? (
+                <EmptyState
+                  icon="monitoring"
+                  judul="Belum ada mutasi kas"
+                  pesan="Grafik menampilkan bulan-bulan yang memiliki entri buku kas. Tambahkan pemasukan atau pengeluaran pada menu Buku Kas."
+                />
+              ) : (
+                <svg viewBox={`0 0 ${chartW} ${chartH + 40}`} className="w-full h-auto" style={{ minWidth: 300 }}>
+                  {chartData.map((d, i) => {
+                    const x = i * (barWidth * 2 + gap + 8) + 10;
+                    const pH = (d.pemasukan / maxVal) * chartH;
+                    const eH = (d.pengeluaran / maxVal) * chartH;
+                    return (
+                      <g key={d.label}>
+                        <rect x={x} y={chartH - pH + 10} width={barWidth} height={pH} rx={4} fill="#0F5132" />
+                        <rect x={x + barWidth + 4} y={chartH - eH + 10} width={barWidth} height={eH} rx={4} fill="#8B5CF6" />
+                        <text x={x + barWidth + 2} y={chartH + 30} textAnchor="middle" className="fill-on-surface-variant" fontSize="11" fontWeight="600">
+                          {d.label}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-4 mt-3">

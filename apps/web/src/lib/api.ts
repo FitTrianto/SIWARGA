@@ -216,6 +216,8 @@ export interface SesiWarga {
     kota: string | null;
     /** Penandatangan blok TTD surat — null bila ketua belum tercatat. */
     namaKetuaRt: string | null;
+    /** Batch 19 · bendahara tercatat — nama asli di halaman iuran warga. */
+    namaBendaharaRt: string | null;
   } | null;
 }
 
@@ -518,6 +520,8 @@ export interface BarisPembayaranServer {
 /** `GET /warga/iuran/tagihan` — status turunan tagihan periode aktif (B10). */
 export interface RingkasTagihanServer {
   periode: string;
+  /** Batch 19 · master kategori iuran RT milik warga (kosong = belum ada). */
+  kategori: KategoriIuranServer[];
   ringkas: {
     totalTagihan: number;
     totalSisa: number;

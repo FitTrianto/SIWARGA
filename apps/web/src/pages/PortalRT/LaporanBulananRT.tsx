@@ -9,7 +9,7 @@ import {
   Pengurus,
   Surat,
   StatusSurat,
-  kategoriIuranDefault,
+  TagihanRow,
   kategoriTagihan,
   gabungDaftarWarga,
   hitungPopulasi,
@@ -23,6 +23,7 @@ import {
   PERIODE_AKTIF,
 } from "../../lib/shared";
 import { useFlash } from "../../lib/useFlash";
+import { type BarisTagihanRtServer } from "../../lib/api";
 
 interface LaporanBulananRTProps {
   onNavigate?: (page: string) => void;
@@ -32,6 +33,8 @@ interface LaporanBulananRTProps {
   kasRt: KasRt[];
   kategoriIuran: KategoriIuran[];
   pembayaran: Pembayaran[];
+  /** Batch 19 · baris tagihan server (`GET /rt/iuran/tagihan`); null = OFFLINE/mode demo. */
+  tagihanServer?: BarisTagihanRtServer[] | null;
   surat: Surat[];
   pengurus: Pengurus[];
 }
@@ -44,6 +47,7 @@ export function LaporanBulananRT({
   kasRt,
   kategoriIuran,
   pembayaran,
+  tagihanServer = null,
   surat,
   pengurus,
 }: LaporanBulananRTProps) {
@@ -53,7 +57,24 @@ export function LaporanBulananRT({
 
   // — Nilai turunan dari data bersama (periode berjalan) —
   const alamatWarga = shortAlamat(kkList[0]?.alamat ?? "");
-  const tagihanRows = hitungTagihanRows(kategoriIuran, pembayaran, { alamatWarga });
+  // Batch 19 · baris tagihan daring = baris SERVER (nama & alamat warga RT
+  // login, jumlah riil); OFFLINE (null) → baris demo lokal (mode demo banner).
+  const tagihanRows: TagihanRow[] =
+    tagihanServer === null
+      ? hitungTagihanRows(kategoriIuran, pembayaran, { alamatWarga })
+      : tagihanServer.map((r) => ({
+          id: r.wargaId,
+          alamat: r.alamat,
+          kepalaKk: r.nama,
+          kkCount: 1,
+          unitR4: 0,
+          periode,
+          seedStatus: r.status,
+          seedTanggalBayar: r.tanggalBayar ?? "-",
+          jumlah: r.jumlah,
+          status: r.status,
+          tanggalBayar: r.tanggalBayar ?? "-",
+        }));
   const rekap = rekapIuran(tagihanRows, pembayaran);
   const kas = rekapKasRt(kasRt);
   const populasi = hitungPopulasi(kkList, wargaRt);
@@ -63,20 +84,36 @@ export function LaporanBulananRT({
   const lunasRows = tagihanRows.filter((r) => r.status === "Lunas");
   // Hanya kategori yang ditagihkan yang punya target pendapatan (nonaktif,
   // insidental, dan opsional-non-unit tidak diikutkan agar angka tetap jujur).
-  const kategori = kategoriTagihan(
-    kategoriIuran.length > 0 ? kategoriIuran : kategoriIuranDefault
-  );
+  // Batch 19 · TANPA fallback kategori contoh — tenant baru → daftar kosong.
+  const kategori = kategoriTagihan(kategoriIuran);
 
-  // Pendapatan per kategori: target = nominal × seluruh baris; terealisasi = nominal × baris lunas.
+  // Pendapatan per kategori: daring → hitung dari `perKategori` baris server
+  // (target = Σ nominal tagihan riil, terealisasi = Σ (nominal − sisa));
+  // OFFLINE → formula demo (nominal × baris contoh).
   const pendapatanData = kategori.map((k) => {
-    const target =
-      k.tipe === "per_unit"
-        ? tagihanRows.reduce((s, r) => s + r.unitR4, 0) * k.nominal
-        : tagihanRows.length * k.nominal;
-    const terealisasi =
-      k.tipe === "per_unit"
-        ? lunasRows.reduce((s, r) => s + r.unitR4, 0) * k.nominal
-        : lunasRows.length * k.nominal;
+    let target: number;
+    let terealisasi: number;
+    if (tagihanServer !== null) {
+      target = 0;
+      terealisasi = 0;
+      for (const row of tagihanServer) {
+        for (const pk of row.perKategori) {
+          if (pk.kategoriId === k.id) {
+            target += pk.nominal;
+            terealisasi += pk.nominal - pk.sisa;
+          }
+        }
+      }
+    } else {
+      target =
+        k.tipe === "per_unit"
+          ? tagihanRows.reduce((s, r) => s + r.unitR4, 0) * k.nominal
+          : tagihanRows.length * k.nominal;
+      terealisasi =
+        k.tipe === "per_unit"
+          ? lunasRows.reduce((s, r) => s + r.unitR4, 0) * k.nominal
+          : lunasRows.length * k.nominal;
+    }
     const persentase = target ? Math.round((terealisasi / target) * 1000) / 10 : 0;
     return { kategori: k.nama, target, terealisasi, persentase };
   });

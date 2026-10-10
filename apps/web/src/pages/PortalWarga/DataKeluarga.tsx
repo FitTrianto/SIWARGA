@@ -1,7 +1,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { tenant } from "../../lib/tenant";
 import {
-  FamilyMember, KkData, MemberFilter, formatRupiah, kategoriIuranDefault, maskedNoKk, memberWaValue, shortAlamat, waDigitsFromMember,
+  FamilyMember, KkData, KategoriIuran, MemberFilter, formatRupiah, maskedNoKk, memberWaValue, shortAlamat, waDigitsFromMember,
   ajuanPerubahanDefault, LABEL_JENIS_AJUAN, LABEL_STATUS_AJUAN, KIRI_AJUAN,
   type AjuanPerubahan, type JenisAjuan,
 } from "../../lib/shared";
@@ -63,110 +63,14 @@ interface DataKeluargaProps {
    * sesi habis) DITERUSKAN → tombol menampilkan gagal.
    */
   onKendaraanR4Change?: (v: number) => Promise<boolean>;
+  /**
+   * Batch 19 · master kategori iuran RT (dari sesi daring) — estimasi iuran
+   * R4 memakai kategori per_unit TERCATAT; tanpa kategori → "—" (bukan
+   * nominal contoh Rp 25.000).
+   */
+  kategoriIuran?: KategoriIuran[];
 }
 
-const defaultKkList: KkData[] = [
-  {
-    id: "kk1",
-    noKk: "3171-xxxx-xxxx-0988",
-    kepala: "Bambang Supriyanto",
-    alamat: `Blok B4 No. 12, ${tenant.label}`,
-    anggota: [
-      {
-        name: "Bambang Supriyanto",
-        initials: "BS",
-        role: "Kepala Keluarga",
-        filter: "kepala",
-        gender: "Laki-laki",
-        age: 52,
-        birthDate: "14 Mei 1972",
-        nik: "3171-xxxx-xxxx-0004",
-        nikFull: "3171051405720004",
-        relation: "Kepala Keluarga",
-        job: "Karyawan Swasta",
-        wa: "+62 812-3456-7890",
-        email: "bambang.supriyanto@gmail.com",
-        blood: "O (Rhesus +)",
-        agama: "Islam",
-        statusPernikahan: "Menikah",
-        statusNote: "Terdaftar Aktif di DKB Ditjen Dukcapil",
-        statusIcon: "verified",
-        statusColor: "text-secondary",
-        avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuCTUZo61na-G0petq_ViSUWDM11glUb9JnNFCYcMwmq3TcgnaKiAHbHeq8sAx6Y_cq1QODcOAxGIRrS6x35NHAZMZ3S2K3UU4u2z1eTs30B4dKOTnrSbXMkuIh5zJ5V2nDwCOF9rNgAh7-bHgVYcRreDVxttbS-OHBoFfHwI9oMioqELpwqEO7eQ0j_loRz8Yn_sQv1RCrcRchse3wx5cPhhJPs9djqSyHijlAXjXN63zze-lx7OW3d",
-        ringColor: "ring-primary-fixed",
-      },
-      {
-        name: "Siti Rahmawati",
-        initials: "SR",
-        role: "Istri",
-        filter: "istri",
-        gender: "Perempuan",
-        age: 48,
-        birthDate: "22 Agustus 1976",
-        nik: "3171-xxxx-xxxx-1120",
-        nikFull: "3171052208761120",
-        relation: "Istri",
-        job: "Wirausaha / Mandiri",
-        wa: "+62 813-9876-5432",
-        email: "siti.rahmawati@gmail.com",
-        blood: "B (Rhesus +)",
-        agama: "Islam",
-        statusPernikahan: "Menikah",
-        statusNote: "Kontak Darurat Utama Keluarga",
-        statusIcon: "check_circle",
-        statusColor: "text-secondary",
-        avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuCS5u9Uv4U9RD4qSqRNZHv1msUO-at3KOjRTH9p60L1D_zU3eba_LHUscQiY3ztVZ4tlRcBmgEnnf99nC8LdTzIOzbrpy7tzBqrwmdK-rBEBpHA2-qhgPcR6O3h-VC7VwzOmvntmc6bBnldPr-VMbdn-7uLvTAHc-PtVIBkukk5G5jYkSCKW2L4WQoifjpsxLAIMU9ZWpCm9aq703HO114XsmYkJc1vLrgy7g-DKzAO-XXaBasqIJPA",
-        ringColor: "ring-secondary-container",
-      },
-      {
-        name: "Dimas Supriyanto",
-        initials: "DS",
-        role: "Anak Kandung",
-        filter: "anak",
-        gender: "Laki-laki",
-        age: 21,
-        birthDate: "10 Januari 2003",
-        nik: "3171-xxxx-xxxx-3341",
-        nikFull: "3171051001033341",
-        relation: "Anak ke-1",
-        job: "Mahasiswa / Magang",
-        wa: "+62 857-1122-3344",
-        email: "dimas.supriyanto@gmail.com",
-        blood: "O (Rhesus +)",
-        agama: "Islam",
-        statusPernikahan: "Belum Menikah",
-        statusNote: "Pemegang e-KTP Aktif Mandiri",
-        statusIcon: "school",
-        statusColor: "text-primary",
-        avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuCPI6Jd0ozgqcAqB7dviFeyJFAzyQwpVN2jsjGpXR8S3_nky2z3jTdU5Vum3LVhar7OS0aKnIvo87M199fZE2CLxa_lyb7mqD-ecbFgTew6CzewMkbtpuDezYxIBrGrQWvcNsRiPHdObGUOjw6FzJFMcyuLf4h42nz5O6uaufJ9fl6HFc9328metuo_aIct2c_eV0B6JfzfvkV5K7TmtP6NZURuMtpd-rsgH28w6qSrYcQ1CAQcPbo3",
-        ringColor: "ring-surface-variant",
-      },
-      {
-        name: "Anisa Supriyanto",
-        initials: "AS",
-        role: "Anak Kandung",
-        filter: "anak",
-        gender: "Perempuan",
-        age: 17,
-        birthDate: "05 Maret 2007",
-        nik: "3171-xxxx-xxxx-7822",
-        nikFull: "3171050503077822",
-        relation: "Anak ke-2",
-        job: "Pelajar SMA / Sederajat",
-        wa: "+62 856-9988-7711",
-        email: "anisa.supriyanto@gmail.com",
-        blood: "A (Rhesus +)",
-        agama: "Islam",
-        statusPernikahan: "Belum Menikah",
-        statusNote: "NIK Baru Diperbarui & Disetujui RT (Sep 2026)",
-        statusIcon: "task_alt",
-        statusColor: "text-secondary",
-        avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuCwhHKOe87oaucdauUbIp_eMPt2nYXU-FWW35Vb48EZJqDjKp7UaryTk1GH5EzqiPRN9rumUjsyfpmfUY1bAIHAiM26uYVyd3fy4jxqRwYl40XLRCcDTfHVNSfEmEJBmfc6ByGD0j452Kp9_CbQ7MLZt5CihrkLPRnrLPmuJSUfxHQOnIUnVelVjOEQS2YvLDSe-NeKQr4u-Ehn3_9Im_7zOq2RWs0hdVVKpKeZd0DEwosClttd3q-O",
-        ringColor: "ring-surface-variant",
-      },
-    ],
-  },
-];
 
 const agamaList = ["Islam", "Kristen Protestan", "Kristen Katolik", "Hindu", "Buddha", "Konghucu", "Lainnya"];
 const statusPernikahanList = ["Belum Menikah", "Menikah", "Cerai Hidup", "Cerai Mati"];
@@ -287,8 +191,10 @@ function MemberCard({
   );
 }
 
-export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSimpanKontak, ajuan = ajuanPerubahanDefault, onAjukan, kendaraanR4Count = 1, onKendaraanR4Change }: DataKeluargaProps) {
-  const [allKk, setAllKk] = useState<KkData[]>(kkList?.length ? kkList : defaultKkList);
+export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSimpanKontak, ajuan = ajuanPerubahanDefault, onAjukan, kendaraanR4Count = 1, onKendaraanR4Change, kategoriIuran = [] }: DataKeluargaProps) {
+  // Batch 19 · tanpa fallback `defaultKkList` contoh — daftar KK = state induk
+  // (mode demo memakai baris demo dari App; sesi daring = baris server/kosong).
+  const [allKk, setAllKk] = useState<KkData[]>(kkList ?? []);
   const [selectedKk, setSelectedKk] = useState<string>(allKk[0]?.id || "");
   const [filter, setFilter] = useState<MemberFilter>("all");
   const [showOfficialModal, setShowOfficialModal] = useState(false);
@@ -333,9 +239,10 @@ export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSim
   // membocorkan WA/surel orang lain ke form (dibuktikan E2E langkah B).
   const anggotaForm = editingMember ?? members[0];
 
-  // Sinkron bila induk (App) mengganti daftar KK.
+  // Sinkron bila induk (App) mengganti daftar KK — termasuk ke [] (sesi daring
+  // tanpa KK tidak boleh menyisakan baris contoh di layar).
   useEffect(() => {
-    if (kkList?.length) setAllKk(kkList);
+    setAllKk(kkList ?? []);
   }, [kkList]);
 
   // Kode hunian & estimasi iuran selalu derive dari tenant + kategori iuran.
@@ -345,7 +252,10 @@ export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSim
   const kodeBlok = blokMatch ? `${blokMatch[1]}${blokMatch[2]}` : "";
   const kodeHunian = `RT${tenant.rt}-${kodeBlok}`;
   const kodeBlokLengkap = `RT${tenant.rt}/RW${tenant.rw}-${kodeBlok}`;
-  const nominalR4 = kategoriIuranDefault.find((k) => k.id === "r4")?.nominal ?? 25000;
+  // Batch 19 · estimasi iuran R4 = kategori per_unit tercatat; tanpa kategori
+  // → 0 dan tampilan memakai "—" (bukan nominal contoh).
+  const kategoriR4 = kategoriIuran.find((k) => k.tipe === "per_unit" && k.statusAktif);
+  const nominalR4 = kategoriR4?.nominal ?? 0;
 
   const kontakDarurat = (() => {
     const target = editingMember ?? members[0];
@@ -1232,7 +1142,11 @@ export function DataKeluarga({ onNavigate, kkList, onKkAdded, onKkUpdated, onSim
                 </div>
                 <div className="flex justify-between">
                   <span className="text-on-surface-variant">Est. Iuran/Bulan:</span>
-                  <span className="font-bold text-primary font-mono">{formatRupiah((kendaraanR4 === "Lainnya" ? parseInt(kendaraanR4Custom) || 0 : parseInt(kendaraanR4)) * nominalR4)}</span>
+                  <span className="font-bold text-primary font-mono">
+                    {nominalR4 > 0
+                      ? formatRupiah((kendaraanR4 === "Lainnya" ? parseInt(kendaraanR4Custom) || 0 : parseInt(kendaraanR4)) * nominalR4)
+                      : "—"}
+                  </span>
                 </div>
               </div>
             </div>

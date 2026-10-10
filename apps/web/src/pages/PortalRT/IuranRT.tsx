@@ -767,11 +767,29 @@ export function IuranRT({
 
   const rekap = rekapIuran(tagihanRows, pembayaran);
 
+  // Batch 19 · KPI iuran = baris SERVER bila termuat (tenant baru → 0/0 —
+  // jujur, bukan 9 rumah contoh); OFFLINE (`tagihanServer` null) → rekap
+  // demo lokal — mode demo sudah ditandai banner, angka contoh tidak
+  // menyamar sebagai data nyata.
+  const lunasServer = (tagihanServer ?? []).filter((r) => r.status === "Lunas").length;
+  const rekapKpi =
+    tagihanServer === null
+      ? rekap
+      : {
+          terkumpul: rekapServer?.terkumpul ?? 0,
+          kepatuhan: tagihanServer.length ? (lunasServer / tagihanServer.length) * 100 : 0,
+          tunggakan: tagihanServer
+            .filter((r) => r.status !== "Lunas")
+            .reduce((s, r) => s + r.sisa, 0),
+          lunasCount: lunasServer,
+          belumCount: tagihanServer.length - lunasServer,
+        };
+
   const kpiData = [
-    { label: "Total Terkumpul", value: formatRupiah(rekap.terkumpul), icon: "paid", color: "bg-secondary-container text-on-secondary-container" },
-    { label: "Kepatuhan", value: `${rekap.kepatuhan.toFixed(1)}%`, icon: "verified", color: "bg-primary-container text-on-primary-container" },
-    { label: "Tunggakan", value: formatRupiah(rekap.tunggakan), icon: "warning", color: "bg-error-container/40 text-on-error-container" },
-    { label: "Rumah Belum Bayar", value: String(rekap.belumCount), icon: "home", color: "bg-tertiary-container text-on-tertiary-container" },
+    { label: "Total Terkumpul", value: formatRupiah(rekapKpi.terkumpul), icon: "paid", color: "bg-secondary-container text-on-secondary-container" },
+    { label: "Kepatuhan", value: `${rekapKpi.kepatuhan.toFixed(1)}%`, icon: "verified", color: "bg-primary-container text-on-primary-container" },
+    { label: "Tunggakan", value: formatRupiah(rekapKpi.tunggakan), icon: "warning", color: "bg-error-container/40 text-on-error-container" },
+    { label: "Rumah Belum Bayar", value: String(rekapKpi.belumCount), icon: "home", color: "bg-tertiary-container text-on-tertiary-container" },
   ];
 
   const pendingList = pembayaran.filter((p) => p.status === "Menunggu Verifikasi");
@@ -1136,6 +1154,11 @@ export function IuranRT({
         ))}
       </div>
 
+      {/* Batch 19 · filter + tabel DEMO hanya untuk mode demo/OFFLINE — sesi
+          daring (tagihanServer termuat) menampilkan baris server saja, bukan
+          9 rumah contoh yang tidak pernah diminta. */}
+      {tagihanServer === null && (
+        <>
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 p-4 rounded-xl bg-surface-container-lowest shadow-sm">
         <select
           className="h-11 px-4 rounded-xl bg-surface-container-low text-sm text-on-surface focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary focus:outline-none transition-all"
@@ -1283,6 +1306,8 @@ export function IuranRT({
           <span className="font-semibold">Halaman 1 dari 1</span>
         </div>
       </div>
+        </>
+      )}
 
       {/* B9/B10 · Tagihan Tercatat — data riil server (`GET /rt/iuran/tagihan`),
           dipisah dari tabel demo di atas agar tidak pernah tercampur. */}
@@ -1494,6 +1519,14 @@ export function IuranRT({
                         </span>
                       )}
                     </div>
+                    {/* Batch 19 · chip pengingat (Batch 15D) ikut pindah ke
+                        tabel server — tabel demo disembunyikan pada sesi daring. */}
+                    {petaPengingat?.[r.alamat.trim().toLowerCase()] && (
+                      <div className="mt-1.5 text-[11px] text-on-surface-variant inline-flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[13px]">schedule</span>
+                        Pengingat {formatWaktuPengingat(petaPengingat[r.alamat.trim().toLowerCase()])}
+                      </div>
+                    )}
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {r.perKategori.map((k) => (
                         <span

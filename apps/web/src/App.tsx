@@ -86,6 +86,7 @@ import {
   type BarisAuditServer,
   type BarisProfilIuran,
   type BarisSuratServer,
+  type BarisTagihanRtServer,
   type BarisWargaRtServer,
   type EntriRiwayatLogin,
   type HasilGenerateTagihan,
@@ -456,6 +457,10 @@ export default function App() {
   // State bersama Portal Warga ↔ Portal RT (sinkron dua arah).
   const [kategoriIuran, setKategoriIuran] = useState<KategoriIuran[]>(kategoriIuranDefault);
   const [pembayaran, setPembayaran] = useState<Pembayaran[]>(pembayaranDefault);
+  // Batch 19 · baris tagihan iuran RT dari server — `null` = OFFLINE/belum
+  // dimuat (mode demo memakai baris contoh), `[]` = daring & memang belum
+  // ada tagihan (tampil 0/empty, bukan 9 rumah contoh).
+  const [tagihanRtList, setTagihanRtList] = useState<BarisTagihanRtServer[] | null>(null);
   // F-6 · ringkas tagihan warga login dari API — `null` = mode demo/offline
   // (status diturunkan dari riwayat lokal); bila terisi, API jadi sumber status
   // Lunas / Menunggu Verifikasi / Belum Dibayar + nominal yang masih harus dibayar.
@@ -557,6 +562,9 @@ export default function App() {
     setKkList([]);
     setKategoriIuran([]);
     setPembayaran([]);
+    // Batch 19 · `[]` (bukan null) = sesi daring sedang berjalan — selagi
+    // muatDataRtSesi belum selesai, tampil 0/empty, bukan baris contoh.
+    setTagihanRtList([]);
     setPengurus([]);
     setSuratList([]);
     setAksesList([]);
@@ -622,12 +630,17 @@ export default function App() {
             kecamatan: s.rt.kecamatan,
             kota: s.rt.kota,
           });
-          // Ketua RT penandatangan blok TTD surat — dari baris RT milik warga.
-          setPengurus(
-            s.rt.namaKetuaRt
+          // Ketua RT penandatangan blok TTD surat + bendahara tercatat —
+          // dari baris RT milik warga (Batch 19: bendahara ikut diambil
+          // supaya halaman iuran menampilkan nama asli, bukan nama contoh).
+          setPengurus([
+            ...(s.rt.namaKetuaRt
               ? [pengurusServerKeFe({ id: "sesi-warga", nama: s.rt.namaKetuaRt, jabatan: "ketua" }, 0)]
-              : [],
-          );
+              : []),
+            ...(s.rt.namaBendaharaRt
+              ? [pengurusServerKeFe({ id: "sesi-warga-bendahara", nama: s.rt.namaBendaharaRt, jabatan: "bendahara" }, 1)]
+              : []),
+          ]);
         } else {
           kembalikanTenantContoh();
         }
@@ -796,6 +809,17 @@ export default function App() {
       tandaiOffline(e);
       console.info("[iuran] memakai data demo:", e instanceof GalatApi ? e.code : e);
     }
+    // Batch 19 · baris tagihan iuran RT dari server (periode berjalan) —
+    // KPI Dashboard/Iuran/Laporan memakai baris nyata; tenant baru → 0 baris.
+    try {
+      const t = await tagihanRtServer();
+      if (batal()) return;
+      setTagihanRtList(t.rows);
+    } catch (e) {
+      if (batal()) return;
+      tandaiOffline(e);
+      console.info("[tagihan-rt] baris kosong:", e instanceof GalatApi ? e.code : e);
+    }
     // Iuran kondisional di sisi RT: daftar tagihan insidental + progres
     // per warga dari server; OFFLINE → data demo dipertahankan.
     try {
@@ -903,6 +927,9 @@ export default function App() {
           const [riwayat, tagihan] = await Promise.all([riwayatIuran(), tagihanIuran()]);
           if (batal) return;
           setRingkasTagihanWarga(tagihan.ringkas);
+          // Batch 19 · master kategori iuran RT dari server — warga tenant baru
+          // melihat rincian KOSONG (bukan kategori contoh "Iuran RT/Kasbon RW").
+          setKategoriIuran(tagihan.kategori.map(serverKeKategori));
           const nama = kkDariApi?.kepala ?? kkList[0]?.kepala ?? "Warga";
           const alamat = shortAlamat(kkDariApi?.alamat ?? alamatWarga);
           // Ganti SELURUH baris: riwayat ini milik hunian login dan sudah
@@ -2370,6 +2397,7 @@ export default function App() {
             surat={suratList}
             tagihanTambahan={tagihanTambahanList}
             pembayaran={pembayaran}
+            pengurus={pengurus}
             onBayarTagihanTambahan={bayarTagihanTambahan}
           />
         </PortalWargaLayout>
@@ -2382,6 +2410,7 @@ export default function App() {
           <DataKeluarga
             onNavigate={navigate}
             kkList={kkList}
+            kategoriIuran={kategoriIuran}
             onKkAdded={(kk) => setKkList((prev) => [...prev, kk])}
             onKkUpdated={(kkId, patch) =>
               setKkList((prev) => prev.map((k) => (k.id === kkId ? { ...k, ...patch } : k)))
@@ -2406,6 +2435,7 @@ export default function App() {
             alamat={shortAlamat(kkList[0]?.alamat ?? "")}
             nama={kkList[0]?.kepala ?? "Warga"}
             pembayaran={pembayaran}
+            pengurus={pengurus}
             ringkasServer={ringkasTagihanWarga}
             onBayar={async (p, berkas) => {
               // F-6: ajukan ke API; OFFLINE → baris lokal (mode demo). Galat lain
@@ -2496,6 +2526,7 @@ export default function App() {
         kasRt={kasRtList}
         kategoriIuran={kategoriIuran}
         pembayaran={pembayaran}
+        tagihanServer={tagihanRtList}
         surat={suratList}
         tagihanTambahan={tagihanTambahanList}
         pengurus={pengurus}
@@ -2611,6 +2642,7 @@ export default function App() {
         kasRt={kasRtList}
         kategoriIuran={kategoriIuran}
         pembayaran={pembayaran}
+        tagihanServer={tagihanRtList}
         surat={suratList}
         pengurus={pengurus}
       />,

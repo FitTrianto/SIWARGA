@@ -4,6 +4,7 @@ import {
   KategoriIuran,
   KasRt,
   Pembayaran,
+  Pengurus,
   PERIODE_AKTIF,
   StatusPembayaran,
   TagihanTambahan,
@@ -11,9 +12,7 @@ import {
   formatRupiah,
   hariIni,
   hitungIuranBulanan,
-  kategoriIuranDefault,
   kategoriTagihan,
-  pengurusDefault,
   rekapKasRt,
   saldoKasRt,
   shortAlamat,
@@ -28,6 +27,8 @@ interface IuranTagihanProps {
   alamat: string;
   nama: string;
   pembayaran: Pembayaran[];
+  /** Batch 19 · pengurus RT tercatat — sumber nama Bendahara (bukan contoh). */
+  pengurus?: Pengurus[];
   /** F-6: ringkas tagihan dari API (null = mode demo → turunan riwayat lokal). */
   ringkasServer?: RingkasTagihanServer["ringkas"] | null;
   /**
@@ -89,13 +90,8 @@ const periodeBayar = [
   { label: "1 Tahun", sub: "12 Bulan Penuh", months: 12, badge: "Bebas Ribet" },
 ];
 
-/** Pos alokasi kas — nominal dihitung dari rekap kas RT (rekapKasRt), bukan angka tetap. */
-const posAlokasi = [
-  { label: "Honor Satpam & Pos Ronda", pct: 40, color: "bg-primary" },
-  { label: "Pengangkutan Sampah & DLH", pct: 35, color: "bg-secondary" },
-  { label: "Dana Sosial, Kematian & Sakit", pct: 15, color: "bg-tertiary" },
-  { label: "Cadangan Perbaikan Fasum", pct: 10, color: "bg-outline-variant" },
-];
+/** Warna bar berputar untuk pos alokasi hasil agregasi buku kas. */
+const WARNA_ALOKASI = ["bg-primary", "bg-secondary", "bg-tertiary", "bg-outline-variant"];
 
 const kategoriIconById: Record<string, string> = {
   keamanan: "shield",
@@ -175,6 +171,7 @@ export function IuranTagihan({
   alamat,
   nama,
   pembayaran,
+  pengurus = [],
   ringkasServer = null,
   onBayar,
   kasRt = [],
@@ -217,10 +214,9 @@ export function IuranTagihan({
 
   // Sumber kebenaran rincian & total tagihan = kategori iuran dari Pengurus RT.
   // Rincian hanya memuat kategori yang ditagihkan (nonaktif/insidental ditiadakan)
-  // supaya penjumlahan kolom = totalBulanan.
-  const rincianKategori = kategoriTagihan(
-    kategoriIuran.length > 0 ? kategoriIuran : kategoriIuranDefault
-  );
+  // supaya penjumlahan kolom = totalBulanan. Batch 19 · TANPA fallback contoh —
+  // warga RT baru melihat rincian kosong (jujur), bukan kategori karangan.
+  const rincianKategori = kategoriTagihan(kategoriIuran);
   const totalBulanan = hitungIuranBulanan(rincianKategori, kendaraanR4Count);
   const paket = periodeBayar[selectedPeriode];
   const totalPaket = totalBulanan * paket.months;
@@ -228,11 +224,24 @@ export function IuranTagihan({
   // Angka kas & alokasi dana selalu derive dari buku kas RT (sama dengan Portal RT).
   const saldoKas = saldoKasRt(kasRt);
   const rekap = rekapKasRt(kasRt);
-  const alokasiDana = posAlokasi.map((a) => ({
-    ...a,
-    label: `${a.label} (${a.pct}%)`,
-    amount: formatRupiah(Math.round((rekap.pemasukan * a.pct) / 100)),
-  }));
+  // Batch 19 · alokasi dana = pengeluaran buku kas RT NYATA, dikelompokkan
+  // per kategori kas dengan porsi terhadap total pengeluaran. Sebelumnya pos
+  // ("Honor Satpam 40%", "Sampah DLH 35%"…) di-hardcode — angka & nama
+  // fiktif bahkan untuk tenant baru. Tanpa entri pengeluaran → daftar kosong.
+  const alokasiMap = new Map<string, number>();
+  for (const k of kasRt) {
+    if (k.tipe === "Pengeluaran") {
+      alokasiMap.set(k.kategori, (alokasiMap.get(k.kategori) ?? 0) + Math.abs(k.nominal));
+    }
+  }
+  const alokasiDana = [...alokasiMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, realisasi], i) => ({
+      label,
+      pct: rekap.pengeluaran ? Math.round((realisasi / rekap.pengeluaran) * 1000) / 10 : 0,
+      amount: formatRupiah(realisasi),
+      color: WARNA_ALOKASI[i % WARNA_ALOKASI.length],
+    }));
 
   // Riwayat hunian ini: pengajuan/pembayaran terbaru di atas + arsip periode sebelumnya.
   const riwayatSaya = pembayaran.filter((p) => shortAlamat(p.alamat) === shortAlamat(alamat));
@@ -306,7 +315,14 @@ export function IuranTagihan({
             labelKpi: "1 Tagihan Tertunggak",
           };
   const periodeSaya = new Set(riwayatSaya.map((p) => p.periode));
-  const arsipRiwayat = riwayatPembayaran.filter((rb) => !periodeSaya.has(rb.periodeLabel));
+  // Batch 19 · arsip riwayat CONTOH hanya untuk mode demo/OFFLINE
+  // (`ringkasServer` null) — sesi daring menampilkan baris riwayat server
+  // saja; tanpa gerbang ini warga RT baru melihat "Jan–Jun 2026 Rp 1.020.000
+  // Lunas" yang tidak pernah mereka bayar.
+  const arsipRiwayat =
+    ringkasServer === null
+      ? riwayatPembayaran.filter((rb) => !periodeSaya.has(rb.periodeLabel))
+      : [];
   const deskripsiBayar = `Iuran ${deskripsiIuran(rincianKategori, kendaraanR4Count)}`;
   const barisRiwayat: BarisRiwayat[] = [
     ...riwayatSaya.map((p) => ({
@@ -351,8 +367,10 @@ export function IuranTagihan({
     (t) => !t.target || t.target === "semua" || t.target === alamat
   );
 
-  const bendahara = pengurusDefault.find((p) => p.jabatan === "Bendahara");
-  const namaBendahara = bendahara?.nama ?? "Hj. Siti Rahmawati";
+  // Batch 19 · bendahara dari pengurus tercatat (bukan "Hj. Siti Rahmawati"
+  // contoh); tanpa baris → label umum tanpa nama karangan.
+  const bendahara = pengurus.find((p) => p.jabatan === "Bendahara");
+  const namaBendahara = bendahara?.nama ?? "Bendahara RT";
 
 
   function tanggalHariIni(): string {
@@ -594,7 +612,7 @@ export function IuranTagihan({
                 </div>
                 <h2 className="text-lg font-bold tracking-tight text-on-primary">Paket Iuran &amp; Frekuensi Pembayaran Fleksibel</h2>
                 <p className="text-sm text-on-primary/80">
-                  Pilih frekuensi pembayaran sesuai kenyamanan keluarga Anda. Pembayaran otomatis memperhitungkan {kendaraanR4Count} unit Mobil Roda 4, Pos Keamanan, Sampah, dan Dana Sosial {tenant.rtFull}. Iuran kondisional dari Pengurus RT (seperti fogging) juga akan muncul di rincian.
+                  Pilih frekuensi pembayaran sesuai kenyamanan keluarga Anda. Total tagihan mengikuti kategori iuran yang dikonfigurasi Pengurus RT {tenant.rtFull}. Iuran kondisional dari Pengurus RT (seperti fogging) juga akan muncul di rincian.
                 </p>
               </div>
               <div className="text-xs text-on-primary/80">
@@ -648,6 +666,12 @@ export function IuranTagihan({
             {/* Dynamic Summary & Payment Bar */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pt-2">
               <div className="flex flex-wrap items-center gap-4 text-on-primary/90 text-xs">
+                {rincianKategori.length === 0 && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[18px] text-secondary-fixed">info</span>
+                    Rincian tagihan belum dikonfigurasi Pengurus RT
+                  </span>
+                )}
                 {rincianKategori.map((k) => {
                   const nilai =
                     k.tipe === "per_unit"
@@ -933,16 +957,21 @@ export function IuranTagihan({
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-base font-bold text-on-surface">Alokasi Dana Iuran Warga</h4>
-                <span className="text-xs text-primary bg-primary-fixed px-2 py-0.5 rounded-full font-bold">RKA RT 2026</span>
+                <span className="text-xs text-primary bg-primary-fixed px-2 py-0.5 rounded-full font-bold">Buku Kas {tenant.rtFull}</span>
               </div>
               <p className="text-xs text-on-surface-variant mb-4">
-                Setiap rupiah iuran warga dialokasikan langsung untuk operasional vital lingkungan sesuai musyawarah bersama.
+                Pengeluaran buku kas RT per kategori — porsi terhadap total pengeluaran periode tercatat.
               </p>
               <div className="space-y-3">
+                {alokasiDana.length === 0 && (
+                  <p className="text-xs text-on-surface-variant p-2 rounded-lg bg-surface-container-low">
+                    Belum ada pengeluaran tercatat pada buku kas RT.
+                  </p>
+                )}
                 {alokasiDana.map((a) => (
                   <div key={a.label}>
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="font-semibold text-on-surface">{a.label}</span>
+                      <span className="font-semibold text-on-surface">{a.label} ({a.pct}%)</span>
                       <span className="font-bold text-primary font-mono">{a.amount}</span>
                     </div>
                     <div className="w-full bg-surface-container-low rounded-full h-2">
@@ -965,7 +994,8 @@ export function IuranTagihan({
             </div>
           </div>
 
-          {/* Bendahara Resmi */}
+          {/* Bendahara Resmi — Batch 19: tanpa foto stok, nomor WA karangan,
+              dan masa jabatan karangan; nama dari pengurus tercatat. */}
           <div className="bg-surface-container-lowest rounded-xl p-6 shadow-sm flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-2 mb-3">
@@ -973,10 +1003,14 @@ export function IuranTagihan({
                 <h4 className="text-base font-bold text-on-surface">Bendahara Resmi {tenant.rtFull}</h4>
               </div>
               <div className="flex items-center gap-4 p-3 rounded-xl bg-surface-container-low mb-4">
-                <img className="w-14 h-14 rounded-full object-cover shrink-0 shadow-sm" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDfUyw2dtvobmdmS1U46Gm4nZTon3P5eD50MidsYbyWAn-KvzxW-W9yUDWW7clxaXYtRoiWwlAZRTzZOvUvIpqe4ixai-3uqs13Lo4sJjFb-FvnLW9APd1vvVB6WXz_bx6V5GQpv79crbdkonTINnSYVZ-npKmcVBiISc_L3InZi4SCc-65Ue95pFDX1bkysjE3j4hFMg5UurX_2yKsk6UIQ7eXGwXQadeTZa5m7tBOaIPiypU_Ggs4" alt={`Bendahara ${tenant.rtFull}`} />
+                <div className="w-14 h-14 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center font-bold shrink-0 shadow-sm">
+                  {bendahara?.initials ?? "?"}
+                </div>
                 <div className="min-w-0">
-                  <span className="text-sm font-bold text-on-surface block truncate">Ibu {namaBendahara}</span>
-                  <span className="text-xs text-on-surface-variant block">Bendahara {tenant.rtFull} {tenant.perumahanSingkat} (2024-2027)</span>
+                  <span className="text-sm font-bold text-on-surface block truncate">
+                    {bendahara ? namaBendahara : "Belum tercatat"}
+                  </span>
+                  <span className="text-xs text-on-surface-variant block">Bendahara {tenant.rtFull} {tenant.perumahanSingkat}</span>
                   <span className="inline-flex items-center gap-1 text-secondary text-xs font-bold mt-0.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
                     Siaga Konfirmasi Tunai
@@ -988,10 +1022,10 @@ export function IuranTagihan({
               </p>
             </div>
             <div className="space-y-2">
-              <a className="w-full h-11 px-4 rounded-lg bg-surface-container text-sm font-bold text-on-surface hover:bg-surface-container-high transition-colors flex items-center justify-center gap-2" href="https://wa.me/6281298765432" target="_blank" rel="noopener noreferrer">
-                <span className="material-symbols-outlined text-[18px] text-secondary">chat</span>
-                WhatsApp: 0812-9876-5432
-              </a>
+              <span className="w-full h-11 px-4 rounded-lg bg-surface-container text-sm font-bold text-on-surface flex items-center justify-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-secondary">info</span>
+                Nomor WhatsApp bendahara belum tercatat di sistem
+              </span>
               <span className="text-center block text-xs text-on-surface-variant">Alamat: {tenant.perumahan} (Pukul 08.00 - 20.00 WIB)</span>
             </div>
           </div>
@@ -1198,7 +1232,7 @@ export function IuranTagihan({
                 <span className="font-semibold">Cara Pembayaran Tunai</span>
               </div>
               <ol className="text-xs text-on-surface-variant space-y-1.5 ml-7 list-decimal">
-                <li>Hubungi Bendahara {tenant.rtFull}: <strong>Ibu {namaBendahara}</strong></li>
+                <li>Hubungi Bendahara {tenant.rtFull}: <strong>{namaBendahara}</strong></li>
                 <li>Waktu pelayanan: <strong>Pukul 08.00 - 20.00 WIB</strong></li>
                 <li>Bayar sesuai nominal tagihan &amp; minta paraf kartu iuran</li>
                 <li>Status akan diperbarui setelah Bendahara mengkonfirmasi</li>
